@@ -51,11 +51,36 @@ function getRoom(roundId: string): ContestRoom {
   return room;
 }
 
+// Short promise-coalescing cache for the DSA leaderboard. computeContestLeaderboard is
+// hit by the 1/sec broadcast AND every participant's REST poll AND the admin monitor — at
+// the ~900-participant ceiling that is a burst of identical recompute+sort over N×M rows.
+// A ~1s TTL collapses a burst (all concurrent pollers in the same second) into ONE DB
+// computation, and caching the in-flight PROMISE (not just the value) prevents a stampede
+// when the entry expires under load. Keyed by (roundId, limit) so the dominant
+// participant traffic (limit 100) shares one entry. Bounded: cleared per round on
+// finish/delete + lazy expiry. ≤1s staleness is invisible (the board updates on a 1s
+// throttle anyway), and the post-submit broadcast bypasses the cache + RE-PRIMES it (see
+// broadcastLeaderboardNow) so live pushes are always fresh.
+const LEADERBOARD_CACHE_TTL_MS = 1000;
+const leaderboardCache = new Map<string, { at: number; promise: Promise<ContestLeaderboardResult | null> }>();
+
+function evictLeaderboardCache(roundId: string): void {
+  const prefix = `${roundId}:`;
+  for (const key of leaderboardCache.keys()) if (key.startsWith(prefix)) leaderboardCache.delete(key);
+}
+
+// Store a freshly-computed board so concurrent REST polls reuse it (called by the
+// broadcast, which always computes fresh).
+function primeLeaderboardCache(roundId: string, limit: number, value: ContestLeaderboardResult | null): void {
+  leaderboardCache.set(`${roundId}:${limit}`, { at: Date.now(), promise: Promise.resolve(value) });
+}
+
 /** Drop the in-memory state for a round (on finish/lock/delete + shutdown). Bounded cleanup. */
 export function evictContestRoom(roundId: string): void {
   const room = rooms.get(roundId);
   if (room?.lbThrottleTimer) clearTimeout(room.lbThrottleTimer);
   rooms.delete(roundId);
+  evictLeaderboardCache(roundId);
 }
 
 export function clearAllContestRooms(): void {
@@ -63,6 +88,7 @@ export function clearAllContestRooms(): void {
     if (room.lbThrottleTimer) clearTimeout(room.lbThrottleTimer);
   }
   rooms.clear();
+  leaderboardCache.clear();
 }
 
 export interface ContestLeaderboardResult {
@@ -80,7 +106,27 @@ export interface ContestLeaderboardResult {
 // Single source of truth for the DSA leaderboard (live board, results, monitor, and the
 // realtime broadcast all call this) — applies the round's team-aggregation for team
 // events and per-user for solo. Returns [] results for non-DSA rounds.
-export async function computeContestLeaderboard(roundId: string, limit: number): Promise<ContestLeaderboardResult | null> {
+//
+// Cached read: coalesces concurrent callers within LEADERBOARD_CACHE_TTL_MS into one
+// compute (see leaderboardCache). REST polls should use this; the live broadcast uses
+// the uncached worker + re-primes so pushes are never stale.
+export function computeContestLeaderboard(roundId: string, limit: number): Promise<ContestLeaderboardResult | null> {
+  const key = `${roundId}:${limit}`;
+  const now = Date.now();
+  const cached = leaderboardCache.get(key);
+  if (cached && now - cached.at < LEADERBOARD_CACHE_TTL_MS) return cached.promise;
+  // Lazy bound: if the map has grown (rounds polled but never evicted), drop stale entries.
+  if (leaderboardCache.size > 128) {
+    for (const [k, v] of leaderboardCache) if (now - v.at >= LEADERBOARD_CACHE_TTL_MS) leaderboardCache.delete(k);
+  }
+  const promise = computeContestLeaderboardUncached(roundId, limit);
+  leaderboardCache.set(key, { at: now, promise });
+  // Never cache a rejection — drop the entry so the next caller retries.
+  promise.catch(() => { if (leaderboardCache.get(key)?.promise === promise) leaderboardCache.delete(key); });
+  return promise;
+}
+
+async function computeContestLeaderboardUncached(roundId: string, limit: number): Promise<ContestLeaderboardResult | null> {
   const round = await prisma.competitionRound.findUnique({
     where: { id: roundId },
     select: {
@@ -97,9 +143,19 @@ export async function computeContestLeaderboard(roundId: string, limit: number):
   };
   if (round.roundType !== 'DSA') return { ...base, roundType: round.roundType, teamByUser: null, results: [] };
 
+  // Project ONLY the columns buildDsaLeaderboard reads — never `code` (≤100KB/row),
+  // `perTestVerdicts`/`compilerOutput` (JSON/Text blobs). This findMany spans N
+  // participants × M problems and runs on every leaderboard poll, every throttled
+  // broadcast, the admin monitor, /results, and the event-final; pulling the blobs
+  // would balloon memory on the 512MB box during a busy contest (e.g. 300×5 rows ×
+  // 100KB ≈ 150MB per call). Served by @@index([contextType, contextKey]).
   const submissions = await prisma.problemSubmission.findMany({
     where: { contextType: 'CONTEST', contextKey: round.id },
-    include: { user: { select: { id: true, name: true, avatar: true } } },
+    select: {
+      problemId: true, userId: true, score: true, verdict: true, runtimeMs: true,
+      contestWrongAttempts: true, contestSolvedAt: true,
+      user: { select: { id: true, name: true, avatar: true } },
+    },
   });
 
   let teamByUser: Map<string, { teamId: string; teamName: string }> | null = null;
@@ -126,7 +182,11 @@ export function isLeaderboardFrozen(lb: { status: string; startedMs: number | nu
 
 async function broadcastLeaderboardNow(roundId: string): Promise<void> {
   try {
-    const lb = await computeContestLeaderboard(roundId, 100);
+    // Compute FRESH (bypass the read cache): this fires right after a submit/rejudge
+    // persisted, so a cache primed by a poll a few ms earlier would miss the new row.
+    // Re-prime the cache with this fresh board so concurrent REST polls reuse it.
+    const lb = await computeContestLeaderboardUncached(roundId, 100);
+    primeLeaderboardCache(roundId, 100, lb);
     if (!lb || lb.roundType !== 'DSA') return;
     // Admins always see the live board; participants get a full freeze in the final N min.
     relayEmit(roomAdmin(roundId), 'contest:leaderboard', { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results });

@@ -68,6 +68,13 @@ export default function ContestArenaPage() {
     setSelectedId(fromDeepLink ?? round.problems[0]?.id ?? null);
   }, [round, selectedId, searchParams]);
 
+  // IMAGE_TARGET rounds are solved in the build editor (CompetitionPage at
+  // /competition/:roundId), not the DSA arena. Redirect there in an effect — never during
+  // render (a render-time location.replace re-fires every render + double-runs in StrictMode).
+  useEffect(() => {
+    if (round && round.roundType !== 'DSA') window.location.replace(`/competition/${round.id}`);
+  }, [round]);
+
   // Server-authoritative clock offset + 1s local countdown.
   useEffect(() => {
     if (!round?.serverTime) return;
@@ -192,11 +199,10 @@ export default function ContestArenaPage() {
       </CenteredCard>
     );
   }
-  // IMAGE_TARGET rounds are solved in the build editor, not the DSA arena.
+  // IMAGE_TARGET rounds redirect to the build editor (handled by the effect above).
   if (round.roundType !== 'DSA') {
-    window.location.replace(`${MAIN_SITE_URL.replace(/\/$/, '')}`);
     return (
-      <CenteredCard tone="warn" title="Wrong arena">
+      <CenteredCard tone="warn" title="Build round">
         This is a build round — opening the build editor…
       </CenteredCard>
     );

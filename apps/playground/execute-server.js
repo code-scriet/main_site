@@ -927,17 +927,58 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
 // server is mostly idle) and return flagged pairs. Larger json limit for code batches.
 // ---------------------------------------------------------------------------
 const INTERNAL_API_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
+const INTERNAL_SECRET_BUF = Buffer.from(INTERNAL_API_SECRET);
+// Constant-time secret check — avoids leaking the secret length/prefix via early-exit
+// timing on the `!==` compare. Length-mismatch short-circuits (timingSafeEqual throws on
+// unequal lengths), which is fine: it only reveals the length, not the bytes.
+function validInternalSecret(req) {
+  if (!INTERNAL_API_SECRET) return false;
+  const provided = req.headers['x-internal-secret'];
+  if (typeof provided !== 'string') return false;
+  const providedBuf = Buffer.from(provided);
+  return providedBuf.length === INTERNAL_SECRET_BUF.length
+    && crypto.timingSafeEqual(providedBuf, INTERNAL_SECRET_BUF);
+}
+
 app.post('/internal/plagiarism', async (req, res) => {
-  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+  if (!validInternalSecret(req)) {
     return res.status(403).json({ error: 'forbidden' });
   }
   try {
+    const threshold = Math.min(1, Math.max(0.5, typeof req.body?.threshold === 'number' ? req.body.threshold : 0.8));
+
+    // Preferred path: the main API sends only { roundId, problemIds, threshold }, and we
+    // read the code blobs from the shared DB HERE — so the main API's 512MB never holds
+    // them. Per-problem queries cap memory to one problem's submissions at a time (served
+    // by the (problem_id, context_type, context_key) index), then the O(N²) similarity
+    // runs on this idle box. Returns flagged pairs tagged with problemId.
+    if (typeof req.body?.roundId === 'string') {
+      if (!pool || !dbReady) return res.status(503).json({ error: 'db unavailable' });
+      const roundId = req.body.roundId;
+      const problemIds = Array.isArray(req.body?.problemIds)
+        ? req.body.problemIds.filter((p) => typeof p === 'string')
+        : [];
+      const pairs = [];
+      for (const problemId of problemIds) {
+        const { rows } = await pool.query(
+          `SELECT ps.user_id, ps.code, u.name AS user_name
+           FROM problem_submissions ps JOIN users u ON u.id = ps.user_id
+           WHERE ps.context_type = 'CONTEST' AND ps.context_key = $1 AND ps.problem_id = $2`,
+          [roundId, problemId],
+        );
+        if (rows.length < 2) continue;
+        const items = rows.map((r) => ({ userId: r.user_id, userName: r.user_name || '', code: r.code || '' }));
+        for (const p of findPlagiarismPairs(items, threshold)) pairs.push({ problemId, ...p });
+      }
+      return res.json({ pairs });
+    }
+
+    // Legacy/fallback: the caller pre-fetched a single problem's submissions as `items`.
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    const threshold = typeof req.body?.threshold === 'number' ? req.body.threshold : 0.8;
     const clean = items
       .filter((s) => s && typeof s.userId === 'string' && typeof s.code === 'string')
       .map((s) => ({ userId: s.userId, userName: String(s.userName ?? ''), code: s.code }));
-    const pairs = findPlagiarismPairs(clean, Math.min(1, Math.max(0.5, threshold)));
+    const pairs = findPlagiarismPairs(clean, threshold);
     return res.json({ pairs });
   } catch (err) {
     console.error('[plagiarism] compute failed:', err?.message);
@@ -948,7 +989,7 @@ app.post('/internal/plagiarism', async (req, res) => {
 // Relay emit: the main API POSTs { room, event, payload } (or { rooms: [...] }); we
 // fan it out over the /competition namespace. Server-to-server only.
 app.post('/internal/contest-emit', (req, res) => {
-  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+  if (!validInternalSecret(req)) {
     return res.status(403).json({ error: 'forbidden' });
   }
   try {
@@ -967,7 +1008,7 @@ app.post('/internal/contest-emit', (req, res) => {
 
 // Relay disconnect: main API force-logout/soft-delete drops a user's contest sockets.
 app.post('/internal/disconnect-user', async (req, res) => {
-  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+  if (!validInternalSecret(req)) {
     return res.status(403).json({ error: 'forbidden' });
   }
   try {
@@ -1764,7 +1805,6 @@ contestIo.of('/competition').use((socket, next) => {
 
 contestIo.of('/competition').on('connection', (socket) => {
   const userId = socket.data.userId;
-  const isAdmin = ['ADMIN', 'PRESIDENT'].includes(socket.data.role);
 
   socket.on('join', async (payload) => {
     const roundId = payload?.roundId;
@@ -1773,6 +1813,15 @@ contestIo.of('/competition').on('connection', (socket) => {
     try {
       const round = await pool.query('SELECT event_id FROM competition_rounds WHERE id = $1', [roundId]);
       if (round.rowCount === 0) return socket.emit('contest:error', { message: 'Round not found' });
+      // Authorize against the LIVE DB row, not the (≤7-day-old) JWT: a demoted admin must
+      // not keep admin-monitor visibility, and a soft-deleted user must not join at all
+      // (the main API's tokenVersion gate rejects them, but the relay only verifies the
+      // JWT signature). One indexed PK lookup per join.
+      const account = await pool.query('SELECT role, is_deleted FROM users WHERE id = $1', [userId]);
+      if (account.rowCount === 0 || account.rows[0].is_deleted) {
+        return socket.emit('contest:error', { message: 'Account unavailable' });
+      }
+      const isAdmin = ['ADMIN', 'PRESIDENT'].includes(account.rows[0].role);
       if (isAdmin) { socket.join(roomAdmin(roundId)); return; }
       const reg = await pool.query('SELECT id FROM event_registrations WHERE user_id = $1 AND event_id = $2', [userId, round.rows[0].event_id]);
       if (reg.rowCount === 0) return socket.emit('contest:error', { message: 'Not registered for this event' });
