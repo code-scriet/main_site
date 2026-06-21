@@ -135,8 +135,61 @@ services:
       - type: rewrite
         source: /credits
         destination: /credits/index.html
-      # SPA catch-all — everything else (including dynamic detail routes
-      # like /team/<slug>, /events/<slug>) falls through to the SPA shell.
+      # Detail-route SPA fallback (FIXES the blank-page-on-reload bug).
+      # The listing prerender above writes apps/web/dist/<prefix>/index.html,
+      # which makes dist/events, dist/team, dist/network, dist/achievements and
+      # dist/announcements real DIRECTORIES. When Render gets /events/<slug>
+      # (or any deeper path) it resolves INTO that existing directory, fails to
+      # find the sub-file, and returns an empty 200 — it never reaches the
+      # generic /* catch-all below. The result is a blank page on every
+      # detail-route reload/deep-link. Non-shadowed subtrees (/dashboard/*,
+      # /polls/*, /verify/*, …) work because no same-named dist dir exists.
+      # These explicit /<prefix>/* rules run BEFORE the directory resolution
+      # and force the SPA shell, so the React router renders the detail page
+      # (or its own "not found" state). NOTE: this also means any future
+      # per-slug prerendered detail HTML under these prefixes is shadowed by
+      # the SPA shell — acceptable today because that output is not deployed
+      # (dist/events/<slug>/index.html 404s in prod). If detail prerender is
+      # ever restored for crawlers, switch these to destination
+      # /<prefix>/:splat/index.html and accept a hard 404 on missing slugs.
+      #
+      # Trailing-slash listing guards FIRST: the canonical listing URL is
+      # /<prefix>/ (with slash, per sitemap + rel=canonical). Pin it to the
+      # prerendered listing explicitly so the /<prefix>/* fallback below can
+      # never shadow it, regardless of whether Render's `*` matches an empty
+      # segment.
+      - type: rewrite
+        source: /events/
+        destination: /events/index.html
+      - type: rewrite
+        source: /team/
+        destination: /team/index.html
+      - type: rewrite
+        source: /network/
+        destination: /network/index.html
+      - type: rewrite
+        source: /achievements/
+        destination: /achievements/index.html
+      - type: rewrite
+        source: /announcements/
+        destination: /announcements/index.html
+      - type: rewrite
+        source: /events/*
+        destination: /index.html
+      - type: rewrite
+        source: /team/*
+        destination: /index.html
+      - type: rewrite
+        source: /network/*
+        destination: /index.html
+      - type: rewrite
+        source: /achievements/*
+        destination: /index.html
+      - type: rewrite
+        source: /announcements/*
+        destination: /index.html
+      # SPA catch-all — every other path (non-shadowed dynamic routes like
+      # /dashboard/*, /polls/<slug>, /verify/<id>) falls through to the shell.
       - type: rewrite
         source: /*
         destination: /index.html
