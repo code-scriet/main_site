@@ -2038,8 +2038,10 @@ competitionRouter.patch('/:roundId/score/:submissionId', authMiddleware, require
       select: { id: true, status: true, eventId: true, title: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
-    if (!['JUDGING', 'FINISHED'].includes(round.status)) {
-      return ApiResponse.badRequest(res, 'Scores can only be updated in judging or finished rounds');
+    // Scoring is allowed once the round is no longer live (LOCKED onward) — admins often
+    // start scoring right after locking, before formally moving to "judging".
+    if (!['LOCKED', 'JUDGING', 'FINISHED'].includes(round.status)) {
+      return ApiResponse.badRequest(res, 'Lock the round before scoring submissions');
     }
 
     const existingSubmission = await prisma.competitionSubmission.findUnique({
