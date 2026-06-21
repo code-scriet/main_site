@@ -62,6 +62,15 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      # Contest relay/offload → playground execute-server. Set this ONE value to the
+      # playground-api origin (e.g. https://codescriet-playground-api.onrender.com; a bare
+      # host is accepted, https:// is assumed) to turn the relay + plagiarism offload on.
+      # Unset ⇒ clients poll + plagiarism runs inline (nothing breaks). The shared
+      # INTERNAL_API_SECRET is auto-derived from JWT_SECRET (already shared with the
+      # playground), so it needs no separate config; set it explicitly on BOTH services
+      # only to override the derived value.
+      - key: PLAYGROUND_API_URL
+        sync: false
 
   # Frontend Static Site
   - type: web
@@ -187,6 +196,11 @@ services:
         sync: false
       - key: VITE_PLAYGROUND_URL
         value: https://code.codescriet.dev
+      # OPTIONAL (build-time): execute-server origin the ADMIN live-monitor opens its
+      # /competition socket against. Unset ⇒ the monitor uses REST polling (fine). The
+      # contestant arena uses VITE_API_URL, so leaving this blank does NOT affect contestants.
+      # - key: VITE_PLAYGROUND_API_URL
+      #   sync: false
 
   # Playground Backend (Code Execution Server)
   # Separate Node.js service — does NOT share CPU/RAM with main API
@@ -211,7 +225,10 @@ services:
       - key: ALLOWED_ORIGIN
         value: https://code.codescriet.dev,https://codescriet.dev,https://www.codescriet.dev
       - key: JWT_SECRET
-        sync: false            # Must match main API's JWT_SECRET for shared auth
+        sync: false            # Must match main API's JWT_SECRET for shared auth.
+                               # The contest relay's INTERNAL_API_SECRET auto-derives from
+                               # this, so no separate secret is needed (set INTERNAL_API_SECRET
+                               # on BOTH services only to override the derived value).
       - key: EXECUTOR_URL
         value: https://codescriet-executor.developer-aary.workers.dev/execute
       - key: EXECUTOR_SECRET

@@ -17,6 +17,7 @@ import { normalizeWeights } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
 import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
 import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
 import { getProblemTests } from '../utils/problemsCore.js';
 import { findPlagiarismPairs, type PlagiarismInput, type PlagiarismPair } from '../competition/plagiarism.js';
 
@@ -3151,11 +3152,11 @@ async function offloadRoundPlagiarism(
   problemIds: string[],
   threshold: number,
 ): Promise<PlagiarismFlagRow[] | null> {
-  const base = process.env.PLAYGROUND_API_URL;
-  const secret = process.env.INTERNAL_API_SECRET;
+  const base = getPlaygroundRelayBase();
+  const secret = getInternalApiSecret();
   if (!base || !secret) return null;
   try {
-    const resp = await fetch(`${base.replace(/\/$/, '')}/internal/plagiarism`, {
+    const resp = await fetch(`${base}/internal/plagiarism`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
       body: JSON.stringify({ roundId, problemIds, threshold }),

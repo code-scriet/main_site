@@ -3,6 +3,7 @@ import { Server as HTTPServer } from 'http';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
 import { getSocketClientIp } from './clientIp.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from './internalApi.js';
 
 let io: SocketIOServer | null = null;
 
@@ -165,10 +166,10 @@ export async function disconnectUserSockets(userId: string): Promise<void> {
   if (!userId) return;
   // The /competition namespace lives on the playground relay — tell it to drop this
   // user's contest sockets too (best-effort; force-logout still works without it).
-  const relayBase = process.env.PLAYGROUND_API_URL;
-  const relaySecret = process.env.INTERNAL_API_SECRET;
+  const relayBase = getPlaygroundRelayBase();
+  const relaySecret = getInternalApiSecret();
   if (relayBase && relaySecret) {
-    void fetch(`${relayBase.replace(/\/$/, '')}/internal/disconnect-user`, {
+    void fetch(`${relayBase}/internal/disconnect-user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-internal-secret': relaySecret },
       body: JSON.stringify({ userId }),

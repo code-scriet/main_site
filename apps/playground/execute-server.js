@@ -926,7 +926,18 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
 // API sends one problem's submissions per call; we run the O(N²) similarity here (this
 // server is mostly idle) and return flagged pairs. Larger json limit for code batches.
 // ---------------------------------------------------------------------------
-const INTERNAL_API_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
+// Prefer an explicit INTERNAL_API_SECRET; otherwise DERIVE it from the shared JWT_SECRET
+// (which must already match the main API). This mirrors getInternalApiSecret() in
+// apps/api/src/utils/internalApi.ts byte-for-byte, so both sides compute the same value with
+// no extra config — setting PLAYGROUND_API_URL on the main API alone turns the relay on.
+function deriveInternalSecret() {
+  const explicit = (process.env.INTERNAL_API_SECRET || '').trim();
+  if (explicit) return explicit;
+  let jwt = '';
+  try { jwt = getJwtSecret(); } catch { jwt = ''; } // throws only if JWT_SECRET unset in prod → relay stays off
+  return jwt ? crypto.createHash('sha256').update(`${jwt}:contest-relay-internal`).digest('hex') : '';
+}
+const INTERNAL_API_SECRET = deriveInternalSecret();
 const INTERNAL_SECRET_BUF = Buffer.from(INTERNAL_API_SECRET);
 // Constant-time secret check — avoids leaking the secret length/prefix via early-exit
 // timing on the `!==` compare. Length-mismatch short-circuits (timingSafeEqual throws on

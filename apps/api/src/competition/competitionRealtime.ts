@@ -10,6 +10,7 @@
 
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../utils/logger.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
 import { buildDsaLeaderboard, type DsaLeaderboardRow, type TeamLeaderboardOptions } from '../utils/contestScoring.js';
 
 export const COMPETITION_NS = '/competition';
@@ -22,10 +23,10 @@ export const roomUser = (roundId: string, userId: string) => `round:${roundId}:u
 // POST. Fire-and-forget + best-effort: if the relay isn't configured or is down, clients
 // fall back to REST polling — contest correctness never depends on the relay.
 function relayEmit(room: string, event: string, payload: unknown): void {
-  const base = process.env.PLAYGROUND_API_URL;
-  const secret = process.env.INTERNAL_API_SECRET;
+  const base = getPlaygroundRelayBase();
+  const secret = getInternalApiSecret();
   if (!base || !secret) return;
-  void fetch(`${base.replace(/\/$/, '')}/internal/contest-emit`, {
+  void fetch(`${base}/internal/contest-emit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
     body: JSON.stringify({ room, event, payload }),
