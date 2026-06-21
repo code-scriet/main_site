@@ -775,7 +775,13 @@ async function buildDsaRoundSummary(
   const lb = await computeContestLeaderboard(roundId, 100000);
   const rows = lb?.results ?? [];
   if (rows.length === 0) return [];
-  const nowIso = new Date().toISOString(); // DSA has no single submission instant; rank drives certs
+  // DSA has no single submission instant, and the cert wizard re-ranks candidates by
+  // (score desc, then submittedAt asc). Encoding the round's AUTHORITATIVE rank as the
+  // timestamp makes that re-rank reproduce the contest order exactly — including the
+  // ICPC penalty / completion tie-breaks already baked into `rank` (score is monotonic
+  // with rank in both penalty models, so the score-primary sort never fights it). The
+  // field is internal-only (never displayed), so a synthetic epoch is safe.
+  const rankStamp = (rank: number | null): string => new Date((rank ?? rows.length + 1) * 1000).toISOString();
 
   if (event.teamRegistration) {
     // Team leaderboard rows are keyed by teamId (row.userId == teamId). Enrich with the
@@ -800,7 +806,7 @@ async function buildDsaRoundSummary(
         submissionId: `dsa:${roundId}:${row.userId}`,
         rank: row.rank,
         score: row.totalScore,
-        submittedAt: nowIso,
+        submittedAt: rankStamp(row.rank),
         teamId: row.userId,
         teamName: team?.teamName ?? row.userName,
         members: (team?.members ?? []).map((m) => ({
@@ -824,7 +830,7 @@ async function buildDsaRoundSummary(
       submissionId: `dsa:${roundId}:${row.userId}`,
       rank: row.rank,
       score: row.totalScore,
-      submittedAt: nowIso,
+      submittedAt: rankStamp(row.rank),
       userId: row.userId,
       userName: u?.name ?? row.userName,
       userEmail: u?.email ?? '',
@@ -936,14 +942,15 @@ competitionRouter.get('/event/:eventId/results-summary', authMiddleware, require
     // Build per-round summaries. DSA rounds compute standings from the Problems judge
     // (buildDsaRoundSummary); image-target rounds map their CompetitionSubmission rows.
     // Sequential (not Promise.all) to respect the frozen Prisma pool — bounded by round count.
-    const roundSummaries: Array<{ roundId: string; title: string; submissions: ResultsSummarySubmission[] }> = [];
+    const roundSummaries: Array<{ roundId: string; title: string; roundType: string; submissions: ResultsSummarySubmission[] }> = [];
     for (const round of rounds) {
       if (round.roundType === 'DSA') {
-        roundSummaries.push({ roundId: round.id, title: round.title, submissions: await buildDsaRoundSummary(round.id, event) });
+        roundSummaries.push({ roundId: round.id, title: round.title, roundType: round.roundType, submissions: await buildDsaRoundSummary(round.id, event) });
         continue;
       }
       roundSummaries.push({
         roundId: round.id,
+        roundType: round.roundType,
         title: round.title,
         submissions: round.submissions.map((submission) => {
           if (event.teamRegistration && submission.team) {

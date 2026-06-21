@@ -1252,6 +1252,7 @@ export interface CompetitionResultsSummarySubmission {
 export interface CompetitionResultsSummaryRound {
   roundId: string;
   title: string;
+  roundType?: 'IMAGE_TARGET' | 'DSA';
   submissions: CompetitionResultsSummarySubmission[];
 }
 

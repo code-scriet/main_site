@@ -1379,8 +1379,15 @@ export default function EventCertificateWizard({
                   >
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-semibold text-[var(--ds-text-1)]">{round.title}</p>
-                        <p className="text-sm text-[var(--ds-text-3)]">{round.submissions.length} ranked submission{round.submissions.length === 1 ? '' : 's'}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-[var(--ds-text-1)]">{round.title}</p>
+                          {round.roundType && (
+                            <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                              {round.roundType === 'DSA' ? 'DSA' : 'Build'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-[var(--ds-text-3)]">{round.submissions.length} ranked {round.roundType === 'DSA' ? 'competitor' : 'submission'}{round.submissions.length === 1 ? '' : 's'}</p>
                       </div>
                       <label className="flex items-center gap-2 text-sm font-medium text-[var(--ds-text-2)]">
                         <input
