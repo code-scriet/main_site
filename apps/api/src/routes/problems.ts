@@ -24,6 +24,7 @@ import {
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
+import { broadcastLeaderboard } from '../competition/competitionRealtime.js';
 import { recomputeUserStreakSafe } from '../utils/qotdStreak.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { requireUuid } from '../utils/idParams.js';
@@ -755,6 +756,9 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
       // A QOTD verdict moving to/from ACCEPTED changes the user's solved-day set —
       // recompute their materialized streak so it reflects the manual grade.
       if (parsed.data.verdict) recomputeUserStreakSafe(existing.userId);
+    } else if (existing.contextType === 'CONTEST') {
+      // A contest score/verdict override changes the live board — push a refresh.
+      broadcastLeaderboard(existing.contextKey);
     }
     await auditLog(admin.id, 'PROBLEM_SUBMISSION_OVERRIDDEN', 'ProblemSubmission', submission.id, {
       problemId,

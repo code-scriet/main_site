@@ -824,6 +824,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
                                   <Eye className="h-3.5 w-3.5" /> View
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -837,6 +840,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" onClick={() => void onFinishRound(round.id)} className="gap-1.5">
                                   <CheckCircle2 className="h-3.5 w-3.5" /> Publish
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -846,6 +852,9 @@ export default function AdminCompetition() {
                               <>
                                 <Button size="sm" variant="secondary" onClick={() => viewResults(round.id)} className="gap-1.5">
                                   <Eye className="h-3.5 w-3.5" /> Results
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => void exportResults(round)} className="gap-1.5">
                                   <Download className="h-3.5 w-3.5" /> Export
@@ -899,7 +908,7 @@ export default function AdminCompetition() {
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => (!open ? closeDialog() : setCreateOpen(open))}>
-        <DialogContent data-dashboard data-accent={accent}>
+        <DialogContent data-dashboard data-accent={accent} className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
               <DialogDescription>
