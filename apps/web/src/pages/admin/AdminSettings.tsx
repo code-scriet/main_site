@@ -54,6 +54,7 @@ export default function AdminSettings() {
     hiringCycle: '2026',
     competitionEnabled: false,
     problemsEnabled: false,
+    plagiarismCheckEnabled: false,
     showNetwork: true,
     certificatesEnabled: true,
     playgroundEnabled: true,
@@ -481,6 +482,14 @@ export default function AdminSettings() {
             description="QOTD / practice / DSA judge stack."
             checked={settings.problemsEnabled ?? false}
             onCheckedChange={(checked) => void handleToggle('problemsEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="plagiarism-enabled"
+            label="Plagiarism check"
+            description="Admin-run code similarity check for contests (review-only)."
+            checked={settings.plagiarismCheckEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('plagiarismCheckEnabled', checked)}
             compact
           />
           <ToggleRow

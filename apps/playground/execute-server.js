@@ -6,6 +6,7 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import { findPlagiarismPairs } from './plagiarism.js';
 
 // Load env from the monorepo root .env, then the local playground .env
 // (local values override root). This ensures JWT_SECRET matches the main API.
@@ -899,6 +900,31 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
   }
   throw lastErr;
 }
+
+// ---------------------------------------------------------------------------
+// Internal — CPU offload from the main API (contest plagiarism). Server-to-server
+// only: gated on a shared INTERNAL_API_SECRET, never reachable by a browser. The main
+// API sends one problem's submissions per call; we run the O(N²) similarity here (this
+// server is mostly idle) and return flagged pairs. Larger json limit for code batches.
+// ---------------------------------------------------------------------------
+const INTERNAL_API_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
+app.post('/internal/plagiarism', express.json({ limit: '12mb' }), async (req, res) => {
+  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const threshold = typeof req.body?.threshold === 'number' ? req.body.threshold : 0.8;
+    const clean = items
+      .filter((s) => s && typeof s.userId === 'string' && typeof s.code === 'string')
+      .map((s) => ({ userId: s.userId, userName: String(s.userName ?? ''), code: s.code }));
+    const pairs = findPlagiarismPairs(clean, Math.min(1, Math.max(0.5, threshold)));
+    return res.json({ pairs });
+  } catch (err) {
+    console.error('[plagiarism] compute failed:', err?.message);
+    return res.status(500).json({ error: 'compute failed' });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Routes — Execution

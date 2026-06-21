@@ -19,6 +19,7 @@ import type {
   CompetitionClarification,
   CompetitionMissingTeam,
   CompetitionMonitorResponse,
+  CompetitionPlagiarismFlag,
   CompetitionResult,
   CompetitionResultsSummaryResponse,
   CompetitionRound,
@@ -282,6 +283,13 @@ export const eventOpsApi = {
     request<CompetitionMonitorResponse>(`/competition/${roundId}/monitor`, { token }),
   getCompetitionClarifications: (roundId: string, token: string) =>
     request<{ clarifications: CompetitionClarification[] }>(`/competition/${roundId}/clarifications`, { token }),
+  // Plagiarism (Phase H4) — admin-triggered, human-in-the-loop review.
+  runPlagiarismCheck: (roundId: string, token: string, threshold?: number) =>
+    request<{ flagged: number; threshold: number }>(`/competition/${roundId}/plagiarism/run`, { method: 'POST', body: JSON.stringify(threshold !== undefined ? { threshold } : {}), token }),
+  getPlagiarismFlags: (roundId: string, token: string) =>
+    request<{ flags: CompetitionPlagiarismFlag[] }>(`/competition/${roundId}/plagiarism`, { token }),
+  reviewPlagiarismFlag: (roundId: string, flagId: string, status: 'PENDING' | 'REVIEWED' | 'DISMISSED', token: string) =>
+    request<{ flag: { id: string; status: string } }>(`/competition/${roundId}/plagiarism/${flagId}`, { method: 'PATCH', body: JSON.stringify({ status }), token }),
   postCompetitionClarification: (roundId: string, message: string, token: string) =>
     request<{ clarification: CompetitionClarification }>(`/competition/${roundId}/clarifications`, { method: 'POST', body: JSON.stringify({ message }), token }),
   getCompetitionResults: (roundId: string) =>

@@ -535,6 +535,7 @@ export interface Settings {
   hiringCycle?: string;
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
+  plagiarismCheckEnabled?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;
@@ -1118,6 +1119,21 @@ export interface CompetitionRound {
 export interface CompetitionClarification {
   id: string;
   message: string;
+  createdAt: string;
+}
+
+export interface CompetitionPlagiarismFlag {
+  id: string;
+  problemId: string;
+  problemTitle: string;
+  userAId: string;
+  userAName: string;
+  userBId: string;
+  userBName: string;
+  similarity: number;
+  status: 'PENDING' | 'REVIEWED' | 'DISMISSED';
+  reviewedBy: string | null;
+  reviewedAt: string | null;
   createdAt: string;
 }
 

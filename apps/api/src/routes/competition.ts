@@ -17,6 +17,7 @@ import { normalizeWeights } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
 import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
 import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
+import { findPlagiarismPairs, type PlagiarismInput, type PlagiarismPair } from '../competition/plagiarism.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -2949,6 +2950,151 @@ competitionRouter.get('/:roundId/monitor/export', authMiddleware, requireRole('A
     );
   } catch (error) {
     return mapRoundError(res, error, 'Failed to export monitor');
+  }
+});
+
+// ─── Plagiarism (Phase H4) — admin-triggered, human-in-the-loop ──────────────
+// Heuristic deterrent: computes per-problem code similarity over the round's CONTEST
+// submissions and records flagged pairs for ADMIN REVIEW. Never auto-penalizes. Gated on
+// Settings.plagiarismCheckEnabled. The O(N²) compute is offloaded to the (mostly idle)
+// playground server when PLAYGROUND_API_URL + INTERNAL_API_SECRET are set; otherwise it
+// runs inline. Per-problem batching keeps each offload payload small.
+async function computePlagiarismPairs(
+  items: PlagiarismInput[],
+  threshold: number,
+): Promise<PlagiarismPair[]> {
+  const base = process.env.PLAYGROUND_API_URL;
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (base && secret) {
+    try {
+      const resp = await fetch(`${base.replace(/\/$/, '')}/internal/plagiarism`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+        body: JSON.stringify({ items, threshold }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (resp.ok) {
+        const json = await resp.json() as { pairs?: PlagiarismPair[] };
+        if (Array.isArray(json.pairs)) return json.pairs;
+      }
+      logger.warn('Plagiarism offload returned non-OK; falling back to inline', { status: resp.status });
+    } catch (error) {
+      logger.warn('Plagiarism offload failed; falling back to inline', { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return findPlagiarismPairs(items, threshold);
+}
+
+competitionRouter.post('/:roundId/plagiarism/run', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const settings = await getCachedSettings();
+    if (settings?.plagiarismCheckEnabled !== true) {
+      return ApiResponse.badRequest(res, 'Plagiarism checking is disabled in settings.');
+    }
+    const parsed = z.object({ threshold: z.number().min(0.5).max(1).optional() }).safeParse(req.body ?? {});
+    const threshold = parsed.success ? (parsed.data.threshold ?? 0.8) : 0.8;
+
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, roundType: true, problems: { select: { problemId: true } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Plagiarism check applies to DSA rounds only');
+
+    const problemIds = new Set(round.problems.map((p) => p.problemId));
+    const submissions = await prisma.problemSubmission.findMany({
+      where: { contextType: 'CONTEST', contextKey: round.id },
+      select: { problemId: true, userId: true, code: true, user: { select: { name: true } } },
+    });
+    const byProblem = new Map<string, PlagiarismInput[]>();
+    for (const s of submissions) {
+      if (!problemIds.has(s.problemId)) continue;
+      const list = byProblem.get(s.problemId) ?? [];
+      list.push({ userId: s.userId, userName: s.user.name, code: s.code });
+      byProblem.set(s.problemId, list);
+    }
+
+    const flags: Array<{ roundId: string; problemId: string; userAId: string; userAName: string; userBId: string; userBName: string; similarity: number }> = [];
+    for (const problemId of problemIds) {
+      const items = byProblem.get(problemId) ?? [];
+      if (items.length < 2) continue;
+      const pairs = await computePlagiarismPairs(items, threshold);
+      for (const p of pairs) flags.push({ roundId: round.id, problemId, ...p });
+    }
+
+    // Replace only PENDING flags; never clobber a pair an admin already reviewed.
+    const written = await prisma.$transaction(async (tx) => {
+      const reviewed = await tx.competitionPlagiarismFlag.findMany({
+        where: { roundId: round.id, status: { not: 'PENDING' } },
+        select: { problemId: true, userAId: true, userBId: true },
+      });
+      const reviewedKey = new Set(reviewed.map((r) => `${r.problemId}|${r.userAId}|${r.userBId}`));
+      await tx.competitionPlagiarismFlag.deleteMany({ where: { roundId: round.id, status: 'PENDING' } });
+      const fresh = flags.filter((f) => !reviewedKey.has(`${f.problemId}|${f.userAId}|${f.userBId}`));
+      if (fresh.length) await tx.competitionPlagiarismFlag.createMany({ data: fresh, skipDuplicates: true });
+      return fresh.length;
+    });
+
+    await auditLog(admin.id, 'COMPETITION_PLAGIARISM_RUN', 'CompetitionRound', round.id, { threshold, flagged: written });
+    return ApiResponse.success(res, { flagged: written, threshold });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to run plagiarism check');
+  }
+});
+
+competitionRouter.get('/:roundId/plagiarism', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, problems: { select: { problemId: true, problem: { select: { title: true } } } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const titleByProblem = new Map(round.problems.map((p) => [p.problemId, p.problem.title]));
+    const flags = await prisma.competitionPlagiarismFlag.findMany({
+      where: { roundId: round.id },
+      orderBy: [{ status: 'asc' }, { similarity: 'desc' }],
+      take: 500,
+    });
+    return ApiResponse.success(res, {
+      flags: flags.map((f) => ({
+        id: f.id,
+        problemId: f.problemId,
+        problemTitle: titleByProblem.get(f.problemId) ?? 'Problem',
+        userAId: f.userAId, userAName: f.userAName,
+        userBId: f.userBId, userBName: f.userBName,
+        similarity: f.similarity,
+        status: f.status,
+        reviewedBy: f.reviewedBy,
+        reviewedAt: f.reviewedAt?.toISOString() ?? null,
+        createdAt: f.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch plagiarism flags');
+  }
+});
+
+competitionRouter.patch('/:roundId/plagiarism/:flagId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ status: z.enum(['PENDING', 'REVIEWED', 'DISMISSED']) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'status must be PENDING, REVIEWED, or DISMISSED');
+    const existing = await prisma.competitionPlagiarismFlag.findUnique({ where: { id: req.params.flagId }, select: { id: true, roundId: true } });
+    if (!existing || existing.roundId !== req.params.roundId) return ApiResponse.notFound(res, 'Flag not found in this round');
+    const updated = await prisma.competitionPlagiarismFlag.update({
+      where: { id: req.params.flagId },
+      data: {
+        status: parsed.data.status,
+        reviewedBy: parsed.data.status === 'PENDING' ? null : admin.email,
+        reviewedAt: parsed.data.status === 'PENDING' ? null : new Date(),
+      },
+      select: { id: true, status: true, reviewedBy: true, reviewedAt: true },
+    });
+    await auditLog(admin.id, 'COMPETITION_PLAGIARISM_REVIEW', 'CompetitionPlagiarismFlag', updated.id, { status: updated.status });
+    return ApiResponse.success(res, { flag: { ...updated, reviewedAt: updated.reviewedAt?.toISOString() ?? null } });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to update flag');
   }
 });
 

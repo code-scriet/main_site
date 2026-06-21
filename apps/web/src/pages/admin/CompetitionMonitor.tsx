@@ -44,8 +44,39 @@ export default function CompetitionMonitor() {
     enabled: Boolean(roundId && token),
     refetchInterval: 20_000,
   });
+  const plagiarismEnabled = settings?.plagiarismCheckEnabled === true;
+  const plagiarismQuery = useQuery({
+    queryKey: ['competition-monitor-plagiarism', roundId],
+    queryFn: () => api.getPlagiarismFlags(roundId, token!),
+    enabled: Boolean(roundId && token) && plagiarismEnabled,
+  });
+  const [runningPlagiarism, setRunningPlagiarism] = useState(false);
 
   const monitor = monitorQuery.data;
+
+  const runPlagiarism = useCallback(async () => {
+    if (!token) return;
+    setRunningPlagiarism(true);
+    setError(null);
+    try {
+      await api.runPlagiarismCheck(roundId, token);
+      await plagiarismQuery.refetch();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to run plagiarism check'));
+    } finally {
+      setRunningPlagiarism(false);
+    }
+  }, [token, roundId, plagiarismQuery]);
+
+  const reviewFlag = useCallback(async (flagId: string, status: 'REVIEWED' | 'DISMISSED') => {
+    if (!token) return;
+    try {
+      await api.reviewPlagiarismFlag(roundId, flagId, status, token);
+      await plagiarismQuery.refetch();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to update flag'));
+    }
+  }, [token, roundId, plagiarismQuery]);
 
   // Live push: any contest event refreshes the monitor (debounced so a burst of submits
   // coalesces) — no manual reload. The 8s poll above stays as a fallback.
@@ -254,6 +285,61 @@ export default function CompetitionMonitor() {
           </DSCard>
         </div>
       </div>
+
+      {/* Plagiarism review (Phase H4) — admin-run, human-in-the-loop. Off unless the
+          settings toggle is enabled. Flags are suspicions to review, never penalties. */}
+      {plagiarismEnabled && (
+        <DSCard padded={false}>
+          <div className="p-3 flex items-center justify-between gap-2 flex-wrap border-b border-[var(--border-subtle)]">
+            <div>
+              <div className="text-[13.5px] font-semibold flex items-center gap-1.5"><AlertCircle className="h-4 w-4" />Plagiarism review</div>
+              <div className="text-[11.5px] text-[var(--ds-text-3)] mt-0.5">Code-similarity suspicions for you to judge — not automatic penalties.</div>
+            </div>
+            <Button size="sm" disabled={runningPlagiarism} onClick={() => void runPlagiarism()} className="gap-1.5">
+              {runningPlagiarism ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Run check
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--border-subtle)] text-left text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+                  <th className="py-2 px-3">Problem</th>
+                  <th className="py-2 px-3">Pair</th>
+                  <th className="py-2 px-3 text-right">Similarity</th>
+                  <th className="py-2 px-3">Status</th>
+                  <th className="py-2 px-3 text-right">Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(plagiarismQuery.data?.flags ?? []).map((f) => (
+                  <tr key={f.id} className="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]/40">
+                    <td className="py-2.5 px-3 text-[var(--ds-text-2)] truncate max-w-[180px]">{f.problemTitle}</td>
+                    <td className="py-2.5 px-3 font-medium">{f.userAName} <span className="text-[var(--ds-text-3)]">↔</span> {f.userBName}</td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold tabular-nums">
+                      <span className={cn(f.similarity >= 0.9 ? 'text-[var(--danger)]' : f.similarity >= 0.8 ? 'text-[var(--warning)]' : 'text-[var(--ds-text-2)]')}>
+                        {Math.round(f.similarity * 100)}%
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <Pill tone={f.status === 'REVIEWED' ? 'danger' : f.status === 'DISMISSED' ? 'neutral' : 'warning'} size="xs">{f.status}</Pill>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="inline-flex gap-1.5">
+                        <Button size="sm" variant="ghost" onClick={() => void reviewFlag(f.id, 'REVIEWED')} title="Mark as confirmed/suspicious">Flag</Button>
+                        <Button size="sm" variant="ghost" onClick={() => void reviewFlag(f.id, 'DISMISSED')} className="text-[var(--ds-text-3)]" title="False positive">Dismiss</Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {(plagiarismQuery.data?.flags?.length ?? 0) === 0 && (
+                  <tr><td colSpan={5} className="py-8 text-center text-[12px] text-[var(--ds-text-3)]">No flags. Run a check after submissions come in.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </DSCard>
+      )}
     </div>
   );
 }
