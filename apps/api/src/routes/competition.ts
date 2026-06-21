@@ -13,7 +13,9 @@ import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { computeRanksFromScores } from '../utils/competitionRanks.js';
-import { aggregateWeighted, computeIcpcPenalty, normalizeWeights, rankEntries, type SolvedProblemPenalty } from '../utils/contestScoring.js';
+import { buildDsaLeaderboard } from '../utils/contestScoring.js';
+import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
+import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom } from '../competition/competitionRealtime.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -300,12 +302,15 @@ function getRoundParticipationError(
 
 async function autoLockRound(roundId: string): Promise<boolean> {
   try {
-    await prisma.$transaction(async (tx) => {
+    // Returns whether THIS call performed the ACTIVE→LOCKED transition (false on a race
+    // where another path already locked it) so we decrement the priority counter exactly
+    // once per real transition.
+    const didLock = await prisma.$transaction(async (tx) => {
       const round = await tx.competitionRound.findUnique({
         where: { id: roundId },
         select: { id: true, status: true, participantScope: true, leadersOnly: true, allowedTeamIds: true },
       });
-      if (!round || round.status !== 'ACTIVE') return;
+      if (!round || round.status !== 'ACTIVE') return false;
 
       await tx.competitionRound.update({
         where: { id: roundId },
@@ -392,13 +397,22 @@ async function autoLockRound(roundId: string): Promise<boolean> {
       }
 
       await tx.competitionAutoSave.deleteMany({ where: { roundId } });
+      return true;
     });
 
     const timer = activeTimers.get(roundId);
     if (timer) clearTimeout(timer);
     activeTimers.delete(roundId);
 
-    logger.info('Competition round auto-locked', { roundId });
+    // ACTIVE → LOCKED: leave contest priority mode + push the status so arenas flip to
+    // the read-only/locked view without a reload. Only on a real transition (not a race
+    // where another path already locked it).
+    if (didLock) {
+      decActiveRounds();
+      emitRoundStatus(roundId, 'LOCKED');
+    }
+
+    logger.info('Competition round auto-locked', { roundId, didLock });
     return true;
   } catch (error) {
     logger.error('Failed to auto-lock competition round', {
@@ -442,6 +456,11 @@ export async function recoverActiveRounds(): Promise<void> {
     scheduleRoundLock(round.id, remaining);
     logger.info('Recovered competition timer', { roundId: round.id, remainingSeconds: remaining });
   }
+
+  // Seed the contest-priority counter to the rounds still ACTIVE after recovery (some
+  // expired ones were just auto-locked above). Absolute set, so it's correct regardless
+  // of the dec() calls autoLockRound made during the loop.
+  setActiveRoundCount(await prisma.competitionRound.count({ where: { status: 'ACTIVE' } }));
 }
 
 // Standard competition ranking (1224) from scores: highest score = rank 1, equal
@@ -478,88 +497,6 @@ async function recomputeRoundRanks(
     WHERE cs.id = v.id;
   `;
   return submissions.length;
-}
-
-interface DsaLbProblemLink { problemId: string; points: number; problem: { title: string } }
-interface DsaLbSubmission {
-  problemId: string; userId: string; score: number; verdict: string; runtimeMs: number | null;
-  contestWrongAttempts: number; contestSolvedAt: Date | null;
-  user: { id: string; name: string; avatar: string | null };
-}
-
-// Shared DSA leaderboard builder (Phase A scoring + Phase E live board). Computes each
-// participant's normalized 0–100 round score (Σ best% × normalized problem weight),
-// ICPC penalty, and 1224 rank under the round's penalty model. Used by GET /results
-// (FINISHED, top 10) and GET /leaderboard (live, larger cut).
-function buildDsaLeaderboard(
-  links: DsaLbProblemLink[],
-  submissions: DsaLbSubmission[],
-  startedMs: number | null,
-  penaltyModel: 'BEST_SCORE' | 'ICPC',
-  limit: number,
-) {
-  const normWeights = normalizeWeights(links.map((link) => link.points));
-  const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
-
-  type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
-  const byUser = new Map<string, {
-    userId: string; userName: string; avatar: string | null;
-    cells: Map<string, Cell>; totalRuntimeMs: number;
-  }>();
-  for (const submission of submissions) {
-    if (!weightByProblem.has(submission.problemId)) continue;
-    const entry = byUser.get(submission.userId) ?? {
-      userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
-      cells: new Map<string, Cell>(), totalRuntimeMs: 0,
-    };
-    entry.cells.set(submission.problemId, {
-      score: submission.score, verdict: submission.verdict, runtimeMs: submission.runtimeMs,
-      wrongAttempts: submission.contestWrongAttempts, solvedAt: submission.contestSolvedAt,
-    });
-    entry.totalRuntimeMs += submission.runtimeMs ?? 0;
-    byUser.set(submission.userId, entry);
-  }
-
-  const computed = Array.from(byUser.values()).map((entry) => {
-    const totalScore = aggregateWeighted(links.map((link) => ({
-      weight: link.points,
-      score: entry.cells.get(link.problemId)?.score ?? 0,
-    })));
-    const solved: SolvedProblemPenalty[] = [];
-    let completionMs = startedMs ?? 0;
-    for (const link of links) {
-      const cell = entry.cells.get(link.problemId);
-      if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
-        const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
-        solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
-        completionMs = Math.max(completionMs, cell.solvedAt.getTime());
-      }
-    }
-    const problems = links
-      .filter((link) => entry.cells.has(link.problemId))
-      .map((link) => {
-        const cell = entry.cells.get(link.problemId)!;
-        return {
-          problemId: link.problemId,
-          title: link.problem.title,
-          score: cell.score,
-          weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
-          verdict: cell.verdict,
-          runtimeMs: cell.runtimeMs,
-        };
-      });
-    return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty: computeIcpcPenalty(solved), totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
-  });
-
-  const ranks = rankEntries(
-    computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
-    penaltyModel,
-  );
-  return computed
-    .map((c, index) => ({ rank: ranks[index], ...c }))
-    .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
-    .slice(0, limit)
-    .map(({ completionMs: _completionMs, ...entry }) => entry);
 }
 
 competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
@@ -1084,6 +1021,9 @@ competitionRouter.patch('/:roundId/start', authMiddleware, requireRole('ADMIN'),
     }));
 
     scheduleRoundLock(round.id, round.duration);
+    // DRAFT → ACTIVE: enter contest priority mode + push synced start to the lobby.
+    incActiveRounds();
+    emitRoundStatus(round.id, 'ACTIVE');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_STARTED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -1162,6 +1102,7 @@ competitionRouter.patch('/:roundId/judging', authMiddleware, requireRole('ADMIN'
       where: { id: round.id },
       data: { status: 'JUDGING' },
     });
+    emitRoundStatus(round.id, 'JUDGING');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_JUDGING', 'CompetitionRound', round.id, {
       title: round.title,
@@ -1202,6 +1143,7 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
         where: { id: round.id },
         data: { status: 'FINISHED' },
       });
+      emitRoundStatus(round.id, 'FINISHED');
       await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
         title: round.title,
         eventId: round.eventId,
@@ -1239,6 +1181,7 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
         data: { status: 'FINISHED' },
       });
     });
+    emitRoundStatus(round.id, 'FINISHED');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -2485,6 +2428,9 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
     await prisma.competitionRound.delete({
       where: { id: round.id },
     });
+    // Deleting a live round leaves priority mode + drops its in-memory realtime state.
+    if (round.status === 'ACTIVE') decActiveRounds();
+    evictContestRoom(round.id);
 
     await auditLog(admin.id, 'COMPETITION_ROUND_DELETED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -2560,6 +2506,14 @@ competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req
         },
       }),
     ]);
+    // Push to the admin monitor live (violation feed + participant lock state); the lock
+    // also rides to the participant so a parallel tab/device reflects it without reload.
+    const state = await prisma.competitionParticipantState.findUnique({
+      where: { roundId_userId: { roundId: round.id, userId: user.id } },
+      select: { violationCount: true },
+    });
+    emitViolation(round.id, user.id, parsed.data.kind, state?.violationCount ?? 1);
+    if (shouldLock) emitProctor(round.id, user.id, true, reason);
     return ApiResponse.success(res, { locked: shouldLock });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to record violation');
@@ -2614,6 +2568,8 @@ competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requi
       create: { roundId: round.id, userId: req.params.userId, locked: false, unlockedBy: admin.id, unlockedAt: now },
       update: { locked: false, lockReason: null, unlockedBy: admin.id, unlockedAt: now },
     });
+    // Push the unlock so the participant's arena clears its locked overlay live.
+    emitProctor(round.id, req.params.userId, false, null);
     await auditLog(admin.id, 'COMPETITION_PROCTOR_UNLOCK', 'CompetitionRound', round.id, { userId: req.params.userId });
     return ApiResponse.success(res, { unlocked: true });
   } catch (error) {
@@ -2694,8 +2650,10 @@ competitionRouter.post('/:roundId/clarifications', authMiddleware, requireRole('
       data: { roundId: round.id, message: sanitizeText(parsed.data.message), createdBy: admin.id },
       select: { id: true, message: true, createdAt: true },
     });
+    const serialized = { ...created, createdAt: created.createdAt.toISOString() };
+    emitClarification(round.id, serialized); // live push to every arena + the monitor
     await auditLog(admin.id, 'COMPETITION_CLARIFICATION', 'CompetitionRound', round.id, { clarificationId: created.id });
-    return ApiResponse.created(res, { clarification: { ...created, createdAt: created.createdAt.toISOString() } });
+    return ApiResponse.created(res, { clarification: serialized });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to post clarification');
   }

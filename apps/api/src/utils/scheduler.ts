@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 import { broadcastQotdLive, broadcastNotification } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
 import { updateEventStatuses } from './eventStatus.js';
+import { isContestPriorityActive } from '../competition/contestMode.js';
 
 let reminderColumnAvailable = true;
 
@@ -873,6 +874,20 @@ async function pruneOldRecordsIfDue(): Promise<void> {
  * Start the reminder scheduler
  * Checks every 6 hours for events needing reminders
  */
+// One 6h tick of the non-essential background work. Skipped entirely while a contest
+// round is ACTIVE (contest priority mode) so the live contest gets the headroom — the
+// work simply runs on the next tick after the round ends. Reminders are time-windowed
+// and pruning is at-most-once/24h, so a skipped tick is harmless.
+function runReminderTick(): void {
+  if (isContestPriorityActive()) {
+    logger.info('⏭️ Contest priority mode active — deferring reminder/feedback/prune tick');
+    return;
+  }
+  sendEventReminders();
+  void sendEventFeedbackRequests();
+  void pruneOldRecordsIfDue();
+}
+
 export function startReminderScheduler(): void {
   if (reminderInterval || reminderStartupTimeout) {
     return;
@@ -881,17 +896,11 @@ export function startReminderScheduler(): void {
   // Run immediately on startup
   reminderStartupTimeout = setTimeout(() => {
     reminderStartupTimeout = null;
-    sendEventReminders();
-    void sendEventFeedbackRequests();
-    void pruneOldRecordsIfDue();
+    runReminderTick();
   }, 10000); // Wait 10 seconds after startup
 
   // Then run every 6 hours (4 times a day is efficient)
-  reminderInterval = setInterval(() => {
-    sendEventReminders();
-    void sendEventFeedbackRequests();
-    void pruneOldRecordsIfDue();
-  }, 6 * 60 * 60 * 1000); // Every 6 hours
+  reminderInterval = setInterval(runReminderTick, 6 * 60 * 60 * 1000); // Every 6 hours
 
   logger.info('🔔 Event reminder scheduler started (checks every 6 hours)');
 }

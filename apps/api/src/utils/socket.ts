@@ -163,7 +163,7 @@ export function getIO(): SocketIOServer | null {
  */
 export async function disconnectUserSockets(userId: string): Promise<void> {
   if (!io || !userId) return;
-  const namespaces = ['/', '/quiz', '/notifications', '/attendance'];
+  const namespaces = ['/', '/quiz', '/notifications', '/attendance', '/competition'];
   for (const nsName of namespaces) {
     try {
       const ns = io.of(nsName);

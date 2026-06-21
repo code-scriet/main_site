@@ -43,6 +43,9 @@ import competitionRouter, { recoverActiveRounds } from './routes/competition.js'
 import { problemsRouter } from './routes/problems.js';
 import { problemSheetsRouter } from './routes/problemSheets.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
+import { initCompetitionSocket } from './competition/competitionSocket.js';
+import { clearAllContestRooms } from './competition/competitionRealtime.js';
+import { isContestPriorityActive } from './competition/contestMode.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -211,6 +214,9 @@ initQuizSocket(io);
 // Initialize Attendance Socket namespace
 initializeAttendanceSocket(io);
 
+// Initialize Competition Socket namespace (live arena + admin monitor pushes)
+initCompetitionSocket(io);
+
 // Neon keep-alive: prevent cold connection starts
 let keepAliveFailureCount = 0;
 const ENABLE_DB_KEEPALIVE = process.env.ENABLE_DB_KEEPALIVE === 'true';
@@ -218,6 +224,9 @@ const DB_KEEPALIVE_INTERVAL_MS = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 
 
 if (ENABLE_DB_KEEPALIVE) {
   setInterval(async () => {
+    // During a live contest the DB is already busy with the contest itself — skip the
+    // keep-alive ping (contest priority mode).
+    if (isContestPriorityActive()) return;
     try {
       await prisma.$queryRaw`SELECT 1`;
       keepAliveFailureCount = 0;
@@ -609,8 +618,9 @@ const shutdown = async () => {
   stopReminderScheduler();
   stopQotdAutoPublishScheduler();
   stopRegistrationOpenScheduler();
+  clearAllContestRooms(); // drop in-memory contest realtime state (throttle timers)
 
-  // Close Socket.io server first — disconnects all clients (quiz + attendance)
+  // Close Socket.io server first — disconnects all clients (quiz + attendance + competition)
   io.close();
 
   // Persist all active quiz sessions before exit

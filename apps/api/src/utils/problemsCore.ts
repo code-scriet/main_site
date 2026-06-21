@@ -20,6 +20,7 @@ import { verifyQotdReopenToken } from './jwt.js';
 // Lazy import (function reference only, called at request time) avoids a
 // module-load cycle with routes/qotd.ts which also imports from this file.
 import { invalidateQotdLeaderboardCaches } from '../routes/qotd.js';
+import { onContestSubmission } from '../competition/competitionRealtime.js';
 
 export class ProblemHttpError extends Error {
   constructor(
@@ -810,6 +811,19 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // Callers no longer need to do this — the pipeline owns the side effect.
   if (params.contextType === 'QOTD') {
     invalidateQotdLeaderboardCaches(params.contextKey);
+  }
+
+  // Live contest push (fire-and-forget): admin submission feed + first-solve balloon +
+  // throttled leaderboard broadcast, so no end needs to reload. Never blocks the response.
+  if (params.contextType === 'CONTEST' && !isJudgeFailure) {
+    void onContestSubmission({
+      roundId: params.contextKey,
+      userId: params.user.id,
+      userName: params.user.name,
+      problemId: problem.id,
+      verdict: judge.verdict,
+      score: scored.score,
+    });
   }
 
   return {

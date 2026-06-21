@@ -78,6 +78,99 @@ export interface RankableEntry {
  * submission. ICPC: score desc, then penalty asc, then earliest submission. Equal
  * keys share a rank. Returns ranks aligned to the input order.
  */
+export interface DsaLbProblemLink { problemId: string; points: number; problem: { title: string } }
+export interface DsaLbSubmission {
+  problemId: string; userId: string; score: number; verdict: string; runtimeMs: number | null;
+  contestWrongAttempts: number; contestSolvedAt: Date | null;
+  user: { id: string; name: string; avatar: string | null };
+}
+
+export interface DsaLeaderboardRow {
+  rank: number;
+  userId: string;
+  userName: string;
+  avatar: string | null;
+  totalScore: number;
+  penalty: number;
+  totalRuntimeMs: number;
+  problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
+}
+
+// Shared DSA leaderboard builder. Computes each participant's normalized 0–100 round
+// score (Σ best% × normalized problem weight), ICPC penalty, and 1224 rank under the
+// round's penalty model. Used by GET /results (FINISHED, top 10), GET /leaderboard
+// (live), the admin monitor, and the realtime broadcaster — single source of truth.
+export function buildDsaLeaderboard(
+  links: DsaLbProblemLink[],
+  submissions: DsaLbSubmission[],
+  startedMs: number | null,
+  penaltyModel: 'BEST_SCORE' | 'ICPC',
+  limit: number,
+): DsaLeaderboardRow[] {
+  const normWeights = normalizeWeights(links.map((link) => link.points));
+  const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
+
+  type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
+  const byUser = new Map<string, {
+    userId: string; userName: string; avatar: string | null;
+    cells: Map<string, Cell>; totalRuntimeMs: number;
+  }>();
+  for (const submission of submissions) {
+    if (!weightByProblem.has(submission.problemId)) continue;
+    const entry = byUser.get(submission.userId) ?? {
+      userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
+      cells: new Map<string, Cell>(), totalRuntimeMs: 0,
+    };
+    entry.cells.set(submission.problemId, {
+      score: submission.score, verdict: submission.verdict, runtimeMs: submission.runtimeMs,
+      wrongAttempts: submission.contestWrongAttempts, solvedAt: submission.contestSolvedAt,
+    });
+    entry.totalRuntimeMs += submission.runtimeMs ?? 0;
+    byUser.set(submission.userId, entry);
+  }
+
+  const computed = Array.from(byUser.values()).map((entry) => {
+    const totalScore = aggregateWeighted(links.map((link) => ({
+      weight: link.points,
+      score: entry.cells.get(link.problemId)?.score ?? 0,
+    })));
+    const solved: SolvedProblemPenalty[] = [];
+    let completionMs = startedMs ?? 0;
+    for (const link of links) {
+      const cell = entry.cells.get(link.problemId);
+      if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
+        const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
+        solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
+        completionMs = Math.max(completionMs, cell.solvedAt.getTime());
+      }
+    }
+    const problems = links
+      .filter((link) => entry.cells.has(link.problemId))
+      .map((link) => {
+        const cell = entry.cells.get(link.problemId)!;
+        return {
+          problemId: link.problemId,
+          title: link.problem.title,
+          score: cell.score,
+          weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
+          verdict: cell.verdict,
+          runtimeMs: cell.runtimeMs,
+        };
+      });
+    return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty: computeIcpcPenalty(solved), totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
+  });
+
+  const ranks = rankEntries(
+    computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
+    penaltyModel,
+  );
+  return computed
+    .map((c, index) => ({ rank: ranks[index], ...c }))
+    .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
+    .slice(0, limit)
+    .map(({ completionMs: _completionMs, ...entry }) => entry);
+}
+
 export function rankEntries(
   entries: RankableEntry[],
   model: 'BEST_SCORE' | 'ICPC',
