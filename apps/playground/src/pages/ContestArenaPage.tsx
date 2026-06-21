@@ -283,6 +283,30 @@ export default function ContestArenaPage() {
         </div>
       </div>
 
+      {/* Status banner for non-active rounds — tells the contestant what's happening and
+          (when finished) links to the published results, so they're never stuck staring
+          at a read-only editor with no guidance. */}
+      {!isActive && (round.status === 'LOCKED' || round.status === 'JUDGING' || round.status === 'FINISHED') && (
+        <div className={cn(
+          'px-3 sm:px-4 py-2 text-sm flex items-center gap-2 border-b',
+          round.status === 'FINISHED'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900'
+            : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900',
+        )}>
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">
+            {round.status === 'LOCKED' && 'This round is locked — submissions are closed and being prepared for judging.'}
+            {round.status === 'JUDGING' && 'Judging is in progress. Final results will appear shortly.'}
+            {round.status === 'FINISHED' && 'This round has finished and results are published.'}
+          </span>
+          {round.status === 'FINISHED' && (
+            <a href={`${MAIN_SITE_URL}/competition/${round.id}/results`} target="_blank" rel="noreferrer" className="font-semibold underline shrink-0">
+              View full results
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Tab strip */}
       <div className="h-9 border-b border-zinc-200 dark:border-zinc-800 px-2 flex items-center gap-1 bg-warmwhite dark:bg-inknight">
         {([['problems', 'Problems'], ['leaderboard', 'Leaderboard'], ['clarifications', `Clarifications${clarificationCount ? ` (${clarificationCount})` : ''}`]] as const).map(([id, label]) => (

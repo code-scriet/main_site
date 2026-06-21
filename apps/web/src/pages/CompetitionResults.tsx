@@ -103,7 +103,10 @@ export default function CompetitionResults() {
               </Card>
             )}
 
-            {isDsaRound && results.length > 0 && (
+            {isDsaRound && results.length > 0 && (() => {
+              const isIcpc = resultsQuery.data?.round.penaltyModel === 'ICPC';
+              const isTeamRound = results.some((entry) => entry.isTeam);
+              return (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">DSA Standings</CardTitle>
@@ -114,9 +117,10 @@ export default function CompetitionResults() {
                       <thead>
                         <tr className="border-b border-amber-100 text-left text-gray-500">
                           <th className="py-2 pr-3">Rank</th>
-                          <th className="py-2 pr-3">Member</th>
-                          <th className="py-2 pr-3">Total</th>
-                          <th className="py-2 pr-3">Runtime</th>
+                          <th className="py-2 pr-3">{isTeamRound ? 'Team' : 'Participant'}</th>
+                          <th className="py-2 pr-3 text-right">Score</th>
+                          {isIcpc && <th className="py-2 pr-3 text-right">Penalty</th>}
+                          <th className="py-2 pr-3 text-right">Runtime</th>
                           <th className="py-2 pr-3">Breakdown</th>
                         </tr>
                       </thead>
@@ -124,9 +128,15 @@ export default function CompetitionResults() {
                         {results.map((entry) => (
                           <tr key={entry.userId ?? entry.id ?? entry.rank} className="border-b border-amber-50 align-top">
                             <td className="py-3 pr-3 font-semibold">#{entry.rank ?? '--'}</td>
-                            <td className="py-3 pr-3 font-semibold text-gray-900">{entry.userName ?? entry.teamName}</td>
-                            <td className="py-3 pr-3">{entry.totalScore ?? entry.score ?? 0}</td>
-                            <td className="py-3 pr-3 tabular-nums">{entry.totalRuntimeMs ?? 0} ms</td>
+                            <td className="py-3 pr-3 text-gray-900">
+                              <span className="font-semibold">{entry.userName ?? entry.teamName}</span>
+                              {entry.isTeam && entry.members && entry.members.length > 0 && (
+                                <span className="block text-[11px] text-gray-500 truncate max-w-[220px]">{entry.members.join(', ')}</span>
+                              )}
+                            </td>
+                            <td className="py-3 pr-3 text-right font-semibold tabular-nums">{entry.totalScore ?? entry.score ?? 0}</td>
+                            {isIcpc && <td className="py-3 pr-3 text-right tabular-nums text-gray-500">{entry.penalty ?? 0}</td>}
+                            <td className="py-3 pr-3 text-right tabular-nums">{entry.totalRuntimeMs ?? 0} ms</td>
                             <td className="py-3 pr-3">
                               <div className="flex flex-wrap gap-2">
                                 {(entry.problems ?? []).map((problem) => (
@@ -143,7 +153,8 @@ export default function CompetitionResults() {
                   </div>
                 </CardContent>
               </Card>
-            )}
+              );
+            })()}
 
             {!isDsaRound && topThree.length > 0 && (
               <Card>
