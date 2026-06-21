@@ -11,12 +11,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { AlertCircle, ChevronLeft, Clock, Loader2, Trophy } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { mainApi, type ContestRoundProblem } from '@/lib/mainApi';
 import { QOTDSolverShell, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { useProctor } from '@/hooks/useProctor';
+import { useContestSocket } from '@/hooks/useContestSocket';
 import { getMainSiteOrigin } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -112,7 +114,36 @@ export default function ContestArenaPage() {
   const { locked: proctorLocked, awayMsLeft } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
-    // DSA proctor is lock-only — see file header.
+    // DSA proctor is lock-only (no auto-submit — see file header) but enforces the
+    // fullscreen + copy-paste lockdown on a proctored round.
+    fullscreen: Boolean(round?.proctored) && isActive,
+    blockPaste: Boolean(round?.proctored) && isActive,
+  });
+
+  // Live push (no reloads): leaderboard/clarifications update their query caches in place,
+  // first-solves pop a balloon toast, and a status change re-syncs the round (lobby →
+  // synced start, lock, finish).
+  const queryClient = useQueryClient();
+  const problemTitleById = useMemo(
+    () => new Map((round?.problems ?? []).map((p) => [p.id, p.title])),
+    [round?.problems],
+  );
+  useContestSocket(roundId, Boolean(round) && round?.status !== 'FINISHED', {
+    onLeaderboard: (data) => queryClient.setQueryData(['contest-arena-leaderboard', roundId], data),
+    onClarification: (c) => {
+      queryClient.setQueryData<{ clarifications: Array<{ id: string; message: string; createdAt: string }> }>(
+        ['contest-arena-clarifications', roundId],
+        (old) => ({ clarifications: [c, ...(old?.clarifications ?? []).filter((x) => x.id !== c.id)] }),
+      );
+      toast.info('📢 Clarification', { description: c.message });
+    },
+    onFirstSolve: (d) => toast(`🎈 First solve!`, { description: `${d.userName} solved ${problemTitleById.get(d.problemId) ?? 'a problem'}` }),
+    onStatus: (status) => {
+      if (status !== round?.status) {
+        if (status === 'ACTIVE') toast.success('The contest has started — good luck!');
+        void roundQuery.refetch();
+      }
+    },
   });
 
   // Live round score = Σ(best% × normalized problem weight), capped 0–100.
@@ -166,6 +197,35 @@ export default function ContestArenaPage() {
       <CenteredCard tone="warn" title="Wrong arena">
         This is a build round — opening the build editor…
       </CenteredCard>
+    );
+  }
+
+  // Lobby: before the admin starts the round, everyone waits here. The socket's
+  // contest:status ACTIVE event refetches the round → the arena appears for all at once
+  // (synced start). No polling needed for the flip.
+  if (round.status === 'DRAFT') {
+    return (
+      <div className="h-screen flex items-center justify-center bg-warmwhite dark:bg-inknight px-4">
+        <div className="max-w-lg w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-card p-8 text-center space-y-4">
+          <Trophy className="h-10 w-10 text-amber-500 mx-auto" />
+          <h1 className="text-2xl font-bold">{round.title}</h1>
+          <p className="text-sm text-muted-foreground">
+            {round.problems.length} problem{round.problems.length === 1 ? '' : 's'} · {Math.round(round.duration / 60)} minutes
+            {round.penaltyModel === 'ICPC' ? ' · ICPC penalty' : ''}
+            {round.proctored ? ' · proctored' : ''}
+          </p>
+          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-warmwhite dark:bg-zinc-900/40 p-4 space-y-1">
+            <p className="text-lg font-semibold">Waiting for the contest to start…</p>
+            <p className="text-xs text-muted-foreground flex items-center justify-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              You'll start automatically the moment the admin begins the round.
+            </p>
+          </div>
+          {round.proctored && (
+            <p className="text-[11px] text-amber-600">This round is proctored: stay in this window and in fullscreen, and don't paste — leaving locks your session.</p>
+          )}
+        </div>
+      </div>
     );
   }
 

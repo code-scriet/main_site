@@ -26,8 +26,12 @@ export function useProctor(opts: {
   roundId: string;
   enabled: boolean;
   onAutoSubmit?: () => Promise<void> | void;
+  /** Request fullscreen on start; exiting it is an instant violation (lockdown). */
+  fullscreen?: boolean;
+  /** Treat a paste anywhere on the page as an instant violation (anti-copy-paste). */
+  blockPaste?: boolean;
 }): UseProctorResult {
-  const { roundId, enabled, onAutoSubmit } = opts;
+  const { roundId, enabled, onAutoSubmit, fullscreen, blockPaste } = opts;
   const [locked, setLocked] = useState(false);
   const [lockReason, setLockReason] = useState<string | null>(null);
   const [awayMsLeft, setAwayMsLeft] = useState<number | null>(null);
@@ -84,16 +88,33 @@ export function useProctor(opts: {
       }, 0);
     };
     const onFocus = () => clearAway();
+    // Fullscreen + paste are INSTANT violations (no countdown) — they trip the lock
+    // immediately on a proctored round.
+    const onFullscreenChange = () => {
+      if (fullscreen && !document.fullscreenElement) void trip('FULLSCREEN_EXIT');
+    };
+    const onPaste = () => { if (blockPaste) void trip('COPY_PASTE'); };
+
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
+    if (fullscreen) {
+      document.addEventListener('fullscreenchange', onFullscreenChange);
+      // Best-effort: requestFullscreen needs a user gesture, so this may reject — the
+      // detection of an EXIT is what enforces the lockdown either way.
+      document.documentElement.requestFullscreen?.().catch(() => undefined);
+    }
+    if (blockPaste) document.addEventListener('paste', onPaste);
+
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('paste', onPaste);
       clearAway();
     };
-  }, [enabled, startAway, clearAway]);
+  }, [enabled, startAway, clearAway, trip, fullscreen, blockPaste]);
 
   // heartbeat + lock poll — runs while enabled OR locked (so an admin unlock propagates).
   useEffect(() => {

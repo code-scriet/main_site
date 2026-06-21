@@ -3,10 +3,11 @@
 // and a clarifications broadcaster. Drives the proctor unlock action. Polling respects
 // the free-tier (no dedicated competition socket).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { useContestAdminSocket } from '@/hooks/useContestSocket';
 import { useSettings } from '@/context/SettingsContext';
 import { api, type CompetitionClarification } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
@@ -45,6 +46,21 @@ export default function CompetitionMonitor() {
   });
 
   const monitor = monitorQuery.data;
+
+  // Live push: any contest event refreshes the monitor (debounced so a burst of submits
+  // coalesces) — no manual reload. The 8s poll above stays as a fallback.
+  const refetchTimerRef = useRef<number | null>(null);
+  useContestAdminSocket(roundId, Boolean(roundId && token), {
+    onChange: () => {
+      if (refetchTimerRef.current) return;
+      refetchTimerRef.current = window.setTimeout(() => {
+        refetchTimerRef.current = null;
+        void monitorQuery.refetch();
+      }, 1200);
+    },
+    onClarification: () => { void clarQuery.refetch(); },
+  });
+  useEffect(() => () => { if (refetchTimerRef.current) window.clearTimeout(refetchTimerRef.current); }, []);
 
   const unlock = useCallback(async (userId: string) => {
     if (!token) return;
