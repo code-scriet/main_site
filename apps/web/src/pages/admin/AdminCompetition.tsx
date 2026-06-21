@@ -63,6 +63,7 @@ type FormState = {
   finalWeight: number;
   proctored: boolean;
   penaltyModel: 'BEST_SCORE' | 'ICPC';
+  teamAggregation: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
   leaderboardFreezeMinutes: number;
 };
 
@@ -80,6 +81,7 @@ const DEFAULT_FORM: FormState = {
   finalWeight: 1,
   proctored: false,
   penaltyModel: 'BEST_SCORE',
+  teamAggregation: 'BEST_PER_PROBLEM',
   leaderboardFreezeMinutes: 0,
 };
 
@@ -327,6 +329,7 @@ export default function AdminCompetition() {
       finalWeight: round.finalWeight ?? 1,
       proctored: round.proctored ?? false,
       penaltyModel: round.penaltyModel ?? 'BEST_SCORE',
+      teamAggregation: round.teamAggregation ?? 'BEST_PER_PROBLEM',
       leaderboardFreezeMinutes: round.leaderboardFreezeMinutes ?? 0,
     });
     setCreateOpen(true);
@@ -362,6 +365,7 @@ export default function AdminCompetition() {
         finalWeight: form.finalWeight,
         proctored: form.proctored,
         penaltyModel: form.penaltyModel,
+        teamAggregation: form.teamAggregation,
         leaderboardFreezeMinutes: form.leaderboardFreezeMinutes > 0 ? form.leaderboardFreezeMinutes : null,
       };
       if (!payload.eventId) {
@@ -388,6 +392,7 @@ export default function AdminCompetition() {
           finalWeight: payload.finalWeight,
           proctored: payload.proctored,
           penaltyModel: payload.penaltyModel,
+          teamAggregation: payload.teamAggregation,
           leaderboardFreezeMinutes: payload.leaderboardFreezeMinutes,
         }, token);
         setSuccess('Round updated successfully');
@@ -1067,6 +1072,22 @@ export default function AdminCompetition() {
                   />
                   Proctored (auto-submit + lock on tab switch)
                 </label>
+                {selectedFormEvent?.teamRegistration && form.roundType === 'DSA' && (
+                  <div className="sm:col-span-2">
+                    <label htmlFor="competition-team-agg" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Team score (how members fold)</label>
+                    <select
+                      id="competition-team-agg"
+                      value={form.teamAggregation}
+                      onChange={(e) => setForm((prev) => ({ ...prev, teamAggregation: e.target.value as FormState['teamAggregation'] }))}
+                      className="h-10 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
+                    >
+                      <option value="BEST_PER_PROBLEM">Best per problem (best member on each problem)</option>
+                      <option value="AVERAGE">Average of members' round scores</option>
+                      <option value="BEST_MEMBER">Best single member</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Only applies to team events on DSA rounds.</p>
+                  </div>
+                )}
               </div>
             </div>
 

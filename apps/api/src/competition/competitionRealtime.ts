@@ -11,7 +11,7 @@
 import { prisma } from '../lib/prisma.js';
 import { getIO } from '../utils/socket.js';
 import { logger } from '../utils/logger.js';
-import { buildDsaLeaderboard } from '../utils/contestScoring.js';
+import { buildDsaLeaderboard, type DsaLeaderboardRow, type TeamLeaderboardOptions } from '../utils/contestScoring.js';
 
 export const COMPETITION_NS = '/competition';
 export const roomAll = (roundId: string) => `round:${roundId}`;
@@ -50,35 +50,77 @@ export function clearAllContestRooms(): void {
   rooms.clear();
 }
 
+export interface ContestLeaderboardResult {
+  roundType: string;
+  status: string;
+  startedMs: number | null;
+  duration: number;
+  penaltyModel: 'BEST_SCORE' | 'ICPC';
+  leaderboardFreezeMinutes: number | null;
+  /** userId → team (team events only) so callers can map a user to their team score. */
+  teamByUser: Map<string, { teamId: string; teamName: string }> | null;
+  results: DsaLeaderboardRow[];
+}
+
+// Single source of truth for the DSA leaderboard (live board, results, monitor, and the
+// realtime broadcast all call this) — applies the round's team-aggregation for team
+// events and per-user for solo. Returns [] results for non-DSA rounds.
+export async function computeContestLeaderboard(roundId: string, limit: number): Promise<ContestLeaderboardResult | null> {
+  const round = await prisma.competitionRound.findUnique({
+    where: { id: roundId },
+    select: {
+      id: true, eventId: true, roundType: true, status: true, startedAt: true, duration: true,
+      penaltyModel: true, leaderboardFreezeMinutes: true, teamAggregation: true,
+      event: { select: { teamRegistration: true } },
+      problems: { orderBy: { displayOrder: 'asc' }, select: { problemId: true, points: true, problem: { select: { title: true } } } },
+    },
+  });
+  if (!round) return null;
+  const base = {
+    status: round.status, startedMs: round.startedAt ? round.startedAt.getTime() : null,
+    duration: round.duration, penaltyModel: round.penaltyModel, leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
+  };
+  if (round.roundType !== 'DSA') return { ...base, roundType: round.roundType, teamByUser: null, results: [] };
+
+  const submissions = await prisma.problemSubmission.findMany({
+    where: { contextType: 'CONTEST', contextKey: round.id },
+    include: { user: { select: { id: true, name: true, avatar: true } } },
+  });
+
+  let teamByUser: Map<string, { teamId: string; teamName: string }> | null = null;
+  let teamOptions: TeamLeaderboardOptions | undefined;
+  if (round.event.teamRegistration) {
+    const members = await prisma.eventTeamMember.findMany({
+      where: { team: { eventId: round.eventId } },
+      select: { userId: true, team: { select: { id: true, teamName: true } } },
+    });
+    teamByUser = new Map(members.map((m) => [m.userId, { teamId: m.team.id, teamName: m.team.teamName }]));
+    teamOptions = { aggregation: round.teamAggregation, teamByUser };
+  }
+
+  const results = buildDsaLeaderboard(round.problems, submissions, base.startedMs, round.penaltyModel, limit, teamOptions);
+  return { ...base, roundType: 'DSA', teamByUser, results };
+}
+
+/** True when participants should see a frozen (hidden) board right now. */
+export function isLeaderboardFrozen(lb: { status: string; startedMs: number | null; duration: number; leaderboardFreezeMinutes: number | null }): boolean {
+  const remaining = lb.startedMs !== null ? Math.max(0, lb.duration - Math.floor((Date.now() - lb.startedMs) / 1000)) : null;
+  const freezeSec = (lb.leaderboardFreezeMinutes ?? 0) * 60;
+  return lb.status === 'ACTIVE' && freezeSec > 0 && remaining !== null && remaining <= freezeSec;
+}
+
 async function broadcastLeaderboardNow(roundId: string): Promise<void> {
   const io = getIO();
   if (!io) return;
   try {
-    const round = await prisma.competitionRound.findUnique({
-      where: { id: roundId },
-      select: {
-        id: true, roundType: true, status: true, startedAt: true, duration: true,
-        penaltyModel: true, leaderboardFreezeMinutes: true,
-        problems: { orderBy: { displayOrder: 'asc' }, select: { problemId: true, points: true, problem: { select: { title: true } } } },
-      },
-    });
-    if (!round || round.roundType !== 'DSA') return;
-    const submissions = await prisma.problemSubmission.findMany({
-      where: { contextType: 'CONTEST', contextKey: round.id },
-      include: { user: { select: { id: true, name: true, avatar: true } } },
-    });
-    const results = buildDsaLeaderboard(round.problems, submissions, round.startedAt ? round.startedAt.getTime() : null, round.penaltyModel, 100);
-
-    // Admins always see the live board.
-    io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:leaderboard', { frozen: false, penaltyModel: round.penaltyModel, results });
-
-    // Participants get a full freeze in the final N minutes.
-    const remaining = round.startedAt ? Math.max(0, round.duration - Math.floor((Date.now() - round.startedAt.getTime()) / 1000)) : null;
-    const freezeSec = (round.leaderboardFreezeMinutes ?? 0) * 60;
-    const frozen = round.status === 'ACTIVE' && freezeSec > 0 && remaining !== null && remaining <= freezeSec;
+    const lb = await computeContestLeaderboard(roundId, 100);
+    if (!lb || lb.roundType !== 'DSA') return;
+    // Admins always see the live board; participants get a full freeze in the final N min.
+    io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:leaderboard', { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results });
+    const frozen = isLeaderboardFrozen(lb);
     io.of(COMPETITION_NS).to(roomAll(roundId)).emit(
       'contest:leaderboard',
-      frozen ? { frozen: true, penaltyModel: round.penaltyModel, results: [] } : { frozen: false, penaltyModel: round.penaltyModel, results },
+      frozen ? { frozen: true, penaltyModel: lb.penaltyModel, results: [] } : { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results },
     );
   } catch (error) {
     logger.error('Failed to broadcast contest leaderboard', { roundId, error: error instanceof Error ? error.message : String(error) });

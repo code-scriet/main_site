@@ -197,6 +197,8 @@ model Settings {
   // Competition feature toggle
   competitionEnabled Boolean @default(false) @map("competition_enabled")
   problemsEnabled    Boolean @default(false) @map("problems_enabled")
+  // Contest plagiarism similarity check (Phase H4) — off by default; review-only.
+  plagiarismCheckEnabled Boolean @default(false) @map("plagiarism_check_enabled")
 
   // Dashboard v2 — admin-controlled accent token applied to <html data-accent="…">.
   // Allowed values: rust | teal | indigo | violet | mint | mono. Default rust.
@@ -253,6 +255,9 @@ model Event {
   // S-10: per-event reservation marker — set once when the post-event feedback
   // request goes out, so the 6h scheduler tick never re-sends.
   feedbackSentAt        DateTime?   @map("feedback_sent_at")
+  // When the event's combined competition final standings were published to the public
+  // (Phase F). Null = draft (admin-only). Additive.
+  competitionFinalPublishedAt DateTime? @map("competition_final_published_at")
 
   // Team registration fields
   teamRegistration Boolean @default(false) @map("team_registration")
@@ -418,6 +423,10 @@ model CompetitionRound {
   penaltyModel             CompetitionPenaltyModel    @default(BEST_SCORE) @map("penalty_model")
   leaderboardFreezeMinutes Int?                       @map("leaderboard_freeze_minutes")
   difficultyWeights        Json?                      @map("difficulty_weights")
+  // How a TEAM's score folds its members on a DSA round (admin choice). Ignored for
+  // solo events (per-user). BEST_PER_PROBLEM = best member score per problem then weight;
+  // AVERAGE = mean of members' round scores; BEST_MEMBER = top member's round score.
+  teamAggregation          TeamAggregation            @default(BEST_PER_PROBLEM) @map("team_aggregation")
   startedAt        DateTime?                   @map("started_at")
   lockedAt         DateTime?                   @map("locked_at")
   createdAt        DateTime                    @default(now()) @map("created_at")
@@ -430,6 +439,7 @@ model CompetitionRound {
   participantState CompetitionParticipantState[]
   violations       CompetitionViolation[]
   clarifications   CompetitionClarification[]
+  plagiarismFlags  CompetitionPlagiarismFlag[]
 
   @@index([eventId])
   @@index([status, startedAt])
@@ -537,6 +547,31 @@ model CompetitionClarification {
 
   @@index([roundId, createdAt])
   @@map("competition_clarifications")
+}
+
+// Plagiarism similarity flags (Phase H4) — review-only. Each row is a suspicious pair
+// for one problem in one round; an admin reviews + marks REVIEWED/DISMISSED. Never
+// auto-penalizes. User ids/names are plain snapshots (survive deletion; flags prune
+// with the round). Computed off-box on the playground server (or inline fallback).
+model CompetitionPlagiarismFlag {
+  id         String               @id @default(uuid())
+  roundId    String               @map("round_id")
+  problemId  String               @map("problem_id")
+  userAId    String               @map("user_a_id")
+  userAName  String               @map("user_a_name")
+  userBId    String               @map("user_b_id")
+  userBName  String               @map("user_b_name")
+  similarity Float
+  status     PlagiarismFlagStatus @default(PENDING)
+  reviewedBy String?              @map("reviewed_by")
+  reviewedAt DateTime?            @map("reviewed_at")
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  round CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, problemId, userAId, userBId])
+  @@index([roundId, status])
+  @@map("competition_plagiarism_flags")
 }
 
 model Announcement {
@@ -913,6 +948,19 @@ enum CompetitionViolationKind {
   FULLSCREEN_EXIT
   COPY_PASTE
   OTHER
+}
+
+// How a team's DSA round score folds its members (Phase H1, admin choice per round).
+enum TeamAggregation {
+  BEST_PER_PROBLEM
+  AVERAGE
+  BEST_MEMBER
+}
+
+enum PlagiarismFlagStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
 }
 
 // Network Feature - Industry Professionals & Alumni

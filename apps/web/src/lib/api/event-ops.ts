@@ -224,6 +224,7 @@ export const eventOpsApi = {
     finalWeight?: number;
     proctored?: boolean;
     penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
     leaderboardFreezeMinutes?: number | null;
     difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>
@@ -289,6 +290,7 @@ export const eventOpsApi = {
     finalWeight?: number;
     proctored?: boolean;
     penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
     leaderboardFreezeMinutes?: number | null;
     difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>

@@ -1095,6 +1095,7 @@ export interface CompetitionRound {
   finalWeight?: number;
   proctored?: boolean;
   penaltyModel?: 'BEST_SCORE' | 'ICPC';
+  teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
   leaderboardFreezeMinutes?: number | null;
   difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   isEligible?: boolean;

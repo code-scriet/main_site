@@ -7,10 +7,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   aggregateWeighted,
+  buildDsaLeaderboard,
   computeIcpcPenalty,
   normalizeWeights,
   rankEntries,
+  type DsaLbProblemLink,
+  type DsaLbSubmission,
 } from './contestScoring.js';
+
+const links: DsaLbProblemLink[] = [
+  { problemId: 'p1', points: 100, problem: { title: 'P1' } },
+  { problemId: 'p2', points: 100, problem: { title: 'P2' } },
+];
+const sub = (userId: string, name: string, problemId: string, score: number): DsaLbSubmission => ({
+  problemId, userId, score, verdict: score === 100 ? 'ACCEPTED' : 'WRONG_ANSWER', runtimeMs: 10,
+  contestWrongAttempts: 0, contestSolvedAt: score === 100 ? new Date(1000) : null,
+  user: { id: userId, name, avatar: null },
+});
 
 test('normalizeWeights: proportional weights sum to 1', () => {
   const n = normalizeWeights([6, 4]);
@@ -95,4 +108,41 @@ test('rankEntries ICPC: equal score broken by lower penalty', () => {
   );
   // lower penalty (second entry) ranks 1
   assert.deepEqual(ranks, [2, 1]);
+});
+
+// ── Team aggregation (Phase H1) ──
+// Team T1: u1 solves p1 (100), u2 solves p2 (100). p1 + p2 weighted 50/50.
+const teamSubs = [sub('u1', 'Alice', 'p1', 100), sub('u2', 'Bob', 'p2', 100)];
+const teamByUser = new Map([
+  ['u1', { teamId: 't1', teamName: 'Team One' }],
+  ['u2', { teamId: 't1', teamName: 'Team One' }],
+]);
+
+test('team BEST_PER_PROBLEM: best member per problem → full team score', () => {
+  const rows = buildDsaLeaderboard(links, teamSubs, null, 'BEST_SCORE', 10, { aggregation: 'BEST_PER_PROBLEM', teamByUser });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].userId, 't1');
+  assert.equal(rows[0].userName, 'Team One');
+  assert.equal(rows[0].isTeam, true);
+  assert.deepEqual(rows[0].members?.sort(), ['Alice', 'Bob']);
+  // p1=100 (Alice) + p2=100 (Bob) → 0.5*100 + 0.5*100 = 100
+  assert.equal(rows[0].totalScore, 100);
+});
+
+test('team AVERAGE: mean of members’ round scores', () => {
+  // Alice round = 0.5*100 + 0.5*0 = 50; Bob = 50 → mean 50
+  const rows = buildDsaLeaderboard(links, teamSubs, null, 'BEST_SCORE', 10, { aggregation: 'AVERAGE', teamByUser });
+  assert.equal(rows[0].totalScore, 50);
+});
+
+test('team BEST_MEMBER: the single strongest member carries the team', () => {
+  // both members score 50 → best member = 50
+  const rows = buildDsaLeaderboard(links, teamSubs, null, 'BEST_SCORE', 10, { aggregation: 'BEST_MEMBER', teamByUser });
+  assert.equal(rows[0].totalScore, 50);
+});
+
+test('solo (no team option): one row per user, no team flag', () => {
+  const rows = buildDsaLeaderboard(links, teamSubs, null, 'BEST_SCORE', 10);
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => !r.isTeam));
 });

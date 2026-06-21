@@ -13,9 +13,8 @@ import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { computeRanksFromScores } from '../utils/competitionRanks.js';
-import { buildDsaLeaderboard } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
-import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom } from '../competition/competitionRealtime.js';
+import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen } from '../competition/competitionRealtime.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -79,6 +78,7 @@ const contestConfigShape = {
   finalWeight: z.number().min(0).max(1000).optional(),
   proctored: z.boolean().optional(),
   penaltyModel: z.enum(['BEST_SCORE', 'ICPC']).optional(),
+  teamAggregation: z.enum(['BEST_PER_PROBLEM', 'AVERAGE', 'BEST_MEMBER']).optional(),
   leaderboardFreezeMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   difficultyWeights: z.object({
     EASY: z.number().min(0).max(1000),
@@ -573,6 +573,7 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
         ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
         ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+        ...(parsed.data.teamAggregation !== undefined ? { teamAggregation: parsed.data.teamAggregation } : {}),
         ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
         ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         ...(roundType === 'DSA' ? {
@@ -679,6 +680,7 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       finalWeight: round.finalWeight,
       proctored: round.proctored,
       penaltyModel: round.penaltyModel,
+      teamAggregation: round.teamAggregation,
       leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
       difficultyWeights: canViewTeamSelection ? round.difficultyWeights : undefined,
       startedAt: round.startedAt?.toISOString(),
@@ -2080,17 +2082,9 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
     }
 
     if (round.roundType === 'DSA') {
-      const submissions = await prisma.problemSubmission.findMany({
-        where: { contextType: 'CONTEST', contextKey: round.id },
-        include: { user: { select: { id: true, name: true, avatar: true } } },
-      });
-      const results = buildDsaLeaderboard(
-        round.problems,
-        submissions,
-        round.startedAt ? round.startedAt.getTime() : null,
-        round.penaltyModel,
-        10,
-      );
+      // Team-aware standings (per the round's teamAggregation for team events).
+      const lb = await computeContestLeaderboard(round.id, 10);
+      const results = lb?.results ?? [];
 
       return ApiResponse.success(res, {
         round: {
@@ -2369,6 +2363,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
           ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
           ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
           ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+          ...(parsed.data.teamAggregation !== undefined ? { teamAggregation: parsed.data.teamAggregation } : {}),
           ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
           ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         },
@@ -2579,47 +2574,34 @@ competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requi
 
 // ─── Live leaderboard / clarifications / monitor (Phase E) ───────────────────
 
-const DSA_LB_SELECT = {
-  orderBy: { displayOrder: 'asc' as const },
-  select: { problemId: true, points: true, problem: { select: { title: true } } },
-};
-
 // Live DSA leaderboard (works while ACTIVE). Non-admins inside the freeze window get a
-// full freeze (board hidden) for the final N minutes; admins always see live.
+// full freeze (board hidden) for the final N minutes; admins always see live. Team
+// events aggregate per the round's teamAggregation (shared computeContestLeaderboard).
 competitionRouter.get('/:roundId/leaderboard', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req)!;
     const isAdmin = hasPermission(user.role, 'ADMIN');
-    const round = await prisma.competitionRound.findUnique({
-      where: { id: req.params.roundId },
-      select: {
-        id: true, eventId: true, roundType: true, status: true, startedAt: true, duration: true,
-        penaltyModel: true, leaderboardFreezeMinutes: true, problems: DSA_LB_SELECT,
-      },
-    });
-    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const gate = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { eventId: true } });
+    if (!gate) return ApiResponse.notFound(res, 'Round not found');
     if (!isAdmin) {
       const reg = await prisma.eventRegistration.findUnique({
-        where: { userId_eventId: { userId: user.id, eventId: round.eventId } },
+        where: { userId_eventId: { userId: user.id, eventId: gate.eventId } },
         select: { id: true },
       });
       if (!reg) return ApiResponse.forbidden(res, 'Register for this event to view the leaderboard.');
     }
-    if (round.roundType !== 'DSA') {
-      return ApiResponse.success(res, { roundType: round.roundType, frozen: false, results: [], penaltyModel: round.penaltyModel });
+    const lb = await computeContestLeaderboard(req.params.roundId, 100);
+    if (!lb) return ApiResponse.notFound(res, 'Round not found');
+    if (lb.roundType !== 'DSA') {
+      return ApiResponse.success(res, { roundType: lb.roundType, frozen: false, results: [], penaltyModel: lb.penaltyModel });
     }
-    const remaining = computeRemainingSeconds(round, Date.now());
-    const freezeSec = (round.leaderboardFreezeMinutes ?? 0) * 60;
-    const frozen = !isAdmin && round.status === 'ACTIVE' && freezeSec > 0 && remaining !== null && remaining <= freezeSec;
-    if (frozen) {
-      return ApiResponse.success(res, { roundType: 'DSA', frozen: true, results: [], penaltyModel: round.penaltyModel });
-    }
-    const submissions = await prisma.problemSubmission.findMany({
-      where: { contextType: 'CONTEST', contextKey: round.id },
-      include: { user: { select: { id: true, name: true, avatar: true } } },
+    const frozen = !isAdmin && isLeaderboardFrozen(lb);
+    return ApiResponse.success(res, {
+      roundType: 'DSA',
+      frozen,
+      penaltyModel: lb.penaltyModel,
+      results: frozen ? [] : lb.results,
     });
-    const results = buildDsaLeaderboard(round.problems, submissions, round.startedAt ? round.startedAt.getTime() : null, round.penaltyModel, 100);
-    return ApiResponse.success(res, { roundType: 'DSA', frozen: false, results, penaltyModel: round.penaltyModel });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to fetch leaderboard');
   }
@@ -2659,17 +2641,18 @@ competitionRouter.post('/:roundId/clarifications', authMiddleware, requireRole('
   }
 });
 
-// Admin live monitor: participant proctor state (online via lastSeenAt, lock, violations)
-// merged with DSA score, plus a recent submission feed. Polling-based (no socket).
+// Admin live monitor: per-user proctor state (online via lastSeenAt, lock, violations)
+// merged with the DSA score (the user's own row, or their TEAM's row for team events),
+// plus a recent submission feed. Polling-based fallback (also pushed via the relay).
 competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, title: true, status: true, roundType: true, startedAt: true, penaltyModel: true, problems: DSA_LB_SELECT },
+      select: { id: true, title: true, status: true, roundType: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
 
-    const [states, dsaSubs] = await Promise.all([
+    const [states, dsaSubs, lb] = await Promise.all([
       prisma.competitionParticipantState.findMany({
         where: { roundId: round.id },
         select: { userId: true, locked: true, lockReason: true, violationCount: true, lastViolationAt: true, lastSeenAt: true, user: { select: { name: true, email: true, avatar: true } } },
@@ -2677,28 +2660,33 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
       round.roundType === 'DSA'
         ? prisma.problemSubmission.findMany({
             where: { contextType: 'CONTEST', contextKey: round.id },
-            include: { user: { select: { id: true, name: true, avatar: true } } },
+            select: { id: true, problemId: true, verdict: true, score: true, updatedAt: true, user: { select: { id: true, name: true } } },
           })
-        : Promise.resolve([] as never[]),
+        : Promise.resolve([] as Array<{ id: string; problemId: string; verdict: string; score: number; updatedAt: Date; user: { id: string; name: string } }>),
+      computeContestLeaderboard(req.params.roundId, 1000),
     ]);
 
-    const lb = round.roundType === 'DSA'
-      ? buildDsaLeaderboard(round.problems, dsaSubs, round.startedAt ? round.startedAt.getTime() : null, round.penaltyModel, 1000)
-      : [];
-    const scoreByUser = new Map(lb.map((row) => [row.userId, row]));
+    // Map each user → their standings row. For team events the leaderboard rows are keyed
+    // by teamId, so resolve a user to their team's row via teamByUser.
+    const rowById = new Map((lb?.results ?? []).map((row) => [row.userId, row]));
+    const scoreFor = (userId: string) => {
+      const teamId = lb?.teamByUser?.get(userId)?.teamId;
+      return rowById.get(teamId ?? userId) ?? null;
+    };
 
-    // Union of proctor-state users and leaderboard users (a non-proctored round has no
-    // states; a joined-but-not-submitted user has a state but no leaderboard row).
-    const userIds = new Set<string>([...states.map((s) => s.userId), ...lb.map((r) => r.userId)]);
+    const submitterIds = dsaSubs.map((s) => s.user.id);
+    const userIds = new Set<string>([...states.map((s) => s.userId), ...submitterIds]);
     const stateByUser = new Map(states.map((s) => [s.userId, s]));
+    const nameBySubmitter = new Map(dsaSubs.map((s) => [s.user.id, s.user.name]));
     const participants = Array.from(userIds).map((userId) => {
       const s = stateByUser.get(userId);
-      const row = scoreByUser.get(userId);
+      const row = scoreFor(userId);
       return {
         userId,
-        name: s?.user.name ?? row?.userName ?? 'Participant',
+        name: s?.user.name ?? nameBySubmitter.get(userId) ?? 'Participant',
         email: s?.user.email ?? null,
-        avatar: s?.user.avatar ?? row?.avatar ?? null,
+        avatar: s?.user.avatar ?? null,
+        teamName: lb?.teamByUser?.get(userId)?.teamName ?? null,
         locked: s?.locked ?? false,
         lockReason: s?.lockReason ?? null,
         violationCount: s?.violationCount ?? 0,
@@ -2710,15 +2698,13 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
       };
     }).sort((a, b) => (b.score - a.score) || (a.name.localeCompare(b.name)));
 
-    const recentSubmissions = round.roundType === 'DSA'
-      ? [...dsaSubs]
-          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-          .slice(0, 30)
-          .map((sub) => ({
-            id: sub.id, userName: sub.user.name, problemId: sub.problemId,
-            verdict: sub.verdict, score: sub.score, updatedAt: sub.updatedAt.toISOString(),
-          }))
-      : [];
+    const recentSubmissions = [...dsaSubs]
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 30)
+      .map((sub) => ({
+        id: sub.id, userName: sub.user.name, problemId: sub.problemId,
+        verdict: sub.verdict, score: sub.score, updatedAt: sub.updatedAt.toISOString(),
+      }));
 
     return ApiResponse.success(res, {
       round: { id: round.id, title: round.title, status: round.status, roundType: round.roundType },

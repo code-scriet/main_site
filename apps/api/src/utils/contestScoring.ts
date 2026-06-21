@@ -85,15 +85,70 @@ export interface DsaLbSubmission {
   user: { id: string; name: string; avatar: string | null };
 }
 
+export type TeamAggregationMode = 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
+
+/** Team grouping for a team event: how to fold members + which team each user is in. */
+export interface TeamLeaderboardOptions {
+  aggregation: TeamAggregationMode;
+  teamByUser: Map<string, { teamId: string; teamName: string }>;
+}
+
 export interface DsaLeaderboardRow {
   rank: number;
+  /** userId for solo rows, teamId for team rows. */
   userId: string;
+  /** userName for solo rows, teamName for team rows. */
   userName: string;
   avatar: string | null;
   totalScore: number;
   penalty: number;
   totalRuntimeMs: number;
+  /** Present on team rows: member display names. */
+  members?: string[];
+  /** True when this row represents a team (team event). */
+  isTeam?: boolean;
   problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
+}
+
+interface ScoreCell { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null }
+interface DerivedEntry { totalScore: number; penalty: number; completionMs: number; totalRuntimeMs: number; problems: DsaLeaderboardRow['problems'] }
+
+// Derive a normalized round score + ICPC penalty + per-problem breakdown from one
+// entity's per-problem cells (used for a solo user and for a synthesized team).
+function deriveEntry(
+  links: DsaLbProblemLink[],
+  weightByProblem: Map<string, number>,
+  cells: Map<string, ScoreCell>,
+  startedMs: number | null,
+): DerivedEntry {
+  const totalScore = aggregateWeighted(links.map((link) => ({ weight: link.points, score: cells.get(link.problemId)?.score ?? 0 })));
+  const solved: SolvedProblemPenalty[] = [];
+  let completionMs = startedMs ?? 0;
+  let totalRuntimeMs = 0;
+  for (const link of links) {
+    const cell = cells.get(link.problemId);
+    if (!cell) continue;
+    totalRuntimeMs += cell.runtimeMs ?? 0;
+    if (cell.verdict === 'ACCEPTED' && cell.solvedAt) {
+      const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
+      solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
+      completionMs = Math.max(completionMs, cell.solvedAt.getTime());
+    }
+  }
+  const problems = links
+    .filter((link) => cells.has(link.problemId))
+    .map((link) => {
+      const cell = cells.get(link.problemId)!;
+      return {
+        problemId: link.problemId,
+        title: link.problem.title,
+        score: cell.score,
+        weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
+        verdict: cell.verdict,
+        runtimeMs: cell.runtimeMs,
+      };
+    });
+  return { totalScore, penalty: computeIcpcPenalty(solved), completionMs, totalRuntimeMs, problems };
 }
 
 // Shared DSA leaderboard builder. Computes each participant's normalized 0–100 round
@@ -106,59 +161,83 @@ export function buildDsaLeaderboard(
   startedMs: number | null,
   penaltyModel: 'BEST_SCORE' | 'ICPC',
   limit: number,
+  team?: TeamLeaderboardOptions,
 ): DsaLeaderboardRow[] {
   const normWeights = normalizeWeights(links.map((link) => link.points));
   const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
 
-  type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
-  const byUser = new Map<string, {
-    userId: string; userName: string; avatar: string | null;
-    cells: Map<string, Cell>; totalRuntimeMs: number;
-  }>();
+  // Per-user cells (one entry per submitter).
+  type UserEntry = { userId: string; userName: string; avatar: string | null; cells: Map<string, ScoreCell> };
+  const byUser = new Map<string, UserEntry>();
   for (const submission of submissions) {
     if (!weightByProblem.has(submission.problemId)) continue;
     const entry = byUser.get(submission.userId) ?? {
-      userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
-      cells: new Map<string, Cell>(), totalRuntimeMs: 0,
+      userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar, cells: new Map<string, ScoreCell>(),
     };
     entry.cells.set(submission.problemId, {
       score: submission.score, verdict: submission.verdict, runtimeMs: submission.runtimeMs,
       wrongAttempts: submission.contestWrongAttempts, solvedAt: submission.contestSolvedAt,
     });
-    entry.totalRuntimeMs += submission.runtimeMs ?? 0;
     byUser.set(submission.userId, entry);
   }
 
-  const computed = Array.from(byUser.values()).map((entry) => {
-    const totalScore = aggregateWeighted(links.map((link) => ({
-      weight: link.points,
-      score: entry.cells.get(link.problemId)?.score ?? 0,
-    })));
-    const solved: SolvedProblemPenalty[] = [];
-    let completionMs = startedMs ?? 0;
-    for (const link of links) {
-      const cell = entry.cells.get(link.problemId);
-      if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
-        const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
-        solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
-        completionMs = Math.max(completionMs, cell.solvedAt.getTime());
-      }
+  type Computed = { id: string; name: string; avatar: string | null; members?: string[]; isTeam?: boolean } & DerivedEntry;
+  let computed: Computed[];
+
+  if (!team) {
+    // Solo: one row per user.
+    computed = Array.from(byUser.values()).map((u) => ({
+      id: u.userId, name: u.userName, avatar: u.avatar, ...deriveEntry(links, weightByProblem, u.cells, startedMs),
+    }));
+  } else {
+    // Team: group submitters by team, fold members per the chosen aggregation.
+    const teams = new Map<string, { teamName: string; members: UserEntry[] }>();
+    for (const u of byUser.values()) {
+      const t = team.teamByUser.get(u.userId);
+      if (!t) continue; // a submitter not on a team (shouldn't happen for team events) is skipped
+      const bucket = teams.get(t.teamId) ?? { teamName: t.teamName, members: [] as UserEntry[] };
+      bucket.members.push(u);
+      teams.set(t.teamId, bucket);
     }
-    const problems = links
-      .filter((link) => entry.cells.has(link.problemId))
-      .map((link) => {
-        const cell = entry.cells.get(link.problemId)!;
-        return {
-          problemId: link.problemId,
-          title: link.problem.title,
-          score: cell.score,
-          weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
-          verdict: cell.verdict,
-          runtimeMs: cell.runtimeMs,
-        };
-      });
-    return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty: computeIcpcPenalty(solved), totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
-  });
+    computed = Array.from(teams.entries()).map(([teamId, bucket]) => {
+      const memberNames = bucket.members.map((m) => m.userName);
+      const memberDerived = bucket.members.map((m) => deriveEntry(links, weightByProblem, m.cells, startedMs));
+
+      if (team.aggregation === 'BEST_MEMBER') {
+        // The single best member carries the team (score desc, then penalty, then earliest).
+        let best = memberDerived[0];
+        for (const d of memberDerived) {
+          if (d.totalScore > best.totalScore
+            || (d.totalScore === best.totalScore && d.penalty < best.penalty)
+            || (d.totalScore === best.totalScore && d.penalty === best.penalty && d.completionMs < best.completionMs)) best = d;
+        }
+        return { id: teamId, name: bucket.teamName, avatar: null, isTeam: true, members: memberNames, ...best };
+      }
+
+      // BEST_PER_PROBLEM + AVERAGE both synthesize team cells from members; the per-problem
+      // cell is the best member's cell on that problem (highest score, tie → earliest solve).
+      const teamCells = new Map<string, ScoreCell>();
+      for (const link of links) {
+        let pick: ScoreCell | null = null;
+        for (const m of bucket.members) {
+          const c = m.cells.get(link.problemId);
+          if (!c) continue;
+          if (!pick || c.score > pick.score
+            || (c.score === pick.score && (c.solvedAt?.getTime() ?? Infinity) < (pick.solvedAt?.getTime() ?? Infinity))) pick = c;
+        }
+        if (pick) teamCells.set(link.problemId, pick);
+      }
+      const derived = deriveEntry(links, weightByProblem, teamCells, startedMs);
+      if (team.aggregation === 'AVERAGE') {
+        // Round score = mean of members' round scores; penalty = mean; keep the
+        // best-per-problem breakdown + completion for display/tie-break.
+        const avgScore = memberDerived.length ? memberDerived.reduce((s, d) => s + d.totalScore, 0) / memberDerived.length : 0;
+        const avgPenalty = memberDerived.length ? Math.round(memberDerived.reduce((s, d) => s + d.penalty, 0) / memberDerived.length) : 0;
+        return { id: teamId, name: bucket.teamName, avatar: null, isTeam: true, members: memberNames, ...derived, totalScore: Math.round(Math.min(100, avgScore) * 100) / 100, penalty: avgPenalty };
+      }
+      return { id: teamId, name: bucket.teamName, avatar: null, isTeam: true, members: memberNames, ...derived };
+    });
+  }
 
   const ranks = rankEntries(
     computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
@@ -168,7 +247,18 @@ export function buildDsaLeaderboard(
     .map((c, index) => ({ rank: ranks[index], ...c }))
     .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
     .slice(0, limit)
-    .map(({ completionMs: _completionMs, ...entry }) => entry);
+    .map(({ completionMs: _completionMs, id, name, ...rest }) => ({
+      rank: rest.rank,
+      userId: id,
+      userName: name,
+      avatar: rest.avatar,
+      totalScore: rest.totalScore,
+      penalty: rest.penalty,
+      totalRuntimeMs: rest.totalRuntimeMs,
+      ...(rest.members ? { members: rest.members } : {}),
+      ...(rest.isTeam ? { isTeam: true } : {}),
+      problems: rest.problems,
+    }));
 }
 
 export function rankEntries(
