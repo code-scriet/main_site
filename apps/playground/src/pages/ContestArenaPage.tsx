@@ -19,6 +19,7 @@ import { mainApi, type ContestRoundProblem } from '@/lib/mainApi';
 import { QOTDSolverShell, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { useProctor } from '@/hooks/useProctor';
 import { useContestSocket } from '@/hooks/useContestSocket';
+import { Button } from '@/components/ui/button';
 import { getMainSiteOrigin } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -111,7 +112,7 @@ export default function ContestArenaPage() {
   });
   const clarificationCount = clarificationsQuery.data?.clarifications.length ?? 0;
 
-  const { locked: proctorLocked, awayMsLeft } = useProctor({
+  const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
     // DSA proctor is lock-only (no auto-submit — see file header) but enforces the
@@ -119,6 +120,7 @@ export default function ContestArenaPage() {
     fullscreen: Boolean(round?.proctored) && isActive,
     blockPaste: Boolean(round?.proctored) && isActive,
   });
+  const needsFullscreen = Boolean(round?.proctored) && isActive && !inFullscreen && !proctorLocked;
 
   // Live push (no reloads): leaderboard/clarifications update their query caches in place,
   // first-solves pop a balloon toast, and a status change re-syncs the round (lobby →
@@ -373,6 +375,21 @@ export default function ContestArenaPage() {
           )}
         </main>
       </div>
+      )}
+
+      {/* Proctor: fullscreen gate — browsers require a user gesture, so we prompt rather
+          than auto-request. Until they enter fullscreen, work is blocked by this overlay. */}
+      {needsFullscreen && (
+        <div className="fixed inset-0 z-[65] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl border border-amber-400 bg-card p-6 text-center space-y-3">
+            <AlertCircle className="h-10 w-10 text-amber-500 mx-auto" />
+            <h2 className="text-xl font-semibold">Fullscreen required</h2>
+            <p className="text-sm text-muted-foreground">
+              This round is proctored. Enter fullscreen to continue — leaving fullscreen, switching tabs, or pasting will lock your session.
+            </p>
+            <Button onClick={enterFullscreen} className="bg-amber-400 text-amber-950 hover:bg-amber-300">Enter fullscreen &amp; continue</Button>
+          </div>
+        </div>
       )}
 
       {/* Proctor: away-countdown warning */}

@@ -9,7 +9,6 @@
 // leaderboard recompute (1/sec per round, mirroring the quiz answer-count throttle).
 
 import { prisma } from '../lib/prisma.js';
-import { getIO } from '../utils/socket.js';
 import { logger } from '../utils/logger.js';
 import { buildDsaLeaderboard, type DsaLeaderboardRow, type TeamLeaderboardOptions } from '../utils/contestScoring.js';
 
@@ -17,6 +16,22 @@ export const COMPETITION_NS = '/competition';
 export const roomAll = (roundId: string) => `round:${roundId}`;
 export const roomAdmin = (roundId: string) => `round:${roundId}:admin`;
 export const roomUser = (roundId: string, userId: string) => `round:${roundId}:user:${userId}`;
+
+// The /competition WebSocket lives on the (idle) playground server (Phase H). The main
+// API computes everything and RELAYS ready-to-emit events to it over an internal HTTP
+// POST. Fire-and-forget + best-effort: if the relay isn't configured or is down, clients
+// fall back to REST polling — contest correctness never depends on the relay.
+function relayEmit(room: string, event: string, payload: unknown): void {
+  const base = process.env.PLAYGROUND_API_URL;
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!base || !secret) return;
+  void fetch(`${base.replace(/\/$/, '')}/internal/contest-emit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+    body: JSON.stringify({ room, event, payload }),
+    signal: AbortSignal.timeout(4000),
+  }).catch(() => undefined);
+}
 
 interface ContestRoom {
   firstSolved: Map<string, { userId: string; userName: string }>; // problemId → first AC
@@ -110,15 +125,14 @@ export function isLeaderboardFrozen(lb: { status: string; startedMs: number | nu
 }
 
 async function broadcastLeaderboardNow(roundId: string): Promise<void> {
-  const io = getIO();
-  if (!io) return;
   try {
     const lb = await computeContestLeaderboard(roundId, 100);
     if (!lb || lb.roundType !== 'DSA') return;
     // Admins always see the live board; participants get a full freeze in the final N min.
-    io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:leaderboard', { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results });
+    relayEmit(roomAdmin(roundId), 'contest:leaderboard', { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results });
     const frozen = isLeaderboardFrozen(lb);
-    io.of(COMPETITION_NS).to(roomAll(roundId)).emit(
+    relayEmit(
+      roomAll(roundId),
       'contest:leaderboard',
       frozen ? { frozen: true, penaltyModel: lb.penaltyModel, results: [] } : { frozen: false, penaltyModel: lb.penaltyModel, results: lb.results },
     );
@@ -155,10 +169,8 @@ async function hydrateFirstSolved(roundId: string, room: ContestRoom): Promise<v
 export async function onContestSubmission(args: {
   roundId: string; userId: string; userName: string; problemId: string; verdict: string; score: number;
 }): Promise<void> {
-  const io = getIO();
-  if (!io) return;
   try {
-    io.of(COMPETITION_NS).to(roomAdmin(args.roundId)).emit('contest:submission', {
+    relayEmit(roomAdmin(args.roundId), 'contest:submission', {
       userName: args.userName, problemId: args.problemId, verdict: args.verdict, score: args.score, at: Date.now(),
     });
 
@@ -168,8 +180,8 @@ export async function onContestSubmission(args: {
       if (!room.firstSolved.has(args.problemId)) {
         room.firstSolved.set(args.problemId, { userId: args.userId, userName: args.userName });
         const payload = { problemId: args.problemId, userName: args.userName };
-        io.of(COMPETITION_NS).to(roomAll(args.roundId)).emit('contest:firstSolve', payload);
-        io.of(COMPETITION_NS).to(roomAdmin(args.roundId)).emit('contest:firstSolve', payload);
+        relayEmit(roomAll(args.roundId), 'contest:firstSolve', payload);
+        relayEmit(roomAdmin(args.roundId), 'contest:firstSolve', payload);
       }
     }
     scheduleLeaderboardBroadcast(args.roundId);
@@ -179,30 +191,23 @@ export async function onContestSubmission(args: {
 }
 
 export function emitClarification(roundId: string, clar: { id: string; message: string; createdAt: string }): void {
-  const io = getIO();
-  if (!io) return;
-  io.of(COMPETITION_NS).to(roomAll(roundId)).emit('contest:clarification', clar);
-  io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:clarification', clar);
+  relayEmit(roomAll(roundId), 'contest:clarification', clar);
+  relayEmit(roomAdmin(roundId), 'contest:clarification', clar);
 }
 
 // Round-status push (lobby → synced start, lock, finish). Evicts the in-memory room once
 // the round is no longer live so state never accumulates.
 export function emitRoundStatus(roundId: string, status: string): void {
-  const io = getIO();
-  if (io) {
-    io.of(COMPETITION_NS).to(roomAll(roundId)).emit('contest:status', { status });
-    io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:status', { status });
-  }
+  relayEmit(roomAll(roundId), 'contest:status', { status });
+  relayEmit(roomAdmin(roundId), 'contest:status', { status });
   if (status === 'FINISHED' || status === 'DRAFT') evictContestRoom(roundId);
 }
 
 // Round-config change (e.g. admin extends time) → clients refetch the round so the
 // countdown + duration update live, without a status change.
 export function emitRoundUpdate(roundId: string): void {
-  const io = getIO();
-  if (!io) return;
-  io.of(COMPETITION_NS).to(roomAll(roundId)).emit('contest:round', {});
-  io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:round', {});
+  relayEmit(roomAll(roundId), 'contest:round', {});
+  relayEmit(roomAdmin(roundId), 'contest:round', {});
 }
 
 /** Recompute + push the leaderboard now (used after an admin rejudge). */
@@ -211,14 +216,10 @@ export function broadcastLeaderboard(roundId: string): void {
 }
 
 export function emitProctor(roundId: string, userId: string, locked: boolean, lockReason: string | null): void {
-  const io = getIO();
-  if (!io) return;
-  io.of(COMPETITION_NS).to(roomUser(roundId, userId)).emit('contest:proctor', { locked, lockReason });
-  io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:participant', { userId, locked });
+  relayEmit(roomUser(roundId, userId), 'contest:proctor', { locked, lockReason });
+  relayEmit(roomAdmin(roundId), 'contest:participant', { userId, locked });
 }
 
 export function emitViolation(roundId: string, userId: string, kind: string, violationCount: number): void {
-  const io = getIO();
-  if (!io) return;
-  io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:violation', { userId, kind, violationCount, at: Date.now() });
+  relayEmit(roomAdmin(roundId), 'contest:violation', { userId, kind, violationCount, at: Date.now() });
 }

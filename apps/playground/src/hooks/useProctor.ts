@@ -20,6 +20,10 @@ export interface UseProctorResult {
   lockReason: string | null;
   /** Milliseconds left before the away-timer trips (null when not counting). */
   awayMsLeft: number | null;
+  /** True once the contestant is in fullscreen (fullscreen lockdown only). */
+  inFullscreen: boolean;
+  /** Request fullscreen — must be called from a user gesture (a button). */
+  enterFullscreen: () => void;
 }
 
 export function useProctor(opts: {
@@ -35,10 +39,12 @@ export function useProctor(opts: {
   const [locked, setLocked] = useState(false);
   const [lockReason, setLockReason] = useState<string | null>(null);
   const [awayMsLeft, setAwayMsLeft] = useState<number | null>(null);
+  const [inFullscreen, setInFullscreen] = useState(typeof document !== 'undefined' && Boolean(document.fullscreenElement));
 
   const awayTimerRef = useRef<number | null>(null);
   const countdownRef = useRef<number | null>(null);
   const trippedRef = useRef(false);
+  const enteredFullscreenRef = useRef(false); // only an EXIT after a real ENTER locks
   const onAutoSubmitRef = useRef(onAutoSubmit);
   onAutoSubmitRef.current = onAutoSubmit;
 
@@ -88,22 +94,22 @@ export function useProctor(opts: {
       }, 0);
     };
     const onFocus = () => clearAway();
-    // Fullscreen + paste are INSTANT violations (no countdown) — they trip the lock
-    // immediately on a proctored round.
+    // Fullscreen + paste are INSTANT violations (no countdown) on a proctored round.
+    // Fullscreen is entered via a user gesture (enterFullscreen, wired to a button) since
+    // browsers reject a silent request; we only lock on an EXIT after a real ENTER, so a
+    // contestant who hasn't entered yet is prompted (by the arena), not locked.
     const onFullscreenChange = () => {
-      if (fullscreen && !document.fullscreenElement) void trip('FULLSCREEN_EXIT');
+      const fs = Boolean(document.fullscreenElement);
+      setInFullscreen(fs);
+      if (fs) enteredFullscreenRef.current = true;
+      else if (fullscreen && enteredFullscreenRef.current) void trip('FULLSCREEN_EXIT');
     };
     const onPaste = () => { if (blockPaste) void trip('COPY_PASTE'); };
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
-    if (fullscreen) {
-      document.addEventListener('fullscreenchange', onFullscreenChange);
-      // Best-effort: requestFullscreen needs a user gesture, so this may reject — the
-      // detection of an EXIT is what enforces the lockdown either way.
-      document.documentElement.requestFullscreen?.().catch(() => undefined);
-    }
+    if (fullscreen) document.addEventListener('fullscreenchange', onFullscreenChange);
     if (blockPaste) document.addEventListener('paste', onPaste);
 
     return () => {
@@ -134,5 +140,9 @@ export function useProctor(opts: {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [enabled, locked, roundId]);
 
-  return { locked, lockReason, awayMsLeft };
+  const enterFullscreen = useCallback(() => {
+    document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }, []);
+
+  return { locked, lockReason, awayMsLeft, inFullscreen, enterFullscreen };
 }

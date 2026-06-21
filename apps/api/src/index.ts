@@ -43,7 +43,6 @@ import competitionRouter, { recoverActiveRounds } from './routes/competition.js'
 import { problemsRouter } from './routes/problems.js';
 import { problemSheetsRouter } from './routes/problemSheets.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
-import { initCompetitionSocket } from './competition/competitionSocket.js';
 import { clearAllContestRooms } from './competition/competitionRealtime.js';
 import { isContestPriorityActive } from './competition/contestMode.js';
 import { setupPassport } from './config/passport.js';
@@ -214,8 +213,8 @@ initQuizSocket(io);
 // Initialize Attendance Socket namespace
 initializeAttendanceSocket(io);
 
-// Initialize Competition Socket namespace (live arena + admin monitor pushes)
-initCompetitionSocket(io);
+// Competition realtime is relayed to the (idle) playground server's /competition
+// namespace (apps/playground/execute-server.js) — see competition/competitionRealtime.ts.
 
 // Neon keep-alive: prevent cold connection starts
 let keepAliveFailureCount = 0;

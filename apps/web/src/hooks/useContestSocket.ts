@@ -7,10 +7,14 @@
 import { useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
-import { getApiBaseUrl } from '@/lib/utils';
 
-function socketBaseUrl(): string {
-  return getApiBaseUrl().replace(/\/api\/?$/, '');
+// The /competition relay runs on the playground execute-server (Phase H). The web admin
+// monitor connects there. Unset in prod ⇒ no socket; the monitor's REST polling (8s) is
+// the fallback, so the feature still works.
+function relayOrigin(): string | null {
+  const configured = (import.meta.env.VITE_PLAYGROUND_API_URL as string | undefined)?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  return import.meta.env.DEV ? 'http://localhost:5002' : null;
 }
 
 export interface ContestAdminSocketHandlers {
@@ -26,7 +30,9 @@ export function useContestAdminSocket(roundId: string, enabled: boolean, handler
 
   useEffect(() => {
     if (!enabled || !roundId || !token) return;
-    const socket: Socket = io(`${socketBaseUrl()}/competition`, {
+    const origin = relayOrigin();
+    if (!origin) return; // relay not configured in this environment → REST polling stays
+    const socket: Socket = io(`${origin}/competition`, {
       transports: ['websocket'],
       withCredentials: true,
       auth: { token },

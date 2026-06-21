@@ -162,8 +162,21 @@ export function getIO(): SocketIOServer | null {
  * Safe to call when Socket.io isn't initialized (no-op).
  */
 export async function disconnectUserSockets(userId: string): Promise<void> {
-  if (!io || !userId) return;
-  const namespaces = ['/', '/quiz', '/notifications', '/attendance', '/competition'];
+  if (!userId) return;
+  // The /competition namespace lives on the playground relay — tell it to drop this
+  // user's contest sockets too (best-effort; force-logout still works without it).
+  const relayBase = process.env.PLAYGROUND_API_URL;
+  const relaySecret = process.env.INTERNAL_API_SECRET;
+  if (relayBase && relaySecret) {
+    void fetch(`${relayBase.replace(/\/$/, '')}/internal/disconnect-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': relaySecret },
+      body: JSON.stringify({ userId }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => undefined);
+  }
+  if (!io) return;
+  const namespaces = ['/', '/quiz', '/notifications', '/attendance'];
   for (const nsName of namespaces) {
     try {
       const ns = io.of(nsName);

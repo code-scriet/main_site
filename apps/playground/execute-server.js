@@ -6,7 +6,21 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import { Server as SocketIOServer } from 'socket.io';
 import { findPlagiarismPairs } from './plagiarism.js';
+
+// ---------------------------------------------------------------------------
+// Contest realtime relay (Phase H) — this mostly-idle box hosts the /competition
+// Socket.io namespace so the main API sheds persistent-connection memory during
+// contests. The relay is DUMB: the main API computes everything (scores, freeze,
+// payloads) and POSTs ready-to-emit events to /internal/contest-emit; we fan them
+// out to the right rooms. Clients connect here for live updates and fall back to
+// main-API REST polling if the relay is unavailable.
+// ---------------------------------------------------------------------------
+let contestIo = null;
+const roomAll = (roundId) => `round:${roundId}`;
+const roomAdmin = (roundId) => `round:${roundId}:admin`;
+const roomUser = (roundId, userId) => `round:${roundId}:user:${userId}`;
 
 // Load env from the monorepo root .env, then the local playground .env
 // (local values override root). This ensures JWT_SECRET matches the main API.
@@ -926,6 +940,43 @@ app.post('/internal/plagiarism', express.json({ limit: '12mb' }), async (req, re
   }
 });
 
+// Relay emit: the main API POSTs { room, event, payload } (or { rooms: [...] }); we
+// fan it out over the /competition namespace. Server-to-server only.
+app.post('/internal/contest-emit', (req, res) => {
+  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const { room, rooms, event, payload } = req.body || {};
+    if (!event || (!room && !Array.isArray(rooms))) return res.status(400).json({ error: 'room + event required' });
+    if (contestIo) {
+      const targets = Array.isArray(rooms) ? rooms : [room];
+      for (const r of targets) if (r) contestIo.of('/competition').to(r).emit(event, payload ?? {});
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[relay] emit failed:', err?.message);
+    return res.status(500).json({ error: 'emit failed' });
+  }
+});
+
+// Relay disconnect: main API force-logout/soft-delete drops a user's contest sockets.
+app.post('/internal/disconnect-user', async (req, res) => {
+  if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const userId = req.body?.userId;
+    if (contestIo && userId) {
+      const sockets = await contestIo.of('/competition').fetchSockets();
+      for (const s of sockets) if (s.data?.userId === userId) s.disconnect(true);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'disconnect failed' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Routes — Execution
 // ---------------------------------------------------------------------------
@@ -1669,3 +1720,72 @@ const server = app.listen(PORT, () => {
   console.log(`Languages:    ${SUPPORTED_LANGUAGES.join(', ')}`);
   console.log(`Timeout:      ${EXECUTION_TIMEOUT / 1000}s`);
 });
+
+// ---------------------------------------------------------------------------
+// Contest /competition Socket.io namespace (relay). Auth via the shared JWT;
+// rooms gated by event registration (pg) / admin role. Reuses the HTTP CORS
+// allowlist so browser→relay is allowed for code./www./codescriet.dev.
+// ---------------------------------------------------------------------------
+contestIo = new SocketIOServer(server, {
+  cors: { origin: ALLOWED_ORIGINS, credentials: true, methods: ['GET', 'POST'] },
+  transports: ['websocket'],
+  pingInterval: 10000,
+  pingTimeout: 30000,
+});
+
+function authSocket(socket) {
+  const auth = socket.handshake.auth || {};
+  const headerToken = (socket.handshake.headers?.authorization || '').replace(/^Bearer /, '');
+  const cookie = socket.handshake.headers?.cookie || '';
+  const cookieMatch = cookie.split(';').find((c) => c.trim().startsWith('scriet_session='));
+  const cookieToken = cookieMatch ? decodeURIComponent(cookieMatch.split('=').slice(1).join('=').trim()) : null;
+  for (const token of [auth.token, headerToken, cookieToken].filter(Boolean)) {
+    try {
+      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+      if (decoded && typeof decoded.purpose === 'string') continue; // reject special-purpose tokens
+      return { id: decoded.userId || decoded.id, role: decoded.role };
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+contestIo.of('/competition').use((socket, next) => {
+  const user = authSocket(socket);
+  if (!user?.id) return next(new Error('AUTH_INVALID'));
+  socket.data.userId = user.id;
+  socket.data.role = user.role;
+  next();
+});
+
+contestIo.of('/competition').on('connection', (socket) => {
+  const userId = socket.data.userId;
+  const isAdmin = ['ADMIN', 'PRESIDENT'].includes(socket.data.role);
+
+  socket.on('join', async (payload) => {
+    const roundId = payload?.roundId;
+    if (!roundId || typeof roundId !== 'string') return socket.emit('contest:error', { message: 'roundId required' });
+    if (!pool || !dbReady) return socket.emit('contest:error', { message: 'unavailable' });
+    try {
+      const round = await pool.query('SELECT event_id FROM competition_rounds WHERE id = $1', [roundId]);
+      if (round.rowCount === 0) return socket.emit('contest:error', { message: 'Round not found' });
+      if (isAdmin) { socket.join(roomAdmin(roundId)); return; }
+      const reg = await pool.query('SELECT id FROM event_registrations WHERE user_id = $1 AND event_id = $2', [userId, round.rows[0].event_id]);
+      if (reg.rowCount === 0) return socket.emit('contest:error', { message: 'Not registered for this event' });
+      socket.join(roomAll(roundId));
+      socket.join(roomUser(roundId, userId));
+    } catch (err) {
+      console.error('[relay] join failed:', err?.message);
+      socket.emit('contest:error', { message: 'Could not join round' });
+    }
+  });
+
+  socket.on('leave', (payload) => {
+    const roundId = payload?.roundId;
+    if (!roundId) return;
+    socket.leave(roomAll(roundId));
+    socket.leave(roomAdmin(roundId));
+    socket.leave(roomUser(roundId, userId));
+  });
+});
+
+console.log(`Contest relay: /competition Socket.io namespace ready (origins: ${ALLOWED_ORIGINS.join(', ')})`);

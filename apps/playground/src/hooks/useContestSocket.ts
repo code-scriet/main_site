@@ -6,8 +6,11 @@
 import { useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { getPlaygroundStoredToken } from '@/lib/authToken';
-import { getMainApiOrigin } from '@/lib/utils';
 import type { ContestLeaderboardRow } from '@/lib/mainApi';
+
+// The /competition relay runs on THIS playground's execute-server (VITE_API_URL), not
+// the main API — that's the whole point of the relocation (offload sockets to the idle box).
+const RELAY_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:5002').replace(/\/+$/, '');
 
 export interface ContestSocketHandlers {
   onLeaderboard?: (data: { frozen: boolean; penaltyModel?: 'BEST_SCORE' | 'ICPC'; results: ContestLeaderboardRow[] }) => void;
@@ -24,7 +27,7 @@ export function useContestSocket(roundId: string, enabled: boolean, handlers: Co
   useEffect(() => {
     if (!enabled || !roundId) return;
     const token = getPlaygroundStoredToken();
-    const socket: Socket = io(`${getMainApiOrigin()}/competition`, {
+    const socket: Socket = io(`${RELAY_ORIGIN}/competition`, {
       transports: ['websocket'],
       withCredentials: true,
       auth: token ? { token } : undefined,
