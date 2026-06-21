@@ -44,6 +44,7 @@ const HARDCODED_PROD_ORIGINS = [
   'https://code.codescriet.dev',
   'https://codescriet.dev',
   'https://www.codescriet.dev',
+  'https://app.codescriet.dev', // main web (admin monitor) — contest relay socket origin
 ];
 
 const PROD_ORIGINS = process.env.ALLOWED_ORIGIN
@@ -78,6 +79,10 @@ app.use(cors({
   maxAge: 86400,
 }));
 
+// Internal server-to-server endpoints (contest relay + plagiarism offload) accept larger
+// bodies for per-problem code batches. Mounted BEFORE the global 1mb parser so it parses
+// /internal first (the global one then skips — body-parser is a no-op once req._body is set).
+app.use('/internal', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Security headers
@@ -922,7 +927,7 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
 // server is mostly idle) and return flagged pairs. Larger json limit for code batches.
 // ---------------------------------------------------------------------------
 const INTERNAL_API_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
-app.post('/internal/plagiarism', express.json({ limit: '12mb' }), async (req, res) => {
+app.post('/internal/plagiarism', async (req, res) => {
   if (!INTERNAL_API_SECRET || req.headers['x-internal-secret'] !== INTERNAL_API_SECRET) {
     return res.status(403).json({ error: 'forbidden' });
   }
