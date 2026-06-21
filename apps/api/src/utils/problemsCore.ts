@@ -535,10 +535,20 @@ function calculateScore(
   let earned = 0;
   let total = 0;
 
+  // passedCount/totalCount count only WEIGHTED tests so the headline "X/Y passed" matches
+  // the score. In CONTEST (privateOnly) samples carry 0 weight, so they're excluded here —
+  // otherwise a contestant would see "8/10 passed" next to a hidden-test-only score and
+  // think the two disagree. Normal mode keeps every test (samples weight 1), unchanged.
+  let passedCount = 0;
+  let totalCount = 0;
   const perTestVerdicts = weightedCases.map((test) => {
     const verdict = verdictById.get(test.id);
     total += test.weight;
     if (verdict?.passed) earned += test.weight;
+    if (test.weight > 0) {
+      totalCount += 1;
+      if (verdict?.passed) passedCount += 1;
+    }
     return {
       testId: test.id,
       isHidden: test.isHidden,
@@ -551,8 +561,8 @@ function calculateScore(
 
   return {
     score: total > 0 ? Math.round((earned / total) * 100) : 0,
-    passedCount: perTestVerdicts.filter((test) => test.passed).length,
-    totalCount: perTestVerdicts.length,
+    passedCount,
+    totalCount,
     perTestVerdicts,
   };
 }

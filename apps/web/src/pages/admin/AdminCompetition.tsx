@@ -66,6 +66,10 @@ type FormState = {
   penaltyModel: 'BEST_SCORE' | 'ICPC';
   teamAggregation: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
   leaderboardFreezeMinutes: number;
+  // Editable presets that seed a newly-added problem's weight from its difficulty. Persisted
+  // on the round so the admin's tuning survives a reload (raw per-problem weight still lives
+  // on each problem's `points`; these only seed the input).
+  difficultyWeights: { EASY: number; MEDIUM: number; HARD: number };
 };
 
 const DEFAULT_FORM: FormState = {
@@ -84,12 +88,17 @@ const DEFAULT_FORM: FormState = {
   penaltyModel: 'BEST_SCORE',
   teamAggregation: 'BEST_PER_PROBLEM',
   leaderboardFreezeMinutes: 0,
+  difficultyWeights: { EASY: 100, MEDIUM: 200, HARD: 300 },
 };
 
-// Default per-problem weight seeded from difficulty (the admin can still override).
-const DIFFICULTY_WEIGHT: Record<string, number> = { EASY: 100, MEDIUM: 200, HARD: 300 };
-function seedWeightFromDifficulty(difficulty?: string): number {
-  return DIFFICULTY_WEIGHT[(difficulty || '').toUpperCase()] ?? 100;
+// Default difficulty → weight presets (the fallback when a round has none stored).
+const DEFAULT_DIFFICULTY_WEIGHTS = { EASY: 100, MEDIUM: 200, HARD: 300 } as const;
+// Seed a newly-added problem's weight from its difficulty using the round's editable
+// presets (the admin can still override the resulting per-problem weight).
+function seedWeightFromDifficulty(difficulty: string | undefined, weights: FormState['difficultyWeights']): number {
+  const key = (difficulty || '').toUpperCase();
+  if (key === 'EASY' || key === 'MEDIUM' || key === 'HARD') return weights[key] || 100;
+  return weights.MEDIUM || 100;
 }
 
 // Map each round status to a dashboard v2 Pill tone (matches design line 387).
@@ -334,6 +343,11 @@ export default function AdminCompetition() {
       penaltyModel: round.penaltyModel ?? 'BEST_SCORE',
       teamAggregation: round.teamAggregation ?? 'BEST_PER_PROBLEM',
       leaderboardFreezeMinutes: round.leaderboardFreezeMinutes ?? 0,
+      difficultyWeights: {
+        EASY: round.difficultyWeights?.EASY ?? DEFAULT_DIFFICULTY_WEIGHTS.EASY,
+        MEDIUM: round.difficultyWeights?.MEDIUM ?? DEFAULT_DIFFICULTY_WEIGHTS.MEDIUM,
+        HARD: round.difficultyWeights?.HARD ?? DEFAULT_DIFFICULTY_WEIGHTS.HARD,
+      },
     });
     setCreateOpen(true);
   };
@@ -370,6 +384,7 @@ export default function AdminCompetition() {
         penaltyModel: form.penaltyModel,
         teamAggregation: form.teamAggregation,
         leaderboardFreezeMinutes: form.leaderboardFreezeMinutes > 0 ? form.leaderboardFreezeMinutes : null,
+        difficultyWeights: form.difficultyWeights,
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
@@ -397,6 +412,7 @@ export default function AdminCompetition() {
           penaltyModel: payload.penaltyModel,
           teamAggregation: payload.teamAggregation,
           leaderboardFreezeMinutes: payload.leaderboardFreezeMinutes,
+          difficultyWeights: payload.difficultyWeights,
         }, token);
         setSuccess('Round updated successfully');
       } else {
@@ -1104,16 +1120,23 @@ export default function AdminCompetition() {
                   />
                   <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Freeze the public board in the final N minutes (0 = never).</p>
                 </div>
-                <label htmlFor="competition-proctored" className="flex items-center gap-2 self-end pb-2 text-sm font-medium text-[var(--ds-text-2)]">
-                  <input
-                    id="competition-proctored"
-                    type="checkbox"
-                    checked={form.proctored}
-                    onChange={(e) => setForm((prev) => ({ ...prev, proctored: e.target.checked }))}
-                    className="h-4 w-4 rounded border-[var(--accent-ring)] text-[var(--accent)] focus:ring-[var(--accent)]"
-                  />
-                  Proctored (auto-submit + lock on tab switch)
-                </label>
+                <div className="flex flex-col gap-1 self-end pb-1">
+                  <label htmlFor="competition-proctored" className="flex items-center gap-2 text-sm font-medium text-[var(--ds-text-2)]">
+                    <input
+                      id="competition-proctored"
+                      type="checkbox"
+                      checked={form.proctored}
+                      onChange={(e) => setForm((prev) => ({ ...prev, proctored: e.target.checked }))}
+                      className="h-4 w-4 rounded border-[var(--accent-ring)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                    />
+                    Proctored (lockdown)
+                  </label>
+                  {form.proctored && (
+                    <p className="text-[11px] text-[var(--ds-text-3)]">
+                      Tab-away locks after a 10s warning. Paste &amp; leaving fullscreen warn first and lock on the 3rd — each lock needs a manual admin unlock from the Monitor, so staff one for large rounds.
+                    </p>
+                  )}
+                </div>
                 {selectedFormEvent?.teamRegistration && form.roundType === 'DSA' && (
                   <div className="sm:col-span-2">
                     <label htmlFor="competition-team-agg" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Team score (how members fold)</label>
@@ -1147,7 +1170,28 @@ export default function AdminCompetition() {
             ) : (
               <div>
                 <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems &amp; weights</p>
-                <p className="mb-1 text-[11px] text-[var(--ds-text-3)]">Weight seeds from difficulty (Easy 100 · Medium 200 · Hard 300) — edit freely. Each problem&apos;s share is normalized within the round; its weight is split across the problem&apos;s private tests only.</p>
+                <p className="mb-1 text-[11px] text-[var(--ds-text-3)]">A new problem&apos;s weight seeds from these difficulty presets — edit freely. Each problem&apos;s share is normalized within the round; its weight is split across the problem&apos;s private tests only.</p>
+                {/* Editable difficulty → seed-weight presets (persisted on the round). */}
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ds-text-3)]">Seed by difficulty</span>
+                  {(['EASY', 'MEDIUM', 'HARD'] as const).map((level) => (
+                    <label key={level} className="flex items-center gap-1.5 text-[11px] text-[var(--ds-text-2)]">
+                      <span className="capitalize">{level.toLowerCase()}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        aria-label={`${level.toLowerCase()} seed weight`}
+                        value={form.difficultyWeights[level]}
+                        onChange={(e) => setForm((prev) => ({
+                          ...prev,
+                          difficultyWeights: { ...prev.difficultyWeights, [level]: Number(e.target.value || 0) },
+                        }))}
+                        className="h-8 w-16"
+                      />
+                    </label>
+                  ))}
+                </div>
                 <div className="space-y-2 rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)]/40 p-3">
                   <select
                     value=""
@@ -1157,7 +1201,7 @@ export default function AdminCompetition() {
                       const added = problemCatalog.find((item) => item.id === problemId);
                       setForm((prev) => ({
                         ...prev,
-                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: seedWeightFromDifficulty(added?.difficulty) }],
+                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: seedWeightFromDifficulty(added?.difficulty, prev.difficultyWeights) }],
                       }));
                     }}
                     className="h-10 w-full rounded-lg border border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"

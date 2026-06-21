@@ -119,13 +119,21 @@ export default function ContestArenaPage() {
   });
   const clarificationCount = clarificationsQuery.data?.clarifications.length ?? 0;
 
-  const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen } = useProctor({
+  const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
     // DSA proctor is lock-only (no auto-submit — see file header) but enforces the
     // fullscreen + copy-paste lockdown on a proctored round.
     fullscreen: Boolean(round?.proctored) && isActive,
     blockPaste: Boolean(round?.proctored) && isActive,
+    // Paste / fullscreen-exit get a budget server-side: warn first, lock only on repeat.
+    onWarn: ({ kind, remaining }) => {
+      const left = remaining === null ? 'Repeated violations' : remaining <= 0 ? 'Your next violation' : `${remaining} more`;
+      toast.warning(
+        kind === 'COPY_PASTE' ? 'Pasting is disabled in this proctored round' : 'Stay in fullscreen for this proctored round',
+        { description: `${left} will lock your session.` },
+      );
+    },
   });
   const needsFullscreen = Boolean(round?.proctored) && isActive && !inFullscreen && !proctorLocked;
 
@@ -153,6 +161,9 @@ export default function ContestArenaPage() {
         void roundQuery.refetch();
       }
     },
+    // Admin lock/unlock pushed live → reflect it instantly (the heartbeat poll is the
+    // up-to-15s fallback). A fresh unlock clears the overlay without the contestant waiting.
+    onProctor: (d) => applyProctorPush(d.locked, d.lockReason),
   });
 
   // Live round score = Σ(best% × normalized problem weight), capped 0–100.

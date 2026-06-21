@@ -24,6 +24,15 @@ export interface UseProctorResult {
   inFullscreen: boolean;
   /** Request fullscreen — must be called from a user gesture (a button). */
   enterFullscreen: () => void;
+  /** Apply an out-of-band lock/unlock (e.g. an admin push over the contest socket). */
+  applyProctorPush: (locked: boolean, lockReason: string | null) => void;
+}
+
+/** A counted-but-not-locked instant violation (paste / fullscreen exit) under budget. */
+export interface ProctorWarning {
+  kind: ProctorViolationKind;
+  /** Instant violations remaining before the next one locks (null when unknown). */
+  remaining: number | null;
 }
 
 export function useProctor(opts: {
@@ -34,8 +43,10 @@ export function useProctor(opts: {
   fullscreen?: boolean;
   /** Treat a paste anywhere on the page as an instant violation (anti-copy-paste). */
   blockPaste?: boolean;
+  /** Fired when an instant violation is counted but the server chose not to lock (budget). */
+  onWarn?: (warning: ProctorWarning) => void;
 }): UseProctorResult {
-  const { roundId, enabled, onAutoSubmit, fullscreen, blockPaste } = opts;
+  const { roundId, enabled, onAutoSubmit, fullscreen, blockPaste, onWarn } = opts;
   const [locked, setLocked] = useState(false);
   const [lockReason, setLockReason] = useState<string | null>(null);
   const [awayMsLeft, setAwayMsLeft] = useState<number | null>(null);
@@ -47,6 +58,8 @@ export function useProctor(opts: {
   const enteredFullscreenRef = useRef(false); // only an EXIT after a real ENTER locks
   const onAutoSubmitRef = useRef(onAutoSubmit);
   onAutoSubmitRef.current = onAutoSubmit;
+  const onWarnRef = useRef(onWarn);
+  onWarnRef.current = onWarn;
 
   const clearAway = useCallback(() => {
     if (awayTimerRef.current) { window.clearTimeout(awayTimerRef.current); awayTimerRef.current = null; }
@@ -62,7 +75,15 @@ export function useProctor(opts: {
     try { await onAutoSubmitRef.current?.(); } catch { /* best effort — never block the lock */ }
     try {
       const res = await mainApi.reportProctorViolation(roundId, { kind });
-      if (res?.locked) { setLocked(true); setLockReason('Locked by the proctor.'); }
+      if (res?.locked) {
+        setLocked(true); setLockReason('Locked by the proctor.');
+      } else {
+        // Counted but not locked (an instant violation under budget). Re-arm detection now
+        // — don't make the contestant wait up to one heartbeat — and surface the warning so
+        // the host can flash "stop pasting / stay in fullscreen — N left".
+        trippedRef.current = false;
+        if (res?.warning) onWarnRef.current?.({ kind, remaining: res.remaining ?? null });
+      }
     } catch { /* a failed report must not crash the arena */ }
   }, [roundId, clearAway]);
 
@@ -144,5 +165,19 @@ export function useProctor(opts: {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
   }, []);
 
-  return { locked, lockReason, awayMsLeft, inFullscreen, enterFullscreen };
+  // Apply an admin lock/unlock pushed over the contest socket so it lands instantly instead
+  // of waiting up to one heartbeat for the poll. On unlock, re-arm detection + clear any
+  // pending away-countdown; on lock, mark tripped so the local engine doesn't double-report.
+  const applyProctorPush = useCallback((isLocked: boolean, reason: string | null) => {
+    setLocked(isLocked);
+    setLockReason(reason);
+    if (isLocked) {
+      trippedRef.current = true;
+      clearAway();
+    } else {
+      trippedRef.current = false;
+    }
+  }, [clearAway]);
+
+  return { locked, lockReason, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush };
 }

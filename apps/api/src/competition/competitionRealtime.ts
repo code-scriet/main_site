@@ -36,6 +36,7 @@ function relayEmit(room: string, event: string, payload: unknown): void {
 interface ContestRoom {
   firstSolved: Map<string, { userId: string; userName: string }>; // problemId → first AC
   hydratedFirstSolve: boolean;
+  hydratingFirstSolve: Promise<void> | null; // in-flight hydration (coalesces concurrent ACs)
   lbThrottleTimer: NodeJS.Timeout | null;
   lbPending: boolean;
 }
@@ -45,7 +46,7 @@ const rooms = new Map<string, ContestRoom>();
 function getRoom(roundId: string): ContestRoom {
   let room = rooms.get(roundId);
   if (!room) {
-    room = { firstSolved: new Map(), hydratedFirstSolve: false, lbThrottleTimer: null, lbPending: false };
+    room = { firstSolved: new Map(), hydratedFirstSolve: false, hydratingFirstSolve: null, lbThrottleTimer: null, lbPending: false };
     rooms.set(roundId, room);
   }
   return room;
@@ -213,16 +214,26 @@ function scheduleLeaderboardBroadcast(roundId: string): void {
   }, 1000);
 }
 
-async function hydrateFirstSolved(roundId: string, room: ContestRoom): Promise<void> {
-  room.hydratedFirstSolve = true;
-  const accepted = await prisma.problemSubmission.findMany({
-    where: { contextType: 'CONTEST', contextKey: roundId, verdict: 'ACCEPTED' },
-    select: { problemId: true, userId: true, contestSolvedAt: true, user: { select: { name: true } } },
-    orderBy: { contestSolvedAt: 'asc' },
-  });
-  for (const a of accepted) {
-    if (!room.firstSolved.has(a.problemId)) room.firstSolved.set(a.problemId, { userId: a.userId, userName: a.user.name });
+// Hydrate the first-solve map exactly once per room, coalescing concurrent first ACs onto
+// one in-flight query. Setting hydratedFirstSolve BEFORE awaiting (the old code) let two
+// simultaneous ACs both skip hydration and read a not-yet-populated map → a duplicate
+// first-solve balloon. Now the second AC awaits the same promise and sees the populated map.
+async function ensureFirstSolvedHydrated(roundId: string, room: ContestRoom): Promise<void> {
+  if (room.hydratedFirstSolve) return;
+  if (!room.hydratingFirstSolve) {
+    room.hydratingFirstSolve = (async () => {
+      const accepted = await prisma.problemSubmission.findMany({
+        where: { contextType: 'CONTEST', contextKey: roundId, verdict: 'ACCEPTED' },
+        select: { problemId: true, userId: true, contestSolvedAt: true, user: { select: { name: true } } },
+        orderBy: { contestSolvedAt: 'asc' },
+      });
+      for (const a of accepted) {
+        if (!room.firstSolved.has(a.problemId)) room.firstSolved.set(a.problemId, { userId: a.userId, userName: a.user.name });
+      }
+      room.hydratedFirstSolve = true;
+    })().finally(() => { room.hydratingFirstSolve = null; });
   }
+  await room.hydratingFirstSolve;
 }
 
 /** Called (best-effort) after a CONTEST submit is judged + persisted. */
@@ -236,7 +247,7 @@ export async function onContestSubmission(args: {
 
     if (args.verdict === 'ACCEPTED') {
       const room = getRoom(args.roundId);
-      if (!room.hydratedFirstSolve) await hydrateFirstSolved(args.roundId, room);
+      await ensureFirstSolvedHydrated(args.roundId, room);
       if (!room.firstSolved.has(args.problemId)) {
         room.firstSolved.set(args.problemId, { userId: args.userId, userName: args.userName });
         const payload = { problemId: args.problemId, userName: args.userName };

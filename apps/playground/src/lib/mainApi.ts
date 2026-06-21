@@ -241,7 +241,8 @@ export const mainApi = {
   // Proctoring (Phase C). The client force-submits its draft then reports the violation;
   // a proctored round locks the participant (server-enforced) until an admin unlocks.
   reportProctorViolation: (roundId: string, body: { kind: ProctorViolationKind; detail?: string }) =>
-    call<{ locked: boolean }>(`/api/competition/${roundId}/proctor/violation`, { method: 'POST', body: JSON.stringify(body) }),
+    // `warning` + `remaining` accompany an under-budget instant violation (counted, not locked).
+    call<{ locked: boolean; warning?: boolean; remaining?: number | null }>(`/api/competition/${roundId}/proctor/violation`, { method: 'POST', body: JSON.stringify(body) }),
   proctorHeartbeat: (roundId: string) =>
     call<{ locked: boolean; lockReason: string | null; violationCount: number }>(`/api/competition/${roundId}/proctor/heartbeat`, { method: 'POST' }),
   getProctorState: (roundId: string) =>

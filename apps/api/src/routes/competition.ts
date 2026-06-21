@@ -17,6 +17,7 @@ import { normalizeWeights } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
 import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
 import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
+import { getProblemTests } from '../utils/problemsCore.js';
 import { findPlagiarismPairs, type PlagiarismInput, type PlagiarismPair } from '../competition/plagiarism.js';
 
 const competitionRouter = Router();
@@ -28,6 +29,18 @@ competitionRouter.param('roundId', uuidParamGuard('round ID'));
 competitionRouter.param('eventId', uuidParamGuard('event ID'));
 competitionRouter.param('submissionId', uuidParamGuard('submission ID'));
 competitionRouter.param('userId', uuidParamGuard('user ID'));
+competitionRouter.param('flagId', uuidParamGuard('flag ID'));
+
+// Instant-lock violation kinds. A reflexive Ctrl-V or an OS/trackpad-driven fullscreen
+// exit fires these with no prior on-screen grace (unlike tab-away, which only trips after
+// AWAY_LOCK_MS continuously hidden — a deliberate departure). Locking on the very first
+// one produces a wave of false locks that swamps invigilator unlock throughput, so these
+// get a small per-participant budget: the first INSTANT_VIOLATION_BUDGET are warnings, the
+// next locks. Every violation is still logged + counted (the schema's violationCount);
+// only the lock decision is softened. Tab-away still locks on its first trip.
+const INSTANT_VIOLATION_KINDS = ['COPY_PASTE', 'FULLSCREEN_EXIT'] as const;
+const INSTANT_VIOLATION_BUDGET = 2;
+const isInstantViolation = (kind: string): boolean => (INSTANT_VIOLATION_KINDS as readonly string[]).includes(kind);
 
 // Feature gate: the `competitionEnabled` setting hides the UI but, prior to
 // this gate, the API still served reads, saves, submits and admin actions.
@@ -1221,12 +1234,32 @@ competitionRouter.patch('/:roundId/start', authMiddleware, requireRole('ADMIN'),
     const admin = getAuthUser(req)!;
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, status: true, duration: true, eventId: true, title: true },
+      select: {
+        id: true, status: true, duration: true, eventId: true, title: true, roundType: true,
+        problems: { select: { problem: { select: { title: true, hiddenTests: true } } } },
+      },
     });
 
     if (!round) return ApiResponse.notFound(res, 'Round not found');
     if (round.status !== 'DRAFT') {
       return ApiResponse.badRequest(res, 'Only draft rounds can be started');
+    }
+
+    // A DSA round scores CONTEST submissions on PRIVATE (hidden) tests only — sample
+    // tests carry 0 weight. A linked problem with no hidden tests therefore scores every
+    // contestant 0 with no error during the live round (they'd see passing samples but a 0
+    // score, and an all-zero board). Block the start until each problem has hidden tests,
+    // when there's still time to fix it, rather than failing silently mid-contest.
+    if (round.roundType === 'DSA') {
+      const noHidden = round.problems
+        .filter((link) => getProblemTests({ sampleTests: [], hiddenTests: link.problem.hiddenTests }).hiddenTests.length === 0)
+        .map((link) => link.problem.title);
+      if (noHidden.length > 0) {
+        return ApiResponse.badRequest(
+          res,
+          `Cannot start: these problems have no hidden tests, so they would score every contestant 0 — ${noHidden.join(', ')}. Add hidden tests before starting.`,
+        );
+      }
     }
 
     const startedAt = new Date();
@@ -2720,34 +2753,53 @@ competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req
     const round = await ensureRegisteredForRound(req.params.roundId, user.id);
     // Lock only a proctored round that is still live/finalizing; a violation reported
     // after the round ends is logged but never locks (nothing left to protect).
-    const shouldLock = round.proctored && (round.status === 'ACTIVE' || round.status === 'LOCKED');
+    const roundLockable = round.proctored && (round.status === 'ACTIVE' || round.status === 'LOCKED');
+    const instant = isInstantViolation(parsed.data.kind);
     const now = new Date();
     const reason = `Proctor: ${parsed.data.kind}`;
-    await prisma.$transaction([
-      prisma.competitionViolation.create({
+
+    // Log the violation + decide the lock atomically. Instant kinds (paste / fullscreen
+    // exit) lock only once this participant's instant-violation tally — counted inside the
+    // txn so it includes the row just written — passes the budget; tab-away locks at once.
+    const { shouldLock, violationCount, instantRemaining } = await prisma.$transaction(async (tx) => {
+      await tx.competitionViolation.create({
         data: { roundId: round.id, userId: user.id, kind: parsed.data.kind, detail: parsed.data.detail ? sanitizeText(parsed.data.detail) : null },
-      }),
-      prisma.competitionParticipantState.upsert({
+      });
+      let lock = roundLockable;
+      let remaining: number | null = null;
+      if (roundLockable && instant) {
+        const instantCount = await tx.competitionViolation.count({
+          where: { roundId: round.id, userId: user.id, kind: { in: [...INSTANT_VIOLATION_KINDS] } },
+        });
+        lock = instantCount > INSTANT_VIOLATION_BUDGET;
+        remaining = Math.max(0, INSTANT_VIOLATION_BUDGET + 1 - instantCount);
+      }
+      const state = await tx.competitionParticipantState.upsert({
         where: { roundId_userId: { roundId: round.id, userId: user.id } },
         create: {
           roundId: round.id, userId: user.id, violationCount: 1, lastViolationAt: now, lastSeenAt: now,
-          locked: shouldLock, lockReason: shouldLock ? reason : null, lockedAt: shouldLock ? now : null,
+          locked: lock, lockReason: lock ? reason : null, lockedAt: lock ? now : null,
         },
         update: {
           violationCount: { increment: 1 }, lastViolationAt: now, lastSeenAt: now,
-          ...(shouldLock ? { locked: true, lockReason: reason, lockedAt: now } : {}),
+          ...(lock ? { locked: true, lockReason: reason, lockedAt: now } : {}),
         },
-      }),
-    ]);
+        select: { violationCount: true },
+      });
+      return { shouldLock: lock, violationCount: state.violationCount, instantRemaining: remaining };
+    });
+
     // Push to the admin monitor live (violation feed + participant lock state); the lock
     // also rides to the participant so a parallel tab/device reflects it without reload.
-    const state = await prisma.competitionParticipantState.findUnique({
-      where: { roundId_userId: { roundId: round.id, userId: user.id } },
-      select: { violationCount: true },
-    });
-    emitViolation(round.id, user.id, parsed.data.kind, state?.violationCount ?? 1);
+    emitViolation(round.id, user.id, parsed.data.kind, violationCount);
     if (shouldLock) emitProctor(round.id, user.id, true, reason);
-    return ApiResponse.success(res, { locked: shouldLock });
+    // `warning` marks an under-budget instant violation (counted, not locked) so the arena
+    // can flash a "stop pasting / stay in fullscreen — N left" toast instead of locking.
+    return ApiResponse.success(res, {
+      locked: shouldLock,
+      warning: !shouldLock && instant && roundLockable,
+      remaining: instantRemaining,
+    });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to record violation');
   }
@@ -3120,6 +3172,11 @@ async function offloadRoundPlagiarism(
   return null;
 }
 
+// Above this many CONTEST submissions we refuse to pull every code blob into the main API
+// at once (each is ≤100KB; the O(N²) compare holds them all). At ~600 that's ~60MB worst
+// case — past it the 512MB box risks OOM, so we require the playground offload instead.
+const MAX_INLINE_PLAGIARISM_SUBMISSIONS = 600;
+
 // Degraded fallback (relay unavailable): fetch the code on the main API and compute here.
 // Heavier on the 512MB box, so it's the last resort only.
 async function inlineRoundPlagiarism(
@@ -3127,6 +3184,16 @@ async function inlineRoundPlagiarism(
   problemIds: Set<string>,
   threshold: number,
 ): Promise<PlagiarismFlagRow[]> {
+  // Bound memory before pulling code blobs: a large round inline would risk OOM, so cap it
+  // and direct the admin to the offload (configure PLAYGROUND_API_URL + INTERNAL_API_SECRET).
+  const count = await prisma.problemSubmission.count({ where: { contextType: 'CONTEST', contextKey: roundId } });
+  if (count > MAX_INLINE_PLAGIARISM_SUBMISSIONS) {
+    throw Object.assign(new Error('inline plagiarism too large'), {
+      status: 503,
+      code: 'PLAGIARISM_OFFLOAD_REQUIRED',
+      message: `This round has ${count} submissions — too many to scan on the main server. Configure the playground offload (PLAYGROUND_API_URL + INTERNAL_API_SECRET) and retry.`,
+    });
+  }
   const submissions = await prisma.problemSubmission.findMany({
     where: { contextType: 'CONTEST', contextKey: roundId },
     select: { problemId: true, userId: true, code: true, user: { select: { name: true } } },
