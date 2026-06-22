@@ -116,6 +116,13 @@ const dailyLeaderboardCache = new Map<string, { data: unknown; expiresAt: number
 let totalLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
 let weeklyLeaderboardCache: { data: WeeklyLeaderboardPayload; expiresAt: number } | null = null;
 
+// Around-me board: the full ranked array (every QOTD scorer) computed once and sliced
+// per-caller in JS. Mirrors the weekly/total caches — the expensive GROUP BY + RANK()
+// aggregate runs at most once per 60s instead of on every dashboard load. Bounded by
+// user count (one row of {userId, rank, score, firstSolve, totalRows} ≈ a few dozen B).
+interface AroundMeRankRow { userId: string; totalScore: number; firstSolve: number; rank: number; totalRows: number }
+let aroundMeRankCache: { data: AroundMeRankRow[]; expiresAt: number } | null = null;
+
 interface WeeklyLeaderboardPayload {
   // Published-and-not-held QOTD days inside the trailing 7-day window (0..7).
   dayCount: number;
@@ -157,6 +164,7 @@ export function invalidateQotdLeaderboardCaches(qotdId?: string): void {
   else dailyLeaderboardCache.clear();
   totalLeaderboardCache = null;
   weeklyLeaderboardCache = null;
+  aroundMeRankCache = null;
 }
 
 // Let the auto-publish scheduler drop these caches when a scheduled QOTD goes live
@@ -465,61 +473,74 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
     if (!user) return ApiResponse.unauthorized(res);
     const windowSize = Math.min(5, Math.max(1, Number(req.query.window) || 2));
 
-    // Compute total scores for everyone, rank them, then slice around the caller.
-    // RANK() handles ties (same score → same rank). Single query, capped result set.
-    const ranked = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
-      WITH scored AS (
-        SELECT ps.user_id,
-               SUM(ps.score)::int AS total_score,
-               MIN(ps.submitted_at) AS first_solve
-        FROM problem_submissions ps
-        JOIN qotd q ON q.id = ps.context_key
-        WHERE ps.context_type = 'QOTD'
-          -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
-          -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
-          -- from the rank window once an admin accepts it.
-          AND (
-            DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-                = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-            OR ps.verdict = 'ACCEPTED'
-          )
-        GROUP BY ps.user_id
-      ), ranked AS (
-        SELECT user_id, total_score, first_solve,
-               RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
-               COUNT(*) OVER () AS total_rows
-        FROM scored
-      ), my_rank AS (
-        SELECT rk FROM ranked WHERE user_id = ${user.id}
-      )
-      SELECT r.user_id, r.total_score, r.first_solve, r.rk, r.total_rows
-      FROM ranked r, my_rank m
-      WHERE ABS(r.rk - m.rk) <= ${windowSize}
-      ORDER BY r.rk ASC;
-    `;
+    // Full ranked board, cached 60s (the GROUP BY + RANK() aggregate over every QOTD
+    // submission is the expensive part — running it per dashboard load was the bottleneck).
+    // The per-caller window is sliced in JS below, so `?window=` stays honoured on hits.
+    let fullRanked = aroundMeRankCache && aroundMeRankCache.expiresAt > Date.now() ? aroundMeRankCache.data : null;
+    if (!fullRanked) {
+      const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
+        WITH scored AS (
+          SELECT ps.user_id,
+                 SUM(ps.score)::int AS total_score,
+                 MIN(ps.submitted_at) AS first_solve
+          FROM problem_submissions ps
+          JOIN qotd q ON q.id = ps.context_key
+          WHERE ps.context_type = 'QOTD'
+            -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
+            -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
+            -- from the rank window once an admin accepts it.
+            AND (
+              DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+                  = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+              OR ps.verdict = 'ACCEPTED'
+            )
+          GROUP BY ps.user_id
+        ), ranked AS (
+          SELECT user_id, total_score, first_solve,
+                 RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
+                 COUNT(*) OVER () AS total_rows
+          FROM scored
+        )
+        SELECT user_id, total_score, first_solve, rk, total_rows
+        FROM ranked
+        ORDER BY rk ASC;
+      `;
+      fullRanked = rows.map((row) => ({
+        userId: row.user_id,
+        totalScore: Number(row.total_score),
+        firstSolve: row.first_solve instanceof Date ? row.first_solve.getTime() : new Date(row.first_solve).getTime(),
+        rank: Number(row.rk),
+        totalRows: Number(row.total_rows),
+      }));
+      aroundMeRankCache = { data: fullRanked, expiresAt: Date.now() + 60_000 };
+    }
 
-    if (ranked.length === 0) {
+    const myRow = fullRanked.find((row) => row.userId === user.id);
+    if (!myRow) {
+      // Caller hasn't scored — preserve the prior empty-slice response shape.
       return ApiResponse.success(res, { slice: [], myRank: null, totalRanked: 0, nextUpDelta: null });
     }
+    // Slice by RANK distance (not array index) so ties match the old SQL window exactly.
+    const ranked = fullRanked.filter((row) => Math.abs(row.rank - myRow.rank) <= windowSize);
     const users = await prisma.user.findMany({
-      where: { id: { in: ranked.map((row) => row.user_id) } },
+      where: { id: { in: ranked.map((row) => row.userId) } },
       select: { id: true, name: true, avatar: true },
     });
     const usersById = new Map(users.map((u) => [u.id, u]));
     const slice = ranked.map((row) => {
-      const u = usersById.get(row.user_id);
+      const u = usersById.get(row.userId);
       return {
-        rank: Number(row.rk),
-        userId: row.user_id,
+        rank: row.rank,
+        userId: row.userId,
         name: u?.name ?? 'Unknown',
         avatar: u?.avatar ?? null,
-        score: Number(row.total_score),
-        you: row.user_id === user.id,
+        score: row.totalScore,
+        you: row.userId === user.id,
       };
     });
     const myIdx = slice.findIndex((r) => r.you);
     const myRank = myIdx >= 0 ? slice[myIdx].rank : null;
-    const totalRanked = ranked.length > 0 ? Number(ranked[0].total_rows) : 0;
+    const totalRanked = myRow.totalRows;
     const nextUp = myIdx > 0 ? slice[myIdx - 1] : null;
     const nextUpDelta = nextUp && myIdx >= 0 ? nextUp.score - slice[myIdx].score : null;
     return ApiResponse.success(res, { slice, myRank, totalRanked, nextUpDelta, nextUp });

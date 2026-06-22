@@ -231,7 +231,15 @@ export async function serializeProblemDetail(
   };
 }
 
-export function serializeProblemSummary(problem: Problem & { _count?: { submissions: number } }): Record<string, unknown> {
+// Only the columns the summary actually renders — lets callers fetch with a narrow
+// `select` (no body/referenceSolution/test JSON) instead of loading whole Problem rows.
+// A full Problem row still satisfies this structural subset.
+export type ProblemSummaryInput = Pick<
+  Problem,
+  'id' | 'slug' | 'title' | 'difficulty' | 'tags' | 'allowedLanguages' | 'isPublished' | 'createdAt'
+> & { _count?: { submissions: number } };
+
+export function serializeProblemSummary(problem: ProblemSummaryInput): Record<string, unknown> {
   return {
     id: problem.id,
     slug: problem.slug,

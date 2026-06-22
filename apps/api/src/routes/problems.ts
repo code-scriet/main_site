@@ -120,6 +120,21 @@ async function resolveProblemId(idOrSlug: string): Promise<string> {
   return problem.id;
 }
 
+// Catalog/list rows render only a summary (serializeProblemSummary), so fetch just
+// those columns — never body / referenceSolution / sample+hidden test JSON. On the
+// unbounded admin catalog that turns a multi-MB transfer into a few KB.
+const problemSummarySelect = {
+  id: true,
+  slug: true,
+  title: true,
+  difficulty: true,
+  tags: true,
+  allowedLanguages: true,
+  isPublished: true,
+  createdAt: true,
+  _count: { select: { submissions: true } },
+} satisfies Prisma.ProblemSelect;
+
 problemsRouter.use(optionalAuthMiddleware);
 
 problemsRouter.use(async (req, res, next) => {
@@ -167,7 +182,7 @@ problemsRouter.get('/', async (req: Request, res: Response) => {
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { _count: { select: { submissions: true } } },
+      select: problemSummarySelect,
     }));
 
     return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
@@ -180,7 +195,7 @@ problemsRouter.get('/admin/all', authMiddleware, requireRole('ADMIN'), async (_r
   try {
     const problems = await prisma.problem.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { submissions: true } } },
+      select: problemSummarySelect,
     });
     return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
   } catch (error) {

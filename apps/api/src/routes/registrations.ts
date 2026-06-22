@@ -389,7 +389,9 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
           select: {
             id: true,
             title: true,
-            description: true,
+            // description + prerequisites (large markdown) deliberately omitted — no
+            // /registrations/my consumer renders them (they use eventId for the
+            // registered-set; event detail copy comes from the events list endpoint).
             startDate: true,
             endDate: true,
             location: true,
@@ -399,7 +401,6 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             slug: true,
             capacity: true,
             eventType: true,
-            prerequisites: true,
             teamRegistration: true,
             teamMinSize: true,
             teamMaxSize: true,

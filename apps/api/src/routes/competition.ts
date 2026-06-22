@@ -3042,9 +3042,16 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
         where: { roundId: round.id },
         select: { userId: true, locked: true, lockReason: true, violationCount: true, lastViolationAt: true, lastSeenAt: true, user: { select: { name: true, email: true, avatar: true } } },
       }),
+      // Bounded to the most-recent rows: this feeds the 30-row submission feed and
+      // supplies submitter names, but is NOT the source of truth for the participant
+      // set (that's `states` ∪ the leaderboard) — so we never load the whole CONTEST
+      // submission table here. computeContestLeaderboard below scans submissions once
+      // (cached) and already carries every scorer's score/rank/name.
       round.roundType === 'DSA'
         ? prisma.problemSubmission.findMany({
             where: { contextType: 'CONTEST', contextKey: round.id },
+            orderBy: { updatedAt: 'desc' },
+            take: 50,
             select: { id: true, problemId: true, verdict: true, score: true, updatedAt: true, user: { select: { id: true, name: true } } },
           })
         : Promise.resolve([] as Array<{ id: string; problemId: string; verdict: string; score: number; updatedAt: Date; user: { id: string; name: string } }>),
@@ -3067,16 +3074,26 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
       return rowById.get(teamId ?? userId) ?? null;
     };
 
+    // Participant identity set: every contestant who loaded the arena has a state row,
+    // and (for solo rounds) the leaderboard already keys a row per real userId — so we
+    // union those two complete sources. The bounded recent-submitter list only
+    // supplements names. (Team-round leaderboard rows are keyed by teamId, not userId,
+    // so they're excluded here; team members are covered by their state rows.)
+    const isTeamRound = Boolean(lb?.teamByUser);
     const submitterIds = dsaSubs.map((s) => s.user.id);
-    const userIds = new Set<string>([...states.map((s) => s.userId), ...submitterIds]);
+    const leaderboardUserIds = isTeamRound ? [] : (lb?.results ?? []).map((r) => r.userId);
+    const userIds = new Set<string>([...states.map((s) => s.userId), ...submitterIds, ...leaderboardUserIds]);
     const stateByUser = new Map(states.map((s) => [s.userId, s]));
     const nameBySubmitter = new Map(dsaSubs.map((s) => [s.user.id, s.user.name]));
     const participants = Array.from(userIds).map((userId) => {
       const s = stateByUser.get(userId);
       const row = scoreFor(userId);
+      // Solo leaderboard rows carry the user's own name; use it as a fallback so a
+      // scorer outside the recent-submitter window still shows a real name.
+      const leaderboardName = !isTeamRound ? row?.userName : undefined;
       return {
         userId,
-        name: s?.user.name ?? nameBySubmitter.get(userId) ?? 'Participant',
+        name: s?.user.name ?? nameBySubmitter.get(userId) ?? leaderboardName ?? 'Participant',
         email: s?.user.email ?? null,
         avatar: s?.user.avatar ?? null,
         teamName: lb?.teamByUser?.get(userId)?.teamName ?? null,

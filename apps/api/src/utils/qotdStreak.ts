@@ -181,8 +181,24 @@ async function loadPublishedQotdDates(): Promise<string[]> {
   return dateKeys;
 }
 
+// Per-user cache of the dashboard QOTD stats. computeQOTDStats scans the user's full
+// QOTD history twice and is called by both the overview streak widget and the Coding
+// QOTD tab, so a short per-user cache collapses the repeat reads within a session.
+// Bounded (TTL + size cap + lazy eviction) so it never grows with the user base.
+const QOTD_STATS_CACHE_TTL_MS = 60 * 1000;
+const QOTD_STATS_CACHE_MAX = 500;
+const qotdStatsCache = new Map<string, { data: QOTDStats; expiresAt: number }>();
+
+/** Drop one user's cached stats — called when their streak is recomputed (a fresh solve). */
+export function invalidateUserQotdStats(userId: string): void {
+  qotdStatsCache.delete(userId);
+}
+
 export function invalidatePublishedQotdCache(): void {
   publishedDateCache = null;
+  // The published-QOTD set drives every user's streak walk + 30-day heatmap, so a
+  // publish/hold invalidates all cached per-user stats too.
+  qotdStatsCache.clear();
 }
 
 export interface StreakResult { currentStreak: number; longestStreak: number; longestStreakAt: Date | null }
@@ -285,10 +301,17 @@ export async function recomputeUserStreak(userId: string): Promise<StreakResult>
   // S-05: celebrate a freshly-crossed streak milestone (fire-and-forget).
   fireStreakMilestone(userId, existing?.currentStreak ?? 0, currentStreak);
 
+  // A fresh solve just changed this user's solved set — drop their cached stats so the
+  // dashboard reflects it immediately rather than waiting out the 60s TTL.
+  invalidateUserQotdStats(userId);
+
   return { currentStreak, longestStreak, longestStreakAt };
 }
 
 export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
+  const cached = qotdStatsCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
   const today = formatUsageDate();
 
   // Single source of truth for the streak: the publish-aware walk shared with the
@@ -370,7 +393,7 @@ export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     .slice(0, 10);
 
-  return {
+  const result: QOTDStats = {
     currentStreak,
     longestStreak,
     totalSolved,
@@ -381,6 +404,13 @@ export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
     nextMilestone,
     recentSubmissions,
   };
+
+  qotdStatsCache.set(userId, { data: result, expiresAt: Date.now() + QOTD_STATS_CACHE_TTL_MS });
+  if (qotdStatsCache.size > QOTD_STATS_CACHE_MAX) {
+    const oldest = qotdStatsCache.keys().next().value;
+    if (oldest) qotdStatsCache.delete(oldest);
+  }
+  return result;
 }
 
 /**

@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/role.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { ApiResponse, setPublicCache } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const statsRouter = Router();
 
@@ -478,7 +479,9 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
             select: { id: true, name: true, avatar: true },
           })
         : Promise.resolve(null),
-      prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundDailyLimit: true } }),
+      // Reuse the app-wide 5-min settings cache instead of a fresh DB read — only
+      // playgroundDailyLimit is needed here and it changes rarely.
+      getCachedSettings(),
     ]);
 
     let topContributor: { id: string; name: string; avatar: string | null; count: number } | null = null;
