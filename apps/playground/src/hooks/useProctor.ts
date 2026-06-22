@@ -28,10 +28,14 @@ export interface UseProctorResult {
   applyProctorPush: (locked: boolean, lockReason: string | null) => void;
 }
 
-/** A counted-but-not-locked instant violation (paste / fullscreen exit) under budget. */
+/** A counted-but-not-locked violation surfaced to the contestant (toast). Covers both an
+ *  under-budget instant violation (paste / fullscreen exit) AND a blocked-and-logged action
+ *  (right-click / dev-tools / print) that is never auto-locked. */
 export interface ProctorWarning {
   kind: ProctorViolationKind;
-  /** Instant violations remaining before the next one locks (null when unknown). */
+  /** Narrows the kind: 'copy' | 'cut' | 'paste' | 'right-click' | 'devtools' | 'print' | … */
+  detail?: string;
+  /** Instant violations remaining before the next one locks (null = not budget-tracked). */
   remaining: number | null;
 }
 
@@ -67,14 +71,14 @@ export function useProctor(opts: {
     setAwayMsLeft(null);
   }, []);
 
-  const trip = useCallback(async (kind: ProctorViolationKind) => {
+  const trip = useCallback(async (kind: ProctorViolationKind, detail?: string) => {
     if (trippedRef.current) return;
     trippedRef.current = true;
     clearAway();
     // Auto-submit the current draft FIRST so the work is captured before the lock.
     try { await onAutoSubmitRef.current?.(); } catch { /* best effort — never block the lock */ }
     try {
-      const res = await mainApi.reportProctorViolation(roundId, { kind });
+      const res = await mainApi.reportProctorViolation(roundId, { kind, ...(detail ? { detail } : {}) });
       if (res?.locked) {
         setLocked(true); setLockReason('Locked by the proctor.');
       } else {
@@ -82,10 +86,24 @@ export function useProctor(opts: {
         // — don't make the contestant wait up to one heartbeat — and surface the warning so
         // the host can flash "stop pasting / stay in fullscreen — N left".
         trippedRef.current = false;
-        if (res?.warning) onWarnRef.current?.({ kind, remaining: res.remaining ?? null });
+        if (res?.warning) onWarnRef.current?.({ kind, detail, remaining: res.remaining ?? null });
       }
     } catch { /* a failed report must not crash the arena */ }
   }, [roundId, clearAway]);
+
+  // Fire-and-forget report for a BLOCKED-but-not-locking action (right-click / dev-tools /
+  // print / save / view-source). Logged + counted on the server (surfaces in the admin live
+  // log) but never auto-locks — the invigilator decides. Throttled per detail so holding a
+  // key doesn't flood. Independent of the trip/away lock machinery.
+  const lastOtherRef = useRef<Map<string, number>>(new Map());
+  const reportOther = useCallback((detail: string) => {
+    const now = Date.now();
+    const last = lastOtherRef.current.get(detail) ?? 0;
+    if (now - last < 1500) return;
+    lastOtherRef.current.set(detail, now);
+    onWarnRef.current?.({ kind: 'OTHER', detail, remaining: null });
+    void mainApi.reportProctorViolation(roundId, { kind: 'OTHER', detail }).catch(() => undefined);
+  }, [roundId]);
 
   const startAway = useCallback((kind: ProctorViolationKind) => {
     if (!enabled || trippedRef.current || locked || awayTimerRef.current) return;
@@ -125,23 +143,61 @@ export function useProctor(opts: {
       if (fs) enteredFullscreenRef.current = true;
       else if (fullscreen && enteredFullscreenRef.current) void trip('FULLSCREEN_EXIT');
     };
-    const onPaste = () => { if (blockPaste) void trip('COPY_PASTE'); };
+    // Copy / cut / paste are all exfiltration vectors → block + count toward the instant
+    // lock budget (1 warning, then lock). preventDefault stops the clipboard action itself.
+    const onClipboard = (detail: 'copy' | 'cut' | 'paste') => (e: Event) => {
+      if (!blockPaste) return;
+      e.preventDefault();
+      void trip('COPY_PASTE', detail);
+    };
+    const onCopy = onClipboard('copy');
+    const onCut = onClipboard('cut');
+    const onPaste = onClipboard('paste');
+    // Right-click + dev-tools / print / save / view-source shortcuts: block them and LOG
+    // (never auto-lock — see reportOther). Deters casual cheating without false locks.
+    const onContextMenu = (e: MouseEvent) => { if (!blockPaste) return; e.preventDefault(); reportOther('right-click'); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!blockPaste) return;
+      const key = e.key.toLowerCase();
+      const ctrlOrCmd = e.ctrlKey || e.metaKey;
+      // Dev-tools: F12, Ctrl/Cmd+Shift+I/J/C, and the macOS Cmd+Alt+I/J/C variant.
+      if (e.key === 'F12' || ((ctrlOrCmd && e.shiftKey) || (e.metaKey && e.altKey)) && ['i', 'j', 'c'].includes(key)) {
+        e.preventDefault(); reportOther('devtools'); return;
+      }
+      if (ctrlOrCmd && key === 'u') { e.preventDefault(); reportOther('view-source'); return; }
+      if (ctrlOrCmd && key === 'p') { e.preventDefault(); reportOther('print'); return; }
+      if (ctrlOrCmd && key === 's') { e.preventDefault(); reportOther('save'); return; }
+    };
+    // Guard against an accidental refresh/close losing the buffer (not a violation).
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
+    window.addEventListener('beforeunload', onBeforeUnload);
     if (fullscreen) document.addEventListener('fullscreenchange', onFullscreenChange);
-    if (blockPaste) document.addEventListener('paste', onPaste);
+    if (blockPaste) {
+      document.addEventListener('paste', onPaste);
+      document.addEventListener('copy', onCopy);
+      document.addEventListener('cut', onCut);
+      document.addEventListener('contextmenu', onContextMenu);
+      document.addEventListener('keydown', onKeyDown, true);
+    }
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
       document.removeEventListener('paste', onPaste);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('contextmenu', onContextMenu);
+      document.removeEventListener('keydown', onKeyDown, true);
       clearAway();
     };
-  }, [enabled, startAway, clearAway, trip, fullscreen, blockPaste]);
+  }, [enabled, startAway, clearAway, trip, reportOther, fullscreen, blockPaste]);
 
   // heartbeat + lock poll — runs while enabled OR locked (so an admin unlock propagates).
   useEffect(() => {

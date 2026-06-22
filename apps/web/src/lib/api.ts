@@ -572,6 +572,9 @@ export interface Settings {
   codeExecutionProvider?: string;
   // ISO date of the club's founding — drives the "months since inception" stat on /about.
   siteLaunchDate?: string | null;
+  // Public origin of the contest socket relay (playground execute-server), derived server-side
+  // from PLAYGROUND_API_URL. The admin monitor connects here at runtime; null ⇒ REST polling.
+  playgroundApiUrl?: string | null;
   updatedAt: string;
 }
 
@@ -1167,10 +1170,30 @@ export interface CompetitionMonitorParticipant {
   penalty: number;
 }
 
+export type CompetitionViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
+
+export interface CompetitionMonitorViolation {
+  id: string;
+  userId: string;
+  userName: string;
+  kind: CompetitionViolationKind;
+  detail: string | null;
+  at: string;
+}
+
 export interface CompetitionMonitorResponse {
-  round: { id: string; title: string; status: CompetitionRound['status']; roundType?: 'IMAGE_TARGET' | 'DSA' };
+  round: {
+    id: string;
+    title: string;
+    status: CompetitionRound['status'];
+    roundType?: 'IMAGE_TARGET' | 'DSA';
+    startedAt?: string | null;
+    duration?: number;
+    leaderboardFreezeMinutes?: number | null;
+  };
   participants: CompetitionMonitorParticipant[];
   recentSubmissions: Array<{ id: string; userName: string; problemId: string; verdict: string; score: number; updatedAt: string }>;
+  recentViolations: CompetitionMonitorViolation[];
 }
 
 export interface CompetitionSubmission {

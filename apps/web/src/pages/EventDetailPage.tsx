@@ -473,8 +473,11 @@ export default function EventDetailPage() {
     void loadCompetitionRounds();
     if (!event?.id) return;
     if (!hasUnfinishedRound) return;
-    const interval = window.setInterval(() => void loadCompetitionRounds(), 30_000);
-    return () => window.clearInterval(interval);
+    // Skip the poll while the tab is backgrounded (refresh once on return).
+    const interval = window.setInterval(() => { if (!document.hidden) void loadCompetitionRounds(); }, 30_000);
+    const onVis = () => { if (!document.hidden) void loadCompetitionRounds(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', onVis); };
   }, [event?.id, loadCompetitionRounds, hasUnfinishedRound]);
 
   useEffect(() => {

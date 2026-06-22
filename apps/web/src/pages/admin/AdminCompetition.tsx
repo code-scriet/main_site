@@ -27,6 +27,7 @@ import { NumericPromptDialog } from '@/components/dash';
 import {
   Activity,
   AlertCircle,
+  Award,
   Calendar,
   Check,
   CheckCircle2,
@@ -862,6 +863,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="ghost" onClick={() => void exportResults(round)} className="gap-1.5">
                                   <Download className="h-3.5 w-3.5" /> Export
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/events/${event.id}/attendance?tab=certificates&competition=${round.id}`)} className="gap-1.5">
+                                  <Award className="h-3.5 w-3.5" /> Certificates
+                                </Button>
                                 {round.roundType === 'DSA' && (
                                   <Button size="sm" variant="ghost" onClick={() => void publishAsPractice(round)} className="gap-1.5">
                                     Practice
@@ -1329,6 +1333,7 @@ export default function AdminCompetition() {
 function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: string; onClose: () => void }) {
   const { settings } = useSettings();
   const accent = settings?.accentColor || 'rust';
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const finalQuery = useQuery({
     queryKey: ['event-final', event.id],
@@ -1336,6 +1341,8 @@ function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: 
   });
   const data = finalQuery.data;
   const [busy, setBusy] = useState(false);
+  const podium = (data?.standings ?? []).slice(0, 3);
+  const podiumOrder = podium.length === 3 ? [1, 0, 2] : podium.map((_, i) => i);
 
   const togglePublish = async () => {
     if (!data) return;
@@ -1379,6 +1386,30 @@ function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: 
           <p className="py-8 text-center text-sm text-[var(--ds-text-3)]">No finished rounds with results yet.</p>
         ) : (
           <>
+            {/* Podium — top 3 final standings */}
+            {podium.length > 0 && (
+              <div className="flex items-end justify-center gap-2 sm:gap-3 pb-1">
+                {podiumOrder.map((idx) => {
+                  const s = podium[idx];
+                  if (!s) return null;
+                  const place = s.rank;
+                  const h = place === 1 ? 'h-[88px]' : place === 2 ? 'h-[70px]' : 'h-[54px]';
+                  const ring = place === 1 ? 'border-[var(--accent)]' : 'border-[var(--border-default)]';
+                  return (
+                    <div key={s.entrantId} className="flex flex-col items-center flex-1 max-w-[140px]">
+                      <div className={cn('w-full rounded-[10px] border bg-[var(--surface-soft)] p-2 text-center', ring)}>
+                        <div className="inline-flex items-center justify-center gap-1 text-[12px] font-bold">
+                          <Award className={cn('h-3.5 w-3.5', place === 1 ? 'text-[var(--accent)]' : 'text-[var(--ds-text-3)]')} />#{place}
+                        </div>
+                        <p className="mt-1 text-[12px] font-semibold truncate">{s.name}</p>
+                        <p className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">{s.final}</p>
+                      </div>
+                      <div className={cn('w-full rounded-t-[8px] mt-1 border-t-2', h, place === 1 ? 'bg-[var(--accent)]/15 border-[var(--accent)]' : 'bg-[var(--surface-soft)] border-[var(--border-default)]')} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex items-center gap-2 flex-wrap text-[11.5px] text-[var(--ds-text-3)]">
               <span>Round weights:</span>
               {data.rounds.map((r) => (
@@ -1412,14 +1443,24 @@ function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: 
             </div>
           </>
         )}
-        <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data || data.standings.length === 0} className="gap-1.5">
-            <Download className="h-3.5 w-3.5" /> CSV
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(`/admin/events/${event.id}/attendance?tab=certificates`)}
+            className="gap-1.5"
+          >
+            <Award className="h-3.5 w-3.5" /> Issue winner certificates
           </Button>
-          <Button size="sm" onClick={() => void togglePublish()} disabled={busy || !data} className="gap-1.5">
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {data?.event.publishedAt ? 'Unpublish' : 'Publish to public'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data || data.standings.length === 0} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" /> CSV
+            </Button>
+            <Button size="sm" onClick={() => void togglePublish()} disabled={busy || !data} className="gap-1.5">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {data?.event.publishedAt ? 'Unpublish' : 'Publish to public'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, ChevronLeft, Clock, Loader2, Trophy } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Clock, Loader2, Megaphone, Trophy, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { mainApi, type ContestRoundProblem } from '@/lib/mainApi';
 import { QOTDSolverShell, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
@@ -103,7 +103,10 @@ export default function ContestArenaPage() {
 
   const isActive = round?.status === 'ACTIVE';
 
-  const [tab, setTab] = useState<'problems' | 'leaderboard' | 'clarifications'>('problems');
+  const [tab, setTab] = useState<'problems' | 'leaderboard'>('problems');
+  // Clarifications live in a floating corner window (not a tab) that auto-opens when an
+  // admin broadcasts, so a contestant never misses one without leaving their problem.
+  const [clarOpen, setClarOpen] = useState(false);
 
   const leaderboardQuery = useQuery({
     queryKey: ['contest-arena-leaderboard', roundId],
@@ -114,10 +117,12 @@ export default function ContestArenaPage() {
   const clarificationsQuery = useQuery({
     queryKey: ['contest-arena-clarifications', roundId],
     queryFn: () => mainApi.getContestClarifications(roundId),
-    enabled: Boolean(roundId) && tab === 'clarifications',
-    refetchInterval: tab === 'clarifications' && isActive ? 20_000 : false,
+    enabled: Boolean(roundId),
+    refetchInterval: isActive ? 25_000 : false,
+    refetchIntervalInBackground: false,
   });
-  const clarificationCount = clarificationsQuery.data?.clarifications.length ?? 0;
+  const clarifications = clarificationsQuery.data?.clarifications ?? [];
+  const clarificationCount = clarifications.length;
 
   const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush } = useProctor({
     roundId,
@@ -126,11 +131,20 @@ export default function ContestArenaPage() {
     // fullscreen + copy-paste lockdown on a proctored round.
     fullscreen: Boolean(round?.proctored) && isActive,
     blockPaste: Boolean(round?.proctored) && isActive,
-    // Paste / fullscreen-exit get a budget server-side: warn first, lock only on repeat.
-    onWarn: ({ kind, remaining }) => {
+    // Instant violations (copy/cut/paste, fullscreen-exit) get a 1-warning budget server-side
+    // before locking. Blocked-but-logged actions (dev-tools, right-click, print…) arrive as
+    // kind 'OTHER' with remaining=null — those are deterred + recorded, never auto-locked.
+    onWarn: ({ kind, detail, remaining }) => {
+      if (kind === 'OTHER') {
+        const what = detail === 'devtools' ? 'Developer tools are' : detail === 'right-click' ? 'Right-click is'
+          : detail === 'print' ? 'Printing is' : detail === 'view-source' ? 'Viewing source is'
+          : detail === 'save' ? 'Saving the page is' : 'That action is';
+        toast.warning(`${what} disabled in this proctored round`, { description: 'This is blocked and recorded for the invigilator.' });
+        return;
+      }
       const left = remaining === null ? 'Repeated violations' : remaining <= 0 ? 'Your next violation' : `${remaining} more`;
       toast.warning(
-        kind === 'COPY_PASTE' ? 'Pasting is disabled in this proctored round' : 'Stay in fullscreen for this proctored round',
+        kind === 'COPY_PASTE' ? 'Copying & pasting are disabled in this proctored round' : 'Stay in fullscreen for this proctored round',
         { description: `${left} will lock your session.` },
       );
     },
@@ -152,6 +166,7 @@ export default function ContestArenaPage() {
         ['contest-arena-clarifications', roundId],
         (old) => ({ clarifications: [c, ...(old?.clarifications ?? []).filter((x) => x.id !== c.id)] }),
       );
+      setClarOpen(true); // auto-open the corner window so the contestant sees it immediately
       toast.info('📢 Clarification', { description: c.message });
     },
     onFirstSolve: (d) => toast(`🎈 First solve!`, { description: `${d.userName} solved ${problemTitleById.get(d.problemId) ?? 'a problem'}` }),
@@ -309,7 +324,7 @@ export default function ContestArenaPage() {
 
       {/* Tab strip */}
       <div className="h-9 border-b border-zinc-200 dark:border-zinc-800 px-2 flex items-center gap-1 bg-warmwhite dark:bg-inknight">
-        {([['problems', 'Problems'], ['leaderboard', 'Leaderboard'], ['clarifications', `Clarifications${clarificationCount ? ` (${clarificationCount})` : ''}`]] as const).map(([id, label]) => (
+        {([['problems', 'Problems'], ['leaderboard', 'Leaderboard']] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -354,20 +369,6 @@ export default function ContestArenaPage() {
               </tbody>
             </table>
           )}
-        </div>
-      ) : tab === 'clarifications' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">
-          <div className="max-w-2xl mx-auto space-y-2">
-            {(clarificationsQuery.data?.clarifications ?? []).map((c) => (
-              <div key={c.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-warmwhite dark:bg-zinc-900/40 p-3">
-                <p className="text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap">{c.message}</p>
-                <p className="text-[11px] text-zinc-400 mt-1">{new Date(c.createdAt).toLocaleString()}</p>
-              </div>
-            ))}
-            {clarificationCount === 0 && !clarificationsQuery.isLoading && (
-              <p className="text-center text-sm text-zinc-400 py-10">No clarifications yet.</p>
-            )}
-          </div>
         </div>
       ) : (
       <div className="flex-1 min-h-0 flex">
@@ -416,6 +417,42 @@ export default function ContestArenaPage() {
           )}
         </main>
       </div>
+      )}
+
+      {/* Clarifications — floating corner window. Auto-opens when an admin broadcasts (see
+          the socket onClarification handler); otherwise a small launcher with a count. */}
+      {clarOpen ? (
+        <div className="fixed bottom-4 right-4 z-[55] w-[320px] max-w-[calc(100vw-2rem)] max-h-[60vh] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-card shadow-xl flex flex-col">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800">
+            <Megaphone className="h-4 w-4 text-amber-500" />
+            <span className="text-[13px] font-semibold flex-1">Clarifications</span>
+            <button onClick={() => setClarOpen(false)} className="size-6 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-500" aria-label="Close clarifications">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            {clarifications.map((c) => (
+              <div key={c.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-warmwhite dark:bg-zinc-900/40 p-2.5">
+                <p className="text-[12.5px] text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap">{c.message}</p>
+                <p className="text-[10.5px] text-zinc-400 mt-1">{new Date(c.createdAt).toLocaleTimeString()}</p>
+              </div>
+            ))}
+            {clarificationCount === 0 && !clarificationsQuery.isLoading && (
+              <p className="text-center text-[12px] text-zinc-400 py-6">No clarifications yet.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setClarOpen(true)}
+          className="fixed bottom-4 right-4 z-[55] h-11 px-3.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-card shadow-lg flex items-center gap-2 text-[12.5px] font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+        >
+          <Megaphone className="h-4 w-4 text-amber-500" />
+          Clarifications
+          {clarificationCount > 0 && (
+            <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold">{clarificationCount}</span>
+          )}
+        </button>
       )}
 
       {/* Proctor: fullscreen gate — browsers require a user gesture, so we prompt rather

@@ -1,4 +1,5 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   api,
   type CertificateBulkGenerateInput,
@@ -178,6 +179,8 @@ export default function EventCertificateWizard({
 }: EventCertificateWizardProps) {
   const [mode, setMode] = useState<CertificateMode | null>(null);
   const [step, setStep] = useState<WizardStep>('mode');
+  const [searchParams] = useSearchParams();
+  const deepLinkAppliedRef = useRef(false);
 
   const [recipients, setRecipients] = useState<CertificateRecipient[]>([]);
   const [guestRecipients, setGuestRecipients] = useState<GuestCertificateRecipient[]>([]);
@@ -221,6 +224,20 @@ export default function EventCertificateWizard({
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Deep-link from the competition console ("Issue winner certificates"): ?competition=<roundId>
+  // jumps straight into the competition flow, pre-selecting that round on the specific-round
+  // strategy so the admin lands on the winners preview instead of the mode picker.
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const roundParam = searchParams.get('competition');
+    if (!roundParam) return;
+    deepLinkAppliedRef.current = true;
+    setCompetitionStrategy('specific_round');
+    setSelectedRoundIds([roundParam]);
+    setMode('competition');
+    setStep('select');
+  }, [searchParams]);
 
   const [generatedCerts, setGeneratedCerts] = useState<GeneratedCert[]>([]);
   const [managementSearch, setManagementSearch] = useState('');

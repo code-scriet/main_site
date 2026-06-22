@@ -12,6 +12,7 @@ import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCac
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
+import { getPlaygroundRelayBase } from '../utils/internalApi.js';
 
 export const settingsRouter = Router();
 
@@ -232,6 +233,12 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       codeExecutionProvider: full.codeExecutionProvider,
       // Used by /about to compute the "months since inception" stat.
       siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
+      // Public origin of the contest /competition socket relay (the playground execute-server),
+      // derived from the API's PLAYGROUND_API_URL env. Surfaced here so the web admin monitor
+      // can connect at RUNTIME (its build-time VITE_PLAYGROUND_API_URL can't see a runtime env
+      // var). null ⇒ relay unconfigured ⇒ the monitor falls back to REST polling. Not secret —
+      // the playground arena already connects to this origin publicly.
+      playgroundApiUrl: getPlaygroundRelayBase(),
     };
 
     if (!settings) {
@@ -273,6 +280,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           accentColor: 'rust',
           codeExecutionProvider: 'wandbox',
           siteLaunchDate: '2026-01-01T00:00:00.000Z',
+          playgroundApiUrl: getPlaygroundRelayBase(),
         },
       });
     }
