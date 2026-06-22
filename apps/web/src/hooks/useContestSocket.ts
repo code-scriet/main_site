@@ -9,12 +9,19 @@
 import { useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import type { CompetitionViolationKind } from '@/lib/api';
 
 // The /competition relay runs on the playground execute-server (Phase H). The web admin
-// monitor connects there. Unset in prod ⇒ no socket; the monitor's REST polling is the
-// fallback, so the feature still works.
-function relayOrigin(): string | null {
+// monitor connects there. Origin resolution, most→least authoritative:
+//   1. `settings.playgroundApiUrl` — served at RUNTIME by the API from its PLAYGROUND_API_URL
+//      env, so a single API env var turns the relay on with no web rebuild.
+//   2. `VITE_PLAYGROUND_API_URL` — build-time fallback (legacy / static deploys).
+//   3. dev localhost.
+// Unset everywhere ⇒ no socket; the monitor's REST polling is the fallback (feature still works).
+function relayOrigin(settingsUrl?: string | null): string | null {
+  const fromSettings = settingsUrl?.trim();
+  if (fromSettings) return fromSettings.replace(/\/+$/, '');
   const configured = (import.meta.env.VITE_PLAYGROUND_API_URL as string | undefined)?.trim();
   if (configured) return configured.replace(/\/+$/, '');
   return import.meta.env.DEV ? 'http://localhost:5002' : null;
@@ -41,12 +48,14 @@ export interface ContestAdminSocketHandlers {
 
 export function useContestAdminSocket(roundId: string, enabled: boolean, handlers: ContestAdminSocketHandlers): void {
   const { token } = useAuth();
+  const { settings } = useSettings();
+  const relayUrl = settings?.playgroundApiUrl ?? null;
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
 
   useEffect(() => {
     if (!enabled || !roundId || !token) return;
-    const origin = relayOrigin();
+    const origin = relayOrigin(relayUrl);
     if (!origin) return; // relay not configured in this environment → REST polling stays
     const socket: Socket = io(`${origin}/competition`, {
       transports: ['websocket'],
@@ -68,5 +77,9 @@ export function useContestAdminSocket(roundId: string, enabled: boolean, handler
       socket.emit('leave', { roundId });
       socket.disconnect();
     };
-  }, [roundId, enabled, token]);
+    // `relayUrl` MUST stay in the deps: settings load async, so on first render it's null
+    // (relay skipped → REST polling). When the runtime `playgroundApiUrl` arrives this re-runs
+    // and finally opens the socket — without it the monitor would never go realtime in prod,
+    // where the build-time VITE_PLAYGROUND_API_URL is intentionally unset.
+  }, [roundId, enabled, token, relayUrl]);
 }

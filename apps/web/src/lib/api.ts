@@ -572,6 +572,9 @@ export interface Settings {
   codeExecutionProvider?: string;
   // ISO date of the club's founding — drives the "months since inception" stat on /about.
   siteLaunchDate?: string | null;
+  // Public origin of the contest socket relay (playground execute-server), derived server-side
+  // from PLAYGROUND_API_URL. The admin monitor connects here at runtime; null ⇒ REST polling.
+  playgroundApiUrl?: string | null;
   updatedAt: string;
 }
 
