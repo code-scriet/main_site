@@ -26,6 +26,7 @@ export function AdminPendingRequestsCardV2() {
     queryFn: () => api.adminGetPendingPlaygroundResetRequests(token!),
     enabled: Boolean(token),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false, // don't poll a backgrounded dashboard tab
     refetchOnWindowFocus: true,
   });
   const capQ = useQuery({
@@ -33,6 +34,7 @@ export function AdminPendingRequestsCardV2() {
     queryFn: () => api.adminGetPendingCapRequests(undefined, token!),
     enabled: Boolean(token),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 

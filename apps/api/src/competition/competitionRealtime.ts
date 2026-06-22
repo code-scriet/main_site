@@ -292,6 +292,15 @@ export function emitProctor(roundId: string, userId: string, locked: boolean, lo
   relayEmit(roomAdmin(roundId), 'contest:participant', { userId, locked });
 }
 
-export function emitViolation(roundId: string, userId: string, kind: string, violationCount: number): void {
-  relayEmit(roomAdmin(roundId), 'contest:violation', { userId, kind, violationCount, at: Date.now() });
+export function emitViolation(
+  roundId: string,
+  userId: string,
+  userName: string,
+  kind: string,
+  violationCount: number,
+  detail: string | null = null,
+): void {
+  // userName + detail make the admin live-log row self-sufficient (renders a human-readable
+  // label without a name lookup) — the relay is a dumb fan-out, so the payload carries it all.
+  relayEmit(roomAdmin(roundId), 'contest:violation', { userId, userName, kind, detail, violationCount, at: Date.now() });
 }

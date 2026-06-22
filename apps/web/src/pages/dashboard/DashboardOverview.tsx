@@ -173,11 +173,14 @@ export default function DashboardOverview() {
     : null;
   const myRank = aroundMeQ.data?.myRank ?? null;
 
-  // Live countdown to midnight IST — re-render every minute
+  // Live countdown to midnight IST — re-render periodically, but pause while the tab is
+  // hidden (a backgrounded dashboard shouldn't re-render every 30s for an off-screen clock).
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30 * 1000);
-    return () => clearInterval(t);
+    const t = setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 30 * 1000);
+    const onVis = () => { if (!document.hidden) setNow(Date.now()); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, []);
   void now;
   const secsLeft = secondsUntilMidnightIST();

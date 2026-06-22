@@ -32,15 +32,16 @@ competitionRouter.param('submissionId', uuidParamGuard('submission ID'));
 competitionRouter.param('userId', uuidParamGuard('user ID'));
 competitionRouter.param('flagId', uuidParamGuard('flag ID'));
 
-// Instant-lock violation kinds. A reflexive Ctrl-V or an OS/trackpad-driven fullscreen
+// Instant-lock violation kinds. A reflexive Ctrl-V/-C or an OS/trackpad-driven fullscreen
 // exit fires these with no prior on-screen grace (unlike tab-away, which only trips after
-// AWAY_LOCK_MS continuously hidden — a deliberate departure). Locking on the very first
-// one produces a wave of false locks that swamps invigilator unlock throughput, so these
-// get a small per-participant budget: the first INSTANT_VIOLATION_BUDGET are warnings, the
-// next locks. Every violation is still logged + counted (the schema's violationCount);
-// only the lock decision is softened. Tab-away still locks on its first trip.
+// AWAY_LOCK_MS continuously hidden — a deliberate departure). Locking on the very first one
+// would catch a genuinely reflexive slip, so a single warning is allowed: the first instant
+// violation warns, the next locks. Every violation is still logged + counted (the schema's
+// violationCount); only the lock decision is softened. Tab-away still locks on its first
+// trip. (Copy / cut / paste all map to COPY_PASTE; dev-tools / print / right-click report
+// as OTHER and are logged-but-not-auto-locked — see the proctor/violation handler.)
 const INSTANT_VIOLATION_KINDS = ['COPY_PASTE', 'FULLSCREEN_EXIT'] as const;
-const INSTANT_VIOLATION_BUDGET = 2;
+const INSTANT_VIOLATION_BUDGET = 1; // 1 warning, then the next instant violation locks
 const isInstantViolation = (kind: string): boolean => (INSTANT_VIOLATION_KINDS as readonly string[]).includes(kind);
 
 // Feature gate: the `competitionEnabled` setting hides the UI but, prior to
@@ -1407,9 +1408,18 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       if (!['LOCKED', 'JUDGING'].includes(round.status)) {
         return ApiResponse.badRequest(res, 'Only locked or judging DSA rounds can be finished');
       }
-      const updated = await prisma.competitionRound.update({
-        where: { id: round.id },
-        data: { status: 'FINISHED' },
+      const updated = await prisma.$transaction(async (tx) => {
+        // The contest is over: release every participant lock so nobody is left stuck and
+        // the monitor reads 0 locked ("everything zero"). The arena already gates solving
+        // on ACTIVE, so this only clears proctor state.
+        await tx.competitionParticipantState.updateMany({
+          where: { roundId: round.id, locked: true },
+          data: { locked: false, lockReason: null, unlockedAt: new Date() },
+        });
+        return tx.competitionRound.update({
+          where: { id: round.id },
+          data: { status: 'FINISHED' },
+        });
       });
       emitRoundStatus(round.id, 'FINISHED');
       await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
@@ -1444,6 +1454,11 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
     let rankedCount = 0;
     const updated = await prisma.$transaction(async (tx) => {
       rankedCount = await recomputeRoundRanks(tx, round.id);
+      // Release every participant lock once the contest ends (see DSA branch).
+      await tx.competitionParticipantState.updateMany({
+        where: { roundId: round.id, locked: true },
+        data: { locked: false, lockReason: null, unlockedAt: new Date() },
+      });
       return tx.competitionRound.update({
         where: { id: round.id },
         data: { status: 'FINISHED' },
@@ -2794,7 +2809,9 @@ competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req
 
     // Push to the admin monitor live (violation feed + participant lock state); the lock
     // also rides to the participant so a parallel tab/device reflects it without reload.
-    emitViolation(round.id, user.id, parsed.data.kind, violationCount);
+    // userName + detail ride along so the monitor's live log can render a self-sufficient,
+    // human-readable row ("Pasted code") without a name lookup.
+    emitViolation(round.id, user.id, user.name, parsed.data.kind, violationCount, parsed.data.detail ?? null);
     if (shouldLock) emitProctor(round.id, user.id, true, reason);
     // `warning` marks an under-budget instant violation (counted, not locked) so the arena
     // can flash a "stop pasting / stay in fullscreen — N left" toast instead of locking.
@@ -2848,8 +2865,10 @@ competitionRouter.get('/:roundId/proctor/me', authMiddleware, async (req: Reques
 competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req)!;
-    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, status: true } });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
+    // Nothing to unlock once the contest has ended — finish already cleared every lock.
+    if (round.status === 'FINISHED') return ApiResponse.badRequest(res, 'This round has ended');
     const now = new Date();
     await prisma.competitionParticipantState.upsert({
       where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
@@ -2870,8 +2889,12 @@ competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requi
 competitionRouter.post('/:roundId/proctor/lock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req)!;
-    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, status: true } });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
+    // Locking only protects a live round (ACTIVE) or its lock-finalization window (LOCKED).
+    if (!['ACTIVE', 'LOCKED'].includes(round.status)) {
+      return ApiResponse.badRequest(res, 'Participants can only be locked while the round is live');
+    }
     const now = new Date();
     await prisma.competitionParticipantState.upsert({
       where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
@@ -3010,11 +3033,11 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
   try {
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, title: true, status: true, roundType: true },
+      select: { id: true, title: true, status: true, roundType: true, startedAt: true, duration: true, leaderboardFreezeMinutes: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
 
-    const [states, dsaSubs, lb] = await Promise.all([
+    const [states, dsaSubs, lb, violations] = await Promise.all([
       prisma.competitionParticipantState.findMany({
         where: { roundId: round.id },
         select: { userId: true, locked: true, lockReason: true, violationCount: true, lastViolationAt: true, lastSeenAt: true, user: { select: { name: true, email: true, avatar: true } } },
@@ -3026,6 +3049,14 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
           })
         : Promise.resolve([] as Array<{ id: string; problemId: string; verdict: string; score: number; updatedAt: Date; user: { id: string; name: string } }>),
       computeContestLeaderboard(req.params.roundId, 1000),
+      // Recent violation log so the monitor's live feed has history on first load (the
+      // socket only carries events that happen after the page opens).
+      prisma.competitionViolation.findMany({
+        where: { roundId: round.id },
+        orderBy: { at: 'desc' },
+        take: 50,
+        select: { id: true, userId: true, kind: true, detail: true, at: true, user: { select: { name: true } } },
+      }),
     ]);
 
     // Map each user → their standings row. For team events the leaderboard rows are keyed
@@ -3068,10 +3099,28 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
         verdict: sub.verdict, score: sub.score, updatedAt: sub.updatedAt.toISOString(),
       }));
 
+    const recentViolations = violations.map((v) => ({
+      id: v.id,
+      userId: v.userId,
+      userName: v.user.name,
+      kind: v.kind,
+      detail: v.detail,
+      at: v.at.toISOString(),
+    }));
+
     return ApiResponse.success(res, {
-      round: { id: round.id, title: round.title, status: round.status, roundType: round.roundType },
+      round: {
+        id: round.id,
+        title: round.title,
+        status: round.status,
+        roundType: round.roundType,
+        startedAt: round.startedAt?.toISOString() ?? null,
+        duration: round.duration,
+        leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
+      },
       participants,
       recentSubmissions,
+      recentViolations,
     });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to fetch monitor');

@@ -1167,10 +1167,30 @@ export interface CompetitionMonitorParticipant {
   penalty: number;
 }
 
+export type CompetitionViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
+
+export interface CompetitionMonitorViolation {
+  id: string;
+  userId: string;
+  userName: string;
+  kind: CompetitionViolationKind;
+  detail: string | null;
+  at: string;
+}
+
 export interface CompetitionMonitorResponse {
-  round: { id: string; title: string; status: CompetitionRound['status']; roundType?: 'IMAGE_TARGET' | 'DSA' };
+  round: {
+    id: string;
+    title: string;
+    status: CompetitionRound['status'];
+    roundType?: 'IMAGE_TARGET' | 'DSA';
+    startedAt?: string | null;
+    duration?: number;
+    leaderboardFreezeMinutes?: number | null;
+  };
   participants: CompetitionMonitorParticipant[];
   recentSubmissions: Array<{ id: string; userName: string; problemId: string; verdict: string; score: number; updatedAt: string }>;
+  recentViolations: CompetitionMonitorViolation[];
 }
 
 export interface CompetitionSubmission {
