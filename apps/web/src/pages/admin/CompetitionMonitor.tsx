@@ -70,6 +70,7 @@ export default function CompetitionMonitor() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const seededRef = useRef(false);
   const logSeenRef = useRef<Set<string>>(new Set());
+  const nameByUserRef = useRef<Map<string, string>>(new Map()); // userId → name, for socket log rows
 
   // Optimistic lock/score patches applied from socket pushes so a row reflects a change
   // before the next reconcile poll lands.
@@ -115,7 +116,14 @@ export default function CompetitionMonitor() {
   const pushLog = useCallback((entry: LogEntry) => {
     if (logSeenRef.current.has(entry.id)) return;
     logSeenRef.current.add(entry.id);
-    setLog((prev) => [entry, ...prev].slice(0, LOG_CAP));
+    // Bound the dedup set over a long contest: rebuild it from the visible log when it grows
+    // past a few caps' worth (older ids are off-screen and won't reappear in the 50/30 polls).
+    if (logSeenRef.current.size > LOG_CAP * 3) logSeenRef.current = new Set([entry.id]);
+    setLog((prev) => {
+      const next = [entry, ...prev].slice(0, LOG_CAP);
+      if (logSeenRef.current.size <= 1) for (const e of next) logSeenRef.current.add(e.id);
+      return next;
+    });
   }, []);
 
   // Seed the log once from the first server snapshot (the socket only carries events that
@@ -161,7 +169,7 @@ export default function CompetitionMonitor() {
     },
     onParticipant: (e) => {
       setPatches((p) => ({ ...p, [e.userId]: { ...p[e.userId], locked: e.locked } }));
-      pushLog({ id: `p:${e.userId}:${Date.now()}`, at: Date.now(), tone: e.locked ? 'danger' : 'success', who: '', text: e.locked ? 'Participant locked' : 'Participant unlocked' });
+      pushLog({ id: `p:${e.userId}:${Date.now()}`, at: Date.now(), tone: e.locked ? 'danger' : 'success', who: nameByUserRef.current.get(e.userId) ?? 'Participant', text: e.locked ? 'was locked' : 'was unlocked' });
     },
     onFirstSolve: (e) => pushLog({ id: `f:${e.problemId}:${e.userName}`, at: Date.now(), tone: 'info', who: e.userName, text: 'First to solve a problem 🎈' }),
     onStatus: (e) => { pushLog({ id: `st:${e.status}:${Date.now()}`, at: Date.now(), tone: 'info', who: '', text: `Round → ${e.status}` }); void monitorQuery.refetch(); },
@@ -189,6 +197,11 @@ export default function CompetitionMonitor() {
     () => (monitor?.participants ?? []).map((p) => ({ ...p, ...patches[p.userId] })),
     [monitor?.participants, patches],
   );
+  // Keep a userId → name map current so socket-only events (participant lock/unlock) can name
+  // the row in the live log.
+  useEffect(() => {
+    for (const p of monitor?.participants ?? []) nameByUserRef.current.set(p.userId, p.name);
+  }, [monitor?.participants]);
   // Clear a patch once the server snapshot agrees (avoids stale optimistic state).
   useEffect(() => {
     if (!monitor) return;
