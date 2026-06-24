@@ -134,43 +134,21 @@ uploadRouter.post(
             });
           }
 
-          // Persist image record for the upload-history library. Await the
-          // write so we never leave dangling promises on the hot path; a DB
-          // failure is logged and surfaced via `historyPersisted: false` but
-          // does not break the upload response (the Cloudinary URL is the
-          // primary contract).
-          let historyPersisted = true;
-          try {
-            await prisma.uploadedImage.create({
-              data: {
-                userId: authUser.id,
-                url: result.secure_url,
-                publicId: result.public_id,
-                filename: req.file?.originalname ?? null,
-                bytes: req.file?.buffer?.length ?? null,
-                width: result.width ?? null,
-                height: result.height ?? null,
-                format: result.format ?? null,
-              },
-            });
-          } catch (dbErr) {
-            historyPersisted = false;
-            logger.error('Failed to persist uploaded_image record', {
-              publicId: result.public_id,
-              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
-            });
-          }
-
-          // Return the Cloudinary URL
+          // No server-side persistence by design: the image library is owned by
+          // the client (localStorage on the uploader's browser), so no image link
+          // is recorded in the database. We hand back the Cloudinary URL plus the
+          // metadata the client needs to render its local gallery (size/dimensions/
+          // format). The Cloudinary asset itself is the only durable artefact.
           res.status(201);
           ApiResponse.success(res, {
             url: result.secure_url,
             publicId: result.public_id,
-            width: result.width,
-            height: result.height,
-            format: result.format,
+            bytes: result.bytes ?? req.file?.buffer?.length ?? null,
+            width: result.width ?? null,
+            height: result.height ?? null,
+            format: result.format ?? null,
+            filename: req.file?.originalname ?? null,
             uploadedBy: authUser.id,
-            historyPersisted,
           }, 'Image uploaded successfully');
         }
       );

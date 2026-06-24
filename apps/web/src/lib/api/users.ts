@@ -23,6 +23,18 @@ import type {
   UserListResponse,
 } from '../api';
 
+// Full Cloudinary metadata returned by POST /upload/image. Consumed by the
+// image-library tool to build its localStorage gallery entries (no server history).
+export interface UploadImageResult {
+  url: string;
+  publicId: string;
+  bytes: number | null;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  filename: string | null;
+}
+
 export const usersApi = {
   // Stats
   getPublicStats: () => request<{ users?: number; members: number; events: number; upcomingEvents?: number; teamMembers?: number; achievements: number; teamCounts?: Record<string, number> }>('/stats/public'),
@@ -296,12 +308,31 @@ export const usersApi = {
       { token },
     ),
 
-  // Upload — lives here because users routinely upload avatars/profile pics
+  // Upload — lives here because users routinely upload avatars/profile pics.
+  // String-only: the avatar/signature callers just need the URL.
   uploadImage: async (file: File, token: string): Promise<string> => {
     const formData = new FormData();
     formData.append('image', file);
     const result = await requestForm<{ url: string }>('/upload/image', formData, { token, method: 'POST' });
     return result.url ?? '';
+  },
+
+  // Detailed upload — returns the full Cloudinary metadata the image-library tool
+  // needs to render its localStorage-backed gallery. Nothing is persisted server-side
+  // (the gallery lives only in the uploader's browser), so the client owns history.
+  uploadImageDetailed: async (file: File, token: string): Promise<UploadImageResult> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const r = await requestForm<Partial<UploadImageResult>>('/upload/image', formData, { token, method: 'POST' });
+    return {
+      url: r.url ?? '',
+      publicId: r.publicId ?? '',
+      bytes: typeof r.bytes === 'number' ? r.bytes : (Number.isFinite(file.size) ? file.size : null),
+      width: r.width ?? null,
+      height: r.height ?? null,
+      format: r.format ?? null,
+      filename: r.filename ?? file.name ?? null,
+    };
   },
 
   // Upload a streak-share card to the dedicated streak-cards/ folder (S-03).
