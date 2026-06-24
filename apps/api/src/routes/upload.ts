@@ -105,16 +105,17 @@ uploadRouter.post(
 
       const authUser = getAuthUser(req)!;
 
-      // Upload to Cloudinary
+      // Upload to Cloudinary — store the ORIGINAL bytes (no incoming transformation).
+      // A `transformation` on upload is DESTRUCTIVE: Cloudinary stores the transformed
+      // image and discards the upload, so the old `width:2000 limit + quality:auto:good`
+      // silently degraded every image (downscaled + recompressed) — "upload original"
+      // never actually kept the original. Optimisation now happens at DELIVERY time via
+      // processImageUrl()'s q_auto/f_auto presets (non-destructive URL transforms), so
+      // the canonical asset — and any "copy link" use of it — stays full quality.
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           folder: 'club-events', // Store in 'club-events' folder in Cloudinary
           resource_type: 'image',
-          transformation: [
-            { width: 2000, crop: 'limit' }, // Max width 2000px
-            { quality: 'auto:good' }, // Automatic quality optimization
-            { fetch_format: 'auto' }, // Automatic format (WebP if supported)
-          ],
         },
         async (error, result) => {
           if (error) {

@@ -84,8 +84,10 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
     // Square images for avatars
     square: 'c_fill,g_center,w_400,h_400,q_auto,f_auto',
     
-    // Gallery images - fit within bounds, preserve aspect
-    gallery: 'c_limit,w_1200,h_900,q_auto,f_auto',
+    // Gallery images - fit within bounds (no crop), preserve aspect. High-res +
+    // best quality so the cinematic full-view gallery stays sharp on large screens
+    // (w_2000 covers most displays; q_auto:best keeps detail, f_auto still optimises).
+    gallery: 'c_limit,w_2000,q_auto:best,f_auto',
     
     // Event page cover - 16:9 ratio for wide landscape posters
     // Posters should be 1920x1080 (16:9 ratio) for best results
