@@ -25,7 +25,7 @@ interface EditState {
   achievedBy: string;
   date: string;
   imageUrl: string;
-  imageGallery: string; // newline-separated URLs in the textarea
+  imageGallery: string; // newline- or comma-separated URLs in the textarea
   tags: string;
   featured: boolean;
 }
@@ -61,9 +61,15 @@ export default function AdminAchievements() {
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      // Accept newline- AND comma-separated pastes (the upload tool's "Copy all"
+      // hands back comma-joined URLs, and users paste those straight in). Split on
+      // newlines, or on a comma/whitespace run that PRECEDES another http(s) URL —
+      // the lookahead means commas inside a Cloudinary transform URL
+      // (…/upload/c_fill,w_200/…) are never mistaken for a separator. Trailing
+      // commas/space on each entry are stripped.
       const gallery = edit.imageGallery
-        .split(/\r?\n/)
-        .map((u) => u.trim())
+        .split(/\n+|[,\s]+(?=https?:\/\/)/)
+        .map((u) => u.trim().replace(/[,\s]+$/, ''))
         .filter(Boolean);
       const payload: Partial<Achievement> = {
         title: edit.title.trim(),
@@ -73,7 +79,7 @@ export default function AdminAchievements() {
         eventName: edit.eventName.trim() || undefined,
         achievedBy: edit.achievedBy.trim(),
         date: edit.date,
-        imageUrl: edit.imageUrl.trim() || undefined,
+        imageUrl: edit.imageUrl.trim().replace(/[,\s]+$/, '') || undefined,
         imageGallery: gallery.length ? gallery : undefined,
         tags: edit.tags.split(',').map((t) => t.trim()).filter(Boolean),
         featured: edit.featured,
@@ -240,7 +246,7 @@ export default function AdminAchievements() {
             <Field label="Achieved by"><Input value={edit.achievedBy} onChange={(e) => setEdit({ ...edit, achievedBy: e.target.value })} placeholder="Names or 'code.scriet'" /></Field>
             <Field label="Date" required><Input type="date" value={edit.date} onChange={(e) => setEdit({ ...edit, date: e.target.value })} /></Field>
             <Field label="Cover image URL"><Input value={edit.imageUrl} onChange={(e) => setEdit({ ...edit, imageUrl: e.target.value })} placeholder="https://…" /></Field>
-            <Field label="Image gallery" hint="One URL per line · up to 30 images" className="sm:col-span-2">
+            <Field label="Image gallery" hint="One per line or comma-separated · up to 30 images" className="sm:col-span-2">
               <textarea
                 value={edit.imageGallery}
                 onChange={(e) => setEdit({ ...edit, imageGallery: e.target.value })}
