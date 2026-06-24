@@ -27,9 +27,16 @@ export const parsePaginationNumber = (
   }
 
   const parsed = Number.parseInt(String(input), 10);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+  // Only genuinely malformed (non-integer) input is rejected (callers turn the
+  // null into a 400). An out-of-range BUT numeric value is CLAMPED to [min, max]
+  // instead of rejected: over-asking should return the max page, not break the
+  // request. This keeps the query bounded (free-tier safe) while staying
+  // forgiving — the old null→400 on `limit=200` against a max-100 endpoint
+  // silently emptied admin list pages (e.g. /admin/achievements) after the
+  // query-bounding perf change.
+  if (!Number.isInteger(parsed)) {
     return null;
   }
 
-  return parsed;
+  return Math.min(max, Math.max(min, parsed));
 };

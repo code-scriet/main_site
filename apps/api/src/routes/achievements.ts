@@ -55,7 +55,9 @@ const toNullableJsonValue = (
 achievementsRouter.get('/', async (req: Request, res: Response) => {
   try {
     const { featured, year, includeContent } = req.query;
-    const limit = parsePaginationNumber(req.query.limit, 50, { min: 1, max: 100 });
+    // max 200 so the admin Achievements page (requests limit=200 to show all)
+    // gets the full set; over-asking beyond this clamps, it never 400s.
+    const limit = parsePaginationNumber(req.query.limit, 50, { min: 1, max: 200 });
     const offset = parsePaginationNumber(req.query.offset, 0, { min: 0, max: 1000000 });
 
     if (limit === null) {
