@@ -380,8 +380,8 @@ export default function AdminTeam() {
                       {m.website && <SocialChip icon={Globe} href={m.website} />}
                     </div>
 
-                    {/* Hover-reveal Edit + Remove actions */}
-                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    {/* Edit + Remove actions — always visible (touch users can't hover) */}
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button
                         onClick={() => openEdit(m)}
                         className="size-7 rounded-[6px] hover:bg-[var(--bg-raised)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center border border-[var(--border-subtle)]"

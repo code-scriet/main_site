@@ -112,18 +112,6 @@ export interface MyTeamCard {
   }>;
 }
 
-export interface UploadHistoryItem {
-  id: string;
-  url: string;
-  publicId: string;
-  filename: string | null;
-  bytes: number | null;
-  width: number | null;
-  height: number | null;
-  format: string | null;
-  createdAt: string;
-}
-
 export interface AdminInsights {
   totalUsers: number;
   newUsersLastWeek: number;
@@ -236,10 +224,6 @@ export const dashboardApi = {
   // All teams I'm a member of (across events)
   getMyAllTeams: (token: string) =>
     request<{ teams: MyTeamCard[] }>('/teams/my-all', { token }),
-
-  // Past uploads (image library)
-  getUploadHistory: (token: string, limit = 24) =>
-    request<UploadHistoryItem[]>(`/upload/history?limit=${limit}`, { token }),
 
   // Admin dashboard stats (now with 12-tile insights block)
   getAdminDashboardStats: (token: string) =>

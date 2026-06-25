@@ -217,7 +217,7 @@ function AnnouncementCard({
         </span>
       )}
       {canManage && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 flex items-center gap-1">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onEdit?.(); }}
@@ -305,7 +305,7 @@ function AnnouncementRow({
         </div>
       </button>
       {canManage && (
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
           <button
             type="button"
             onClick={onEdit}

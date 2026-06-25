@@ -61,7 +61,7 @@ achievementsRouter.get('/', async (req: Request, res: Response) => {
     const offset = parsePaginationNumber(req.query.offset, 0, { min: 0, max: 1000000 });
 
     if (limit === null) {
-      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 100' } });
+      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 200' } });
     }
 
     if (offset === null) {

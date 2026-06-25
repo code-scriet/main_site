@@ -1717,7 +1717,6 @@ export type {
   RecentSubmission,
   AroundMeLeaderboard,
   MyTeamCard,
-  UploadHistoryItem,
   AdminInsights,
   AdminDashboardStats,
   NotifAudience,

@@ -117,7 +117,9 @@ export default function ImageUploadTool() {
         id:
           typeof crypto !== 'undefined' && 'randomUUID' in crypto
             ? crypto.randomUUID()
-            : `${img.publicId || img.url}-${prev.length}`,
+            // Fallback (old browsers): timestamp + randomness, NOT prev.length —
+            // an index suffix collides after a delete-then-re-upload.
+            : `up-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
         createdAt: new Date().toISOString(),
       };
       return [entry, ...withoutDupe].slice(0, MAX_ITEMS);

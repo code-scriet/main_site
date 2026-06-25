@@ -188,13 +188,6 @@ export default function AdminAchievements() {
                 <div className="absolute top-2 left-2 flex gap-1.5">
                   {a.featured && <Pill tone="warning" size="xs" icon={<Star size={9} />}>Featured</Pill>}
                 </div>
-                <button
-                  className="absolute top-2 right-2 size-7 rounded-[6px] bg-black/30 backdrop-blur opacity-0 group-hover:opacity-100 text-white flex items-center justify-center transition-opacity"
-                  onClick={() => openEdit(a)}
-                  title="Edit"
-                >
-                  <Pencil size={12} />
-                </button>
               </div>
               <div className="p-4">
                 <div className="text-[13.5px] font-semibold leading-snug line-clamp-2">{a.title}</div>
@@ -207,7 +200,10 @@ export default function AdminAchievements() {
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Switch checked={a.featured ?? false} onCheckedChange={(checked) => featureMut.mutate({ id: a.id, featured: checked })} />
-                    <button onClick={() => setDeleting(a)} className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center" title="Delete">
+                    <button onClick={() => openEdit(a)} className="size-7 rounded-[6px] border border-[var(--border-default)] text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)] hover:text-[var(--accent)] hover:border-[var(--accent)] flex items-center justify-center transition-colors" title="Edit">
+                      <Pencil size={12} />
+                    </button>
+                    <button onClick={() => setDeleting(a)} className="size-7 rounded-[6px] border border-[var(--border-default)] text-[var(--ds-text-3)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] hover:border-[var(--danger-border)] flex items-center justify-center transition-colors" title="Delete">
                       <Trash2 size={11} />
                     </button>
                   </div>

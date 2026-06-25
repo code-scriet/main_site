@@ -473,7 +473,7 @@ function Detail({ label, value, mono, copyable, href, tone }: {
             onClick={copy}
             aria-label={`Copy ${label.toLowerCase()}`}
             title={`Copy ${label.toLowerCase()}`}
-            className="shrink-0 rounded text-[var(--ds-text-3)] opacity-0 transition-opacity hover:text-[var(--ds-text-1)] focus:outline-none focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--accent)] group-hover:opacity-100"
+            className="shrink-0 rounded text-[var(--ds-text-3)] transition-colors hover:text-[var(--ds-text-1)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
           >
             {copied ? <Check className="h-3 w-3 text-[var(--success)]" /> : <Copy className="h-3 w-3" />}
           </button>
