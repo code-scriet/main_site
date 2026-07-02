@@ -9,6 +9,7 @@ const CERT_TYPE_LABEL: Record<string, string> = {
   COMPLETION: 'Completion',
   WINNER: 'Achievement',
   SPEAKER: 'Speaker',
+  APPRECIATION: 'Appreciation',
 };
 
 export function linkedInAddCertUrl(opts: {

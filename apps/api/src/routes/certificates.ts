@@ -65,7 +65,7 @@ const certificateDownloadLimiter = rateLimit({
   keyGenerator: (req) => getClientIp(req),
 });
 
-const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
 const certificateSources = ['attendance', 'competition', 'generic'] as const;
 const competitionGenerationStrategies = ['specific_round', 'best_selected_rounds', 'average_selected_rounds'] as const;
@@ -1307,7 +1307,7 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
       ],
       isRevoked: false,
     };
-    if (type && ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'].includes(type.toUpperCase())) {
+    if (type && (certTypes as readonly string[]).includes(type.toUpperCase())) {
       where.type = type.toUpperCase();
     }
 

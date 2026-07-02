@@ -759,6 +759,7 @@ const CERTIFICATE_TYPE_LABEL: Record<string, string> = {
   COMPLETION: 'Certificate of Completion',
   WINNER: 'Certificate of Achievement',
   SPEAKER: 'Certificate of Appreciation',
+  APPRECIATION: 'Certificate of Appreciation',
 };
 
 function certificateTypeLabel(certType?: string | null): string {

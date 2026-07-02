@@ -22,9 +22,10 @@ const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
   COMPLETION: 'success',
   WINNER: 'warning',
   SPEAKER: 'info',
+  APPRECIATION: 'info',
 };
 
-type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 
 export default function DashboardCertificates() {
   const { token } = useAuth();
@@ -73,6 +74,7 @@ export default function DashboardCertificates() {
     COMPLETION: allSorted.filter((c) => c.type === 'COMPLETION').length,
     WINNER: allSorted.filter((c) => c.type === 'WINNER').length,
     SPEAKER: allSorted.filter((c) => c.type === 'SPEAKER').length,
+    APPRECIATION: allSorted.filter((c) => c.type === 'APPRECIATION').length,
   }), [allSorted]);
   const verifyLink = (certId: string) => `${window.location.origin}/verify/${certId}`;
   const copyLink = async (certId: string) => {
@@ -110,6 +112,7 @@ export default function DashboardCertificates() {
               { value: 'COMPLETION', label: 'Completion', count: typeCounts.COMPLETION },
               { value: 'WINNER', label: 'Winner', count: typeCounts.WINNER },
               { value: 'SPEAKER', label: 'Speaker', count: typeCounts.SPEAKER },
+              { value: 'APPRECIATION', label: 'Appreciation', count: typeCounts.APPRECIATION },
             ]}
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as TypeFilter)}

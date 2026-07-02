@@ -25,7 +25,7 @@ import { getClientIp } from '../utils/clientIp.js';
 export const invitationsRouter = Router();
 
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000;
-const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 const EMAIL_ADDRESS_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const claimRateLimiter = rateLimit({

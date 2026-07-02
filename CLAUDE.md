@@ -305,7 +305,7 @@ EventStatus: UPCOMING|ONGOING|PAST
 AnnouncementPriority: LOW|MEDIUM|HIGH|URGENT
 ApplyingRole: TECHNICAL|DSA_CHAMPS|DESIGNING|SOCIAL_MEDIA|MANAGEMENT
 ApplicationStatus: PENDING|INTERVIEW_SCHEDULED|SELECTED|REJECTED
-CertType: PARTICIPATION|COMPLETION|WINNER|SPEAKER
+CertType: PARTICIPATION|COMPLETION|WINNER|SPEAKER|APPRECIATION
 CertTemplate: gold|dark|white|emerald   (lowercase members — match stored strings)
 CertEmailTemplate: default|faculty_distribution
 EventTeamMemberRole: LEADER|MEMBER

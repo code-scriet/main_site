@@ -27,7 +27,7 @@ import { SEO } from '@/components/SEO';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 
 interface VerifyResult {
   valid: boolean;
@@ -50,6 +50,7 @@ const typeColors: Record<CertType, string> = {
   COMPLETION: 'bg-green-100 text-green-700',
   WINNER: 'bg-amber-100 text-amber-700',
   SPEAKER: 'bg-purple-100 text-purple-700',
+  APPRECIATION: 'bg-rose-100 text-rose-700',
 };
 
 const typeLabels: Record<CertType, string> = {
@@ -57,6 +58,7 @@ const typeLabels: Record<CertType, string> = {
   COMPLETION: 'Certificate of Completion',
   WINNER: 'Certificate of Achievement',
   SPEAKER: 'Speaker Certificate',
+  APPRECIATION: 'Certificate of Appreciation',
 };
 
 const typeDescriptions: Record<CertType, string> = {
@@ -64,6 +66,7 @@ const typeDescriptions: Record<CertType, string> = {
   COMPLETION: 'for completing',
   WINNER: 'for outstanding performance in',
   SPEAKER: 'for speaking at',
+  APPRECIATION: 'in appreciation of their contribution to',
 };
 
 const typeDescriptionsWithoutEvent: Record<CertType, string> = {
@@ -71,6 +74,7 @@ const typeDescriptionsWithoutEvent: Record<CertType, string> = {
   COMPLETION: 'for completion',
   WINNER: 'for outstanding performance',
   SPEAKER: 'for speaking',
+  APPRECIATION: 'in appreciation of their contribution',
 };
 
 function ValidResult({ result }: { result: VerifyResult }) {

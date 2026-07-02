@@ -1248,7 +1248,7 @@ export interface CompetitionResult {
   problems?: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
 }
 
-export type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+export type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 export type CertificateTemplate = 'gold' | 'dark' | 'white' | 'emerald';
 export type CompetitionGenerationStrategy = 'specific_round' | 'best_selected_rounds' | 'average_selected_rounds';
 export type CertificateBulkSource = 'attendance' | 'competition' | 'generic';

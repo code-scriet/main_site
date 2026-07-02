@@ -117,6 +117,7 @@ const CERT_TYPE_OPTIONS: Array<{ value: CertType; label: string }> = [
   { value: 'COMPLETION', label: 'Completion' },
   { value: 'WINNER', label: 'Winner' },
   { value: 'SPEAKER', label: 'Speaker' },
+  { value: 'APPRECIATION', label: 'Appreciation' },
 ];
 
 const TEMPLATE_OPTIONS = [

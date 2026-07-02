@@ -64,13 +64,14 @@ interface CertRow {
 }
 
 type StatusFilter = 'all' | 'active' | 'revoked';
-type TypeFilter = 'all-type' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+type TypeFilter = 'all-type' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 
 const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
   PARTICIPATION: 'neutral',
   COMPLETION: 'success',
   WINNER: 'warning',
   SPEAKER: 'info',
+  APPRECIATION: 'info',
 };
 
 function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAULTS): GenerateFormData {
@@ -577,8 +578,10 @@ export default function AdminCertificates() {
           items={[
             { value: 'all-type', label: 'All types' },
             { value: 'PARTICIPATION', label: 'Participation' },
+            { value: 'COMPLETION', label: 'Completion' },
             { value: 'WINNER', label: 'Winner' },
             { value: 'SPEAKER', label: 'Speaker' },
+            { value: 'APPRECIATION', label: 'Appreciation' },
           ]}
           value={typeFilter}
           onChange={(v) => setTypeFilter(v as TypeFilter)}

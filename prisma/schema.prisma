@@ -1466,6 +1466,7 @@ enum CertType {
   COMPLETION
   WINNER
   SPEAKER
+  APPRECIATION
 }
 
 // A4: certificate render template + email delivery template. Lowercase members

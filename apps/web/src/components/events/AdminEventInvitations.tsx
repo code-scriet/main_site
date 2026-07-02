@@ -29,7 +29,7 @@ import {
 import { toast } from 'sonner';
 
 const ROLE_OPTIONS = ['Guest', 'Chief Guest', 'Speaker', 'Judge', 'Special Guest', 'Custom'] as const;
-const CERTIFICATE_TYPE_OPTIONS: CertType[] = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'];
+const CERTIFICATE_TYPE_OPTIONS: CertType[] = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'];
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000;
 
 interface AdminEventInvitationsProps {
