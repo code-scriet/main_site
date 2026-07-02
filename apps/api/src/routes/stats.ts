@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
-import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
+import { createTtlSingleFlight } from '../utils/singleFlight.js';
 import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 
@@ -348,10 +349,10 @@ const getPublicStatsPayload = async (): Promise<PublicStatsPayload> => {
   return publicStatsInFlight;
 };
 
-const sendPublicStats = async (res: Response) => {
+const sendPublicStats = async (req: Request, res: Response) => {
   try {
     const data = await getPublicStatsPayload();
-    setPublicCache(res, 60);
+    setSharedPublicCache(req, res, 60);
     ApiResponse.success(res, data);
   } catch (error) {
     logger.error('Failed to fetch stats', { error: error instanceof Error ? error.message : String(error) });
@@ -360,20 +361,21 @@ const sendPublicStats = async (res: Response) => {
 };
 
 // Get public stats
-statsRouter.get('/', async (_req: Request, res: Response) => {
-  await sendPublicStats(res);
+statsRouter.get('/', async (req: Request, res: Response) => {
+  await sendPublicStats(req, res);
 });
 
 // Backwards-compatible alias used by frontend
-statsRouter.get('/public', async (_req: Request, res: Response) => {
-  await sendPublicStats(res);
+statsRouter.get('/public', async (req: Request, res: Response) => {
+  await sendPublicStats(req, res);
 });
 
 // Optimized aggregate payload for homepage sections
-statsRouter.get('/home', async (_req: Request, res: Response) => {
+statsRouter.get('/home', async (req: Request, res: Response) => {
   try {
     const data = await getHomePayload();
-    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    // Anonymous-identical global payload — shared-edge cacheable (S3).
+    setSharedPublicCache(req, res, 60);
     ApiResponse.success(res, data);
   } catch (error) {
     logger.error('Failed to fetch homepage data', { error: error instanceof Error ? error.message : String(error) });
@@ -381,9 +383,14 @@ statsRouter.get('/home', async (_req: Request, res: Response) => {
   }
 });
 
-// Get dashboard stats (admin)
-statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
-  try {
+// S2b: /stats/dashboard is admin-only GLOBAL counts (no per-admin data) and was
+// recomputed (~28 aggregates + trailing queries) on every load — incl. React
+// Query refetch-on-focus storms. Same single-flight TTL PATTERN as getHomePayload
+// (which hand-rolls it at 60s), here via createTtlSingleFlight at a 30s TTL cache
+// getHomePayload uses so concurrent admin loads collapse to at most one aggregate
+// burst per window. 30s staleness is fine for a stats dashboard.
+const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
+const computeDashboardStats = async () => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -590,12 +597,20 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       select: { id: true, name: true, email: true, createdAt: true },
     });
 
-    ApiResponse.success(res, {
+    return {
       overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
       insights,
       popularEvents,
       recentUsers,
-    });
+    };
+};
+
+const dashboardStatsBoard = createTtlSingleFlight(DASHBOARD_CACHE_TTL_MS, computeDashboardStats);
+
+// Get dashboard stats (admin)
+statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  try {
+    ApiResponse.success(res, await dashboardStatsBoard.get());
   } catch (error) {
     logger.error('Failed to fetch dashboard stats', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch dashboard stats');

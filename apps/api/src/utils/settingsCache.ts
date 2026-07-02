@@ -19,6 +19,11 @@ const TTL_MS = 5 * 60 * 1000;
 let cache: Settings | null = null;
 let expiresAt = 0;
 let inflight: Promise<Settings | null> | null = null;
+// Generation fence (mirrors utils/singleFlight.ts): a read that was already in
+// flight when invalidateSettingsCache() ran must not write its pre-invalidation
+// row back into the cache — that would mask an admin's settings PUT (incl.
+// emailTestingMode and every feature toggle) for a full 5-minute TTL.
+let generation = 0;
 
 export async function getCachedSettings(): Promise<Settings | null> {
   const now = Date.now();
@@ -28,10 +33,11 @@ export async function getCachedSettings(): Promise<Settings | null> {
   if (inflight) {
     return inflight;
   }
-  inflight = prisma.settings
+  const startedGeneration = generation;
+  const read = prisma.settings
     .findUnique({ where: { id: 'default' } })
     .then((row) => {
-      if (row) {
+      if (row && generation === startedGeneration) {
         cache = row;
         expiresAt = now + TTL_MS;
       }
@@ -48,14 +54,31 @@ export async function getCachedSettings(): Promise<Settings | null> {
       return null;
     })
     .finally(() => {
-      inflight = null;
+      // Identity-guarded: an old read settling must not evict a newer in-flight
+      // read installed after an invalidation.
+      if (inflight === read) inflight = null;
     });
-  return inflight;
+  inflight = read;
+  return read;
 }
 
 export function invalidateSettingsCache(): void {
+  generation += 1;
   cache = null;
   expiresAt = 0;
+  inflight = null;
+}
+
+/**
+ * SYNCHRONOUS snapshot of the last-known Settings row — for hot paths that
+ * cannot await (quiz reveal emission, snapshot ticks). Returns the cached row
+ * even past its TTL (staleness ≤5 min is fine for feature flags; any concurrent
+ * request refreshes it via getCachedSettings), and null on a cold start or in
+ * the instants right after an invalidation — callers MUST treat null as
+ * "feature off" (the safe, legacy direction). Never touches the DB.
+ */
+export function peekCachedSettings(): Settings | null {
+  return cache;
 }
 
 // Test helper.

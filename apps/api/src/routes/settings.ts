@@ -702,6 +702,8 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'whatsappUrl',
       'accentColor',
       'codeExecutionProvider',
+      'quizFoldRankInResult',
+      'quizSnapshotEnabled',
     ];
 
     if (!allowedKeys.includes(key)) {
@@ -737,6 +739,8 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'emailReminderEnabled',
       'emailInvitationEnabled',
       'emailTestingMode',
+      'quizFoldRankInResult',
+      'quizSnapshotEnabled',
     ]);
     const urlKeys = new Set([
       'githubUrl',

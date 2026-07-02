@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';

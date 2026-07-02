@@ -21,6 +21,10 @@ build/
 # Database
 *.db
 *.db-journal
+# sqlite WAL sidecars + the S6 quiz-snapshot store (quiz answer keys live in it)
+*.db-wal
+*.db-shm
+.data/
 
 # Uploaded/generated files (certificates stored locally in dev)
 apps/api/uploads/

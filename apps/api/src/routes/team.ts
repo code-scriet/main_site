@@ -11,7 +11,7 @@ import { submitUrl } from '../utils/indexnow.js';
 import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { requireUuid } from '../utils/idParams.js';
-import { setPublicCache } from '../utils/response.js';
+import { setSharedPublicCache } from '../utils/response.js';
 
 export const teamRouter = Router();
 
@@ -238,7 +238,7 @@ teamRouter.get('/', async (req: Request, res: Response) => {
         });
 
     // Public team directory — no per-user fields, identical for everyone.
-    setPublicCache(res, 60);
+    setSharedPublicCache(req, res, 60);
     res.json({ success: true, data: teamMembers.map((member) => mergeWithUserData(member, !isCompact)) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
@@ -287,7 +287,7 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
       _count: { id: true },
     });
 
-    setPublicCache(res, 60);
+    setSharedPublicCache(_req, res, 60);
     res.json({
       success: true,
       data: teams.map((t) => ({ team: t.team, count: t._count.id })),

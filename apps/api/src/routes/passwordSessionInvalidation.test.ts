@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import express from 'express';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { usersRouter } from './users.js';
 import { prisma } from '../lib/prisma.js';
 import { signAccessToken, verifyToken } from '../utils/jwt.js';

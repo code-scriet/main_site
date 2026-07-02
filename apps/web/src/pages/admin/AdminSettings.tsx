@@ -55,6 +55,8 @@ export default function AdminSettings() {
     competitionEnabled: false,
     problemsEnabled: false,
     plagiarismCheckEnabled: false,
+    quizFoldRankInResult: false,
+    quizSnapshotEnabled: false,
     showNetwork: true,
     certificatesEnabled: true,
     playgroundEnabled: true,
@@ -490,6 +492,22 @@ export default function AdminSettings() {
             description="Admin-run code similarity check for contests (review-only)."
             checked={settings.plagiarismCheckEnabled ?? false}
             onCheckedChange={(checked) => void handleToggle('plagiarismCheckEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="quiz-snapshot-enabled"
+            label="Quiz crash recovery"
+            description="Snapshot live quizzes every 10s; after a crash they resume paused with scores intact."
+            checked={settings.quizSnapshotEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('quizSnapshotEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="quiz-fold-rank-enabled"
+            label="Quiz lean reveals"
+            description="Fold rank into the answer result for up-to-date clients (fewer reveal messages at large player counts)."
+            checked={settings.quizFoldRankInResult ?? false}
+            onCheckedChange={(checked) => void handleToggle('quizFoldRankInResult', checked)}
             compact
           />
           <ToggleRow

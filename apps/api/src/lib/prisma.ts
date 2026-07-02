@@ -21,12 +21,48 @@ const resolvePoolMax = (): number => {
   }
 };
 
+// Per-statement safety valve (S0). A runaway/cold aggregate would otherwise pin
+// one of the (frozen) 5 pool connections indefinitely, starving all other
+// requests. `statement_timeout` (ms) is applied at connection establishment via
+// the libpq `options` startup parameter, so it covers EVERY pooled connection
+// with no per-query wrapping. Fires as Postgres error 57014 (query_canceled) —
+// NOT retried by withRetry (intentional: a timeout means the query was too
+// slow, not a transient cold start; auto-retrying an 8s burner would triple
+// pressure on the frozen pool).
+//
+// ⚠️ DEFAULT OFF (opt-in) until verified against the REAL Neon pooled endpoint:
+// Neon's pooler is PgBouncer, which only accepts startup `options` parameters
+// it tracks — `statement_timeout` may be (a) honored, (b) silently stripped
+// (valve is a no-op), or (c) REJECTED, which would refuse every pooled
+// connection (total outage). Verify with a client constructed exactly like this
+// one running `SELECT current_setting('statement_timeout')` against the prod
+// DATABASE_URL, then set PG_STATEMENT_TIMEOUT_MS (~8000 to start). Rollback =
+// unset/0 + restart. Migrations use DIRECT_URL (separate client) — unaffected.
+const resolveStatementTimeoutMs = (): number => {
+  const raw = process.env.PG_STATEMENT_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    // A typo'd value must not look identical to a deliberate opt-out.
+    logger.warn('PG_STATEMENT_TIMEOUT_MS is not a number — statement timeout disabled', { raw });
+    return 0;
+  }
+  return Math.floor(parsed);
+};
+
 // Configure Prisma with retry logic for Neon serverless cold starts.
 // Prisma 7 connects through a driver adapter; PrismaPg uses node-postgres against
 // the pooled DATABASE_URL (Neon pooler), matching the prior datasource `url`.
 // Migrate/introspect use DIRECT_URL via prisma.config.ts.
 const createPrismaClient = () => {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL, max: resolvePoolMax() });
+  const statementTimeoutMs = resolveStatementTimeoutMs();
+  const adapter = new PrismaPg({
+    connectionString: process.env.DATABASE_URL,
+    max: resolvePoolMax(),
+    // libpq startup option; honored per-connection by the Neon pooler. Omitted
+    // entirely when disabled so behavior is byte-identical to before S0.
+    ...(statementTimeoutMs > 0 ? { options: `-c statement_timeout=${statementTimeoutMs}` } : {}),
+  });
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],

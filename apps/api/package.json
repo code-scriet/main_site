@@ -16,7 +16,7 @@
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@react-pdf/renderer": "^4.3.2",
-    "bcryptjs": "^3.0.3",
+    "bcrypt": "^5.1.1",
     "bufferutil": "^4.1.0",
     "cloudinary": "^2.10.0",
     "compression": "^1.8.1",
@@ -44,6 +44,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
@@ -64,5 +66,9 @@
     "prisma": "^7.8.0",
     "tsx": "^4.7.0",
     "typescript": "^6.0.3"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.11.1",
+    "eiows": "^9.2.0"
   }
 }

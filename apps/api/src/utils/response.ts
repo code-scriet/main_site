@@ -1,5 +1,5 @@
 // API Response helpers for consistent response formatting
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 // Evaluated at call time (not module load) so behavior tracks the current
 // NODE_ENV — required for deterministic unit tests that exercise the
@@ -30,6 +30,49 @@ export function setPublicCache(res: Response, maxAgeSeconds = 60, staleWhileReva
   // res.vary() appends — it won't clobber the Vary: Origin set by cors().
   res.vary('Authorization');
   res.vary('Cookie');
+}
+
+/**
+ * S3: shared-CDN cache header for TRULY-anonymous, identical-for-everyone GET
+ * responses. Unlike setPublicCache it emits `s-maxage` (the SHARED-cache TTL a CDN
+ * honours) and deliberately does NOT set `Vary: Cookie/Authorization` — that Vary
+ * is exactly what makes setPublicCache un-storable at a shared edge (every browser
+ * request carries the `scriet_session` cookie via credentials:'include', so each
+ * gets a distinct cache key and nothing is reused). Dropping it lets Cloudflare
+ * store and reuse the one anonymous body.
+ *
+ * ENFORCED guard (not caller-must-remember): the function takes the request and,
+ * when it carries ANY credentials (Authorization header or a scriet_session
+ * cookie), silently degrades to the safe setPublicCache header — a mistaken call
+ * on a mixed-audience route can therefore never make an authed response
+ * shared-cacheable. Use it only on endpoints whose anonymous body is identical
+ * for everyone (public QOTD leaderboards, /stats/home, /stats/public,
+ * /announcements, /team, /credits, /achievements); never on per-user routes
+ * (e.g. /qotd/leaderboard/around-me) where even the degraded header is wrong.
+ *
+ * Browser TTL note: `max-age` (browser cache) is intentionally clamped to ≤30s
+ * regardless of maxAgeSeconds — the parameter controls the SHARED `s-maxage`
+ * TTL; browsers revalidate sooner so a stale-window mistake heals fast.
+ *
+ * This is GUARD #1 of three and MUST ship together with the other two (Cloudflare
+ * config, not code): (2) a Cache Rule scoped to an explicit path allowlist, and
+ * (3) "Bypass cache on cookie: scriet_session" so any session-bearing request
+ * always reaches origin. `Vary: Origin` (from cors()) is left intact; only
+ * Cookie/Authorization are omitted, and only for credential-less requests.
+ */
+export function setSharedPublicCache(req: Request, res: Response, maxAgeSeconds = 60, staleWhileRevalidateSeconds = maxAgeSeconds * 5) {
+  const hasCredentials =
+    Boolean(req.headers.authorization) || (req.headers.cookie ?? '').includes('scriet_session=');
+  if (hasCredentials) {
+    setPublicCache(res, Math.min(maxAgeSeconds, 30), staleWhileRevalidateSeconds);
+    return;
+  }
+  res.setHeader(
+    'Cache-Control',
+    `public, s-maxage=${maxAgeSeconds}, max-age=${Math.min(maxAgeSeconds, 30)}, stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+  );
+  // Intentionally NO Vary: Cookie/Authorization on this branch — that omission is
+  // what allows a shared edge cache to store the (credential-less) response.
 }
 
 // Filter potentially sensitive information from error details in production

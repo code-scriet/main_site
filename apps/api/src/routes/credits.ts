@@ -7,7 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 import { isUuid as isValidUuid } from '../utils/idParams.js';
-import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
 
 export const creditsRouter = Router();
 
@@ -63,7 +63,7 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
     });
 
     // Public list — no per-user fields.
-    setPublicCache(res, 60);
+    setSharedPublicCache(req, res, 60);
     ApiResponse.success(res, credits);
   } catch (error) {
     logger.error('Failed to fetch credits', { error });

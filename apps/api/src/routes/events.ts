@@ -19,7 +19,7 @@ import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { reconcileEventStatusesSoon, armRegistrationOpenTimer, cancelRegistrationOpenTimer } from '../utils/scheduler.js';
 import { requireUuid } from '../utils/idParams.js';
-import { setPublicCache } from '../utils/response.js';
+import { setPublicCache, setSharedPublicCache } from '../utils/response.js';
 
 export const eventsRouter = Router();
 const GUEST_ROLE_PRIORITY: Record<string, number> = {
@@ -327,7 +327,7 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
       },
     });
     // No per-user fields on this endpoint — always edge-cacheable.
-    setPublicCache(res, 60);
+    setSharedPublicCache(_req, res, 60);
     res.json({ success: true, data: events });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch upcoming events' } });

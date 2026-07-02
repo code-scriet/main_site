@@ -8,7 +8,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { socketEvents, disconnectUserSockets } from '../utils/socket.js';
 import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
@@ -1337,7 +1337,13 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       invitationsReceivedCount,
       invitationsSentCount,
       uploadedImagesCount,
-    ] = await prisma.$transaction([
+      // S2a: read-only admin snapshot — no read feeds a later write, so the
+      // single-MVCC-snapshot guarantee of $transaction([]) is unneeded. Array-form
+      // $transaction serializes all 26 reads on ONE pooled connection (holding 1/5
+      // of the frozen pool for their full sum); Promise.all fans them across the
+      // pool (bounded to `max` by node-postgres) — ~5x faster wall-clock and no
+      // single-connection monopoly. Response shape is identical.
+    ] = await Promise.all([
       prisma.eventRegistration.findMany({
         where: { userId: targetId },
         select: {

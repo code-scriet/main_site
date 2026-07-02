@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma.js';
 import { logger } from './logger.js';
 import { generateSlug, generateUniqueSlug } from './slug.js';
