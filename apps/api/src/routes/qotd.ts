@@ -8,7 +8,8 @@ import { requireRole } from '../middleware/role.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
-import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
+import { createTtlSingleFlight } from '../utils/singleFlight.js';
 import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
@@ -113,15 +114,12 @@ function isStaffAuth(user: { role?: string } | undefined): boolean {
 }
 
 const dailyLeaderboardCache = new Map<string, { data: unknown; expiresAt: number }>();
-let totalLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
-let weeklyLeaderboardCache: { data: WeeklyLeaderboardPayload; expiresAt: number } | null = null;
 
 // Around-me board: the full ranked array (every QOTD scorer) computed once and sliced
-// per-caller in JS. Mirrors the weekly/total caches — the expensive GROUP BY + RANK()
+// per-caller in JS. Mirrors the weekly/total boards — the expensive GROUP BY + RANK()
 // aggregate runs at most once per 60s instead of on every dashboard load. Bounded by
 // user count (one row of {userId, rank, score, firstSolve, totalRows} ≈ a few dozen B).
 interface AroundMeRankRow { userId: string; totalScore: number; firstSolve: number; rank: number; totalRows: number }
-let aroundMeRankCache: { data: AroundMeRankRow[]; expiresAt: number } | null = null;
 
 interface WeeklyLeaderboardPayload {
   // Published-and-not-held QOTD days inside the trailing 7-day window (0..7).
@@ -144,6 +142,177 @@ function sliceWeeklyLeaderboard(full: WeeklyLeaderboardPayload, limit: number): 
   return { dayCount: full.dayCount, entries: full.entries.slice(0, limit) };
 }
 
+// S2c: the three GLOBAL QOTD boards, each a 60s TTL + single-flight cache on the
+// shared createTtlSingleFlight primitive (utils/singleFlight.ts). The TTL caps
+// steady-state DB load; single-flight collapses a concurrent cache-MISS stampede
+// (TTL expiry, or the burst of dashboard loads right after a QOTD publish/solve
+// invalidation) into ONE aggregate query; the primitive's generation fencing
+// means a compute that started BEFORE an invalidation can never write the cache
+// (a fresh solve is never masked by a stale board). Each board computes the FULL
+// dataset (fixed max) and every request slices to its own limit/window — a
+// request's `?limit=` can therefore never leak into another caller's response.
+
+const TOTAL_LEADERBOARD_MAX = 10;
+interface TotalLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  avatar: string | null;
+  score: number;
+  submittedAt: string;
+  firstSolveAt: string;
+  solveDays: number;
+}
+
+async function computeTotalLeaderboard(): Promise<{ entries: TotalLeaderboardEntry[] }> {
+  // Prisma stores DateTime as `timestamp(3)` (without time zone) holding the
+  // UTC instant. To get the IST calendar date we must first say "this is UTC"
+  // (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
+  // (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
+  // first step inverts the offset and silently drops every row whose IST date
+  // differs from its UTC date (i.e. anything submitted before 05:30 IST or
+  // QOTD rows whose UTC midnight is the previous IST day).
+  // A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own
+  // IST date, so the same-day match below would silently drop it forever — even
+  // after an admin accepts it. Such a solve is only ever stored with
+  // verdict='ACCEPTED' once accepted (held solves stay PENDING), and the
+  // active-day gate means the ONLY way a QOTD-context row is off-day is a
+  // reopen-accepted solve. So `OR verdict='ACCEPTED'` re-admits exactly those
+  // accepted late solves (PENDING holds stay excluded) without changing live-day
+  // behaviour, honouring the feature's "marks/leaderboard count normally" intent.
+  const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
+    SELECT ps.user_id,
+           SUM(ps.score)::int AS total_score,
+           MIN(ps.submitted_at) AS first_solve,
+           MAX(ps.submitted_at) AS latest_solve,
+           COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
+    FROM problem_submissions ps
+    JOIN qotd q ON q.id = ps.context_key
+    WHERE ps.context_type = 'QOTD'
+      AND (
+        DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+        OR ps.verdict = 'ACCEPTED'
+      )
+    GROUP BY ps.user_id
+    ORDER BY total_score DESC, first_solve ASC
+    LIMIT ${TOTAL_LEADERBOARD_MAX};
+  `;
+  const users = await prisma.user.findMany({
+    where: { id: { in: rows.map((row) => row.user_id) } },
+    select: { id: true, name: true, avatar: true },
+  });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  return {
+    entries: rows.map((row, index) => {
+      const user = usersById.get(row.user_id);
+      return {
+        rank: index + 1,
+        userId: row.user_id,
+        name: user?.name ?? 'Unknown',
+        avatar: user?.avatar ?? null,
+        score: Number(row.total_score),
+        submittedAt: row.latest_solve.toISOString(),
+        firstSolveAt: row.first_solve.toISOString(),
+        solveDays: Number(row.solve_days),
+      };
+    }),
+  };
+}
+
+async function computeWeeklyLeaderboard(): Promise<WeeklyLeaderboardPayload> {
+  const { end } = qotdDateRange();
+  const windowQotds = await prisma.qOTD.findMany({
+    where: { isPublished: true, heldBy: null, date: { lt: end } },
+    orderBy: { date: 'desc' },
+    take: 7,
+    select: { id: true },
+  });
+  const windowIds = windowQotds.map((q) => q.id);
+  const dayCount = windowIds.length;
+
+  if (windowIds.length === 0) {
+    return { entries: [], dayCount: 0 };
+  }
+
+  // At most one row per (user, in-window QOTD): the [userId, problemId, contextType,
+  // contextKey] unique key plus the publish-locked edit guard (a QOTD's problemId
+  // can't change once it has gone live) mean _count._all is the user's distinct
+  // in-window day count.
+  const grouped = await prisma.problemSubmission.groupBy({
+    by: ['userId'],
+    where: { contextType: 'QOTD', verdict: { not: 'PENDING' }, contextKey: { in: windowIds } },
+    _sum: { score: true },
+    _count: { _all: true },
+    _min: { submittedAt: true },
+    orderBy: [{ _sum: { score: 'desc' } }, { _min: { submittedAt: 'asc' } }],
+    take: WEEKLY_LEADERBOARD_MAX,
+  });
+
+  const users = grouped.length
+    ? await prisma.user.findMany({
+        where: { id: { in: grouped.map((g) => g.userId) } },
+        select: { id: true, name: true, avatar: true },
+      })
+    : [];
+  const usersById = new Map(users.map((u) => [u.id, u]));
+  return {
+    dayCount,
+    entries: grouped.map((g, index) => {
+      const u = usersById.get(g.userId);
+      return {
+        rank: index + 1,
+        userId: g.userId,
+        name: u?.name ?? 'Unknown',
+        avatar: u?.avatar ?? null,
+        score: g._sum.score ?? 0,
+        daysSolved: g._count._all,
+      };
+    }),
+  };
+}
+
+async function computeAroundMeRanked(): Promise<AroundMeRankRow[]> {
+  const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
+    WITH scored AS (
+      SELECT ps.user_id,
+             SUM(ps.score)::int AS total_score,
+             MIN(ps.submitted_at) AS first_solve
+      FROM problem_submissions ps
+      JOIN qotd q ON q.id = ps.context_key
+      WHERE ps.context_type = 'QOTD'
+        -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
+        -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
+        -- from the rank window once an admin accepts it.
+        AND (
+          DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          OR ps.verdict = 'ACCEPTED'
+        )
+      GROUP BY ps.user_id
+    ), ranked AS (
+      SELECT user_id, total_score, first_solve,
+             RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
+             COUNT(*) OVER () AS total_rows
+      FROM scored
+    )
+    SELECT user_id, total_score, first_solve, rk, total_rows
+    FROM ranked
+    ORDER BY rk ASC;
+  `;
+  return rows.map((row) => ({
+    userId: row.user_id,
+    totalScore: Number(row.total_score),
+    firstSolve: row.first_solve instanceof Date ? row.first_solve.getTime() : new Date(row.first_solve).getTime(),
+    rank: Number(row.rk),
+    totalRows: Number(row.total_rows),
+  }));
+}
+
+const totalLeaderboardBoard = createTtlSingleFlight(60_000, computeTotalLeaderboard);
+const weeklyLeaderboardBoard = createTtlSingleFlight(60_000, computeWeeklyLeaderboard);
+const aroundMeBoard = createTtlSingleFlight(60_000, computeAroundMeRanked);
+
 // Free expired entries every 60s so a fresh insert isn't blocked by stale
 // keys squatting on the 30-entry cap. Readers already gate on expiresAt.
 const dailyLeaderboardSweep = setInterval(() => {
@@ -162,9 +331,11 @@ type QotdWithProblem = QOTD & {
 export function invalidateQotdLeaderboardCaches(qotdId?: string): void {
   if (qotdId) dailyLeaderboardCache.delete(qotdId);
   else dailyLeaderboardCache.clear();
-  totalLeaderboardCache = null;
-  weeklyLeaderboardCache = null;
-  aroundMeRankCache = null;
+  // Drops the cached value AND fences any in-flight recompute (generation bump),
+  // so a fresh solve is never masked by a board that began computing earlier.
+  totalLeaderboardBoard.invalidate();
+  weeklyLeaderboardBoard.invalidate();
+  aroundMeBoard.invalidate();
 }
 
 // Let the auto-publish scheduler drop these caches when a scheduled QOTD goes live
@@ -399,68 +570,13 @@ qotdRouter.get('/history/summary', optionalAuthMiddleware, async (req: Request, 
 
 qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
-    if (totalLeaderboardCache && Date.now() < totalLeaderboardCache.expiresAt) {
-      setPublicCache(res, 60);
-      return ApiResponse.success(res, totalLeaderboardCache.data);
-    }
-
-    // Prisma stores DateTime as `timestamp(3)` (without time zone) holding the
-    // UTC instant. To get the IST calendar date we must first say "this is UTC"
-    // (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
-    // (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
-    // first step inverts the offset and silently drops every row whose IST date
-    // differs from its UTC date (i.e. anything submitted before 05:30 IST or
-    // QOTD rows whose UTC midnight is the previous IST day).
-    // A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own
-    // IST date, so the same-day match below would silently drop it forever — even
-    // after an admin accepts it. Such a solve is only ever stored with
-    // verdict='ACCEPTED' once accepted (held solves stay PENDING), and the
-    // active-day gate means the ONLY way a QOTD-context row is off-day is a
-    // reopen-accepted solve. So `OR verdict='ACCEPTED'` re-admits exactly those
-    // accepted late solves (PENDING holds stay excluded) without changing live-day
-    // behaviour, honouring the feature's "marks/leaderboard count normally" intent.
-    const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
-      SELECT ps.user_id,
-             SUM(ps.score)::int AS total_score,
-             MIN(ps.submitted_at) AS first_solve,
-             MAX(ps.submitted_at) AS latest_solve,
-             COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
-      FROM problem_submissions ps
-      JOIN qotd q ON q.id = ps.context_key
-      WHERE ps.context_type = 'QOTD'
-        AND (
-          DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-          OR ps.verdict = 'ACCEPTED'
-        )
-      GROUP BY ps.user_id
-      ORDER BY total_score DESC, first_solve ASC
-      LIMIT ${limit};
-    `;
-    const users = await prisma.user.findMany({
-      where: { id: { in: rows.map((row) => row.user_id) } },
-      select: { id: true, name: true, avatar: true },
-    });
-    const usersById = new Map(users.map((user) => [user.id, user]));
-    const data = {
-      entries: rows.map((row, index) => {
-        const user = usersById.get(row.user_id);
-        return {
-          rank: index + 1,
-          userId: row.user_id,
-          name: user?.name ?? 'Unknown',
-          avatar: user?.avatar ?? null,
-          score: Number(row.total_score),
-          submittedAt: row.latest_solve.toISOString(),
-          firstSolveAt: row.first_solve.toISOString(),
-          solveDays: Number(row.solve_days),
-        };
-      }),
-    };
-    totalLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
-    setPublicCache(res, 60);
-    return ApiResponse.success(res, data);
+    const limit = Math.min(TOTAL_LEADERBOARD_MAX, Math.max(1, Number(req.query.limit) || TOTAL_LEADERBOARD_MAX));
+    // The board holds the full top-10; each request slices to its own limit —
+    // previously a cache populated by a `?limit=1` request served that single
+    // row to every caller (including limit=10 ones) for a full TTL.
+    const data = await totalLeaderboardBoard.get();
+    setSharedPublicCache(req, res, 60);
+    return ApiResponse.success(res, { entries: data.entries.slice(0, limit) });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD total leaderboard');
   }
@@ -476,44 +592,7 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
     // Full ranked board, cached 60s (the GROUP BY + RANK() aggregate over every QOTD
     // submission is the expensive part — running it per dashboard load was the bottleneck).
     // The per-caller window is sliced in JS below, so `?window=` stays honoured on hits.
-    let fullRanked = aroundMeRankCache && aroundMeRankCache.expiresAt > Date.now() ? aroundMeRankCache.data : null;
-    if (!fullRanked) {
-      const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
-        WITH scored AS (
-          SELECT ps.user_id,
-                 SUM(ps.score)::int AS total_score,
-                 MIN(ps.submitted_at) AS first_solve
-          FROM problem_submissions ps
-          JOIN qotd q ON q.id = ps.context_key
-          WHERE ps.context_type = 'QOTD'
-            -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
-            -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
-            -- from the rank window once an admin accepts it.
-            AND (
-              DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-                  = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              OR ps.verdict = 'ACCEPTED'
-            )
-          GROUP BY ps.user_id
-        ), ranked AS (
-          SELECT user_id, total_score, first_solve,
-                 RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
-                 COUNT(*) OVER () AS total_rows
-          FROM scored
-        )
-        SELECT user_id, total_score, first_solve, rk, total_rows
-        FROM ranked
-        ORDER BY rk ASC;
-      `;
-      fullRanked = rows.map((row) => ({
-        userId: row.user_id,
-        totalScore: Number(row.total_score),
-        firstSolve: row.first_solve instanceof Date ? row.first_solve.getTime() : new Date(row.first_solve).getTime(),
-        rank: Number(row.rk),
-        totalRows: Number(row.total_rows),
-      }));
-      aroundMeRankCache = { data: fullRanked, expiresAt: Date.now() + 60_000 };
-    }
+    const fullRanked = await aroundMeBoard.get();
 
     const myRow = fullRanked.find((row) => row.userId === user.id);
     if (!myRow) {
@@ -567,66 +646,9 @@ qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
     // Default 50 (not 10) so the list + in-surface search keep the wider set the old
     // client rollup surfaced; the podium still shows the top 3.
     const limit = Math.min(WEEKLY_LEADERBOARD_MAX, Math.max(1, Number(req.query.limit) || WEEKLY_LEADERBOARD_MAX));
-    if (weeklyLeaderboardCache && Date.now() < weeklyLeaderboardCache.expiresAt) {
-      setPublicCache(res, 60);
-      return ApiResponse.success(res, sliceWeeklyLeaderboard(weeklyLeaderboardCache.data, limit));
-    }
-
-    const { end } = qotdDateRange();
-    const windowQotds = await prisma.qOTD.findMany({
-      where: { isPublished: true, heldBy: null, date: { lt: end } },
-      orderBy: { date: 'desc' },
-      take: 7,
-      select: { id: true },
-    });
-    const windowIds = windowQotds.map((q) => q.id);
-    const dayCount = windowIds.length;
-
-    if (windowIds.length === 0) {
-      const empty: WeeklyLeaderboardPayload = { entries: [], dayCount: 0 };
-      weeklyLeaderboardCache = { data: empty, expiresAt: Date.now() + 60_000 };
-      setPublicCache(res, 60);
-      return ApiResponse.success(res, empty);
-    }
-
-    // At most one row per (user, in-window QOTD): the [userId, problemId, contextType,
-    // contextKey] unique key plus the publish-locked edit guard (a QOTD's problemId
-    // can't change once it has gone live) mean _count._all is the user's distinct
-    // in-window day count.
-    const grouped = await prisma.problemSubmission.groupBy({
-      by: ['userId'],
-      where: { contextType: 'QOTD', verdict: { not: 'PENDING' }, contextKey: { in: windowIds } },
-      _sum: { score: true },
-      _count: { _all: true },
-      _min: { submittedAt: true },
-      orderBy: [{ _sum: { score: 'desc' } }, { _min: { submittedAt: 'asc' } }],
-      take: WEEKLY_LEADERBOARD_MAX,
-    });
-
-    const users = grouped.length
-      ? await prisma.user.findMany({
-          where: { id: { in: grouped.map((g) => g.userId) } },
-          select: { id: true, name: true, avatar: true },
-        })
-      : [];
-    const usersById = new Map(users.map((u) => [u.id, u]));
-    const data: WeeklyLeaderboardPayload = {
-      dayCount,
-      entries: grouped.map((g, index) => {
-        const u = usersById.get(g.userId);
-        return {
-          rank: index + 1,
-          userId: g.userId,
-          name: u?.name ?? 'Unknown',
-          avatar: u?.avatar ?? null,
-          score: g._sum.score ?? 0,
-          daysSolved: g._count._all,
-        };
-      }),
-    };
-    weeklyLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
-    setPublicCache(res, 60);
-    return ApiResponse.success(res, sliceWeeklyLeaderboard(data, limit));
+    const board = await weeklyLeaderboardBoard.get();
+    setSharedPublicCache(req, res, 60);
+    return ApiResponse.success(res, sliceWeeklyLeaderboard(board, limit));
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD weekly leaderboard');
   }

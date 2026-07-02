@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Response } from 'express';
-import { ApiResponse } from './response.js';
+import type { Request, Response } from 'express';
+import { ApiResponse, setSharedPublicCache } from './response.js';
 
 // Minimal Express Response stub that captures the status code and JSON body.
 function mockRes() {
@@ -82,4 +82,57 @@ test('production sanitization still strips stack traces inside array details', (
   assert.equal(body.error.details[0].stack, undefined, 'stack must be stripped');
   assert.equal(body.error.details[0].field, 'x');
   assert.equal(body.error.details[0].message, 'bad');
+});
+
+// ─── setSharedPublicCache (S3) ────────────────────────────────────────────────
+// The enforced guard is security-relevant: its doc claims a mistaken call on a
+// credentialed request "can never make an authed response shared-cacheable".
+// That claim gets a regression test.
+
+function cacheReq(headers: Record<string, string>): Request {
+  return { headers } as unknown as Request;
+}
+
+function cacheRes() {
+  const headers: Record<string, string> = {};
+  const varied: string[] = [];
+  const res = {
+    setHeader(name: string, value: string) {
+      headers[name] = value;
+    },
+    vary(field: string) {
+      varied.push(field);
+    },
+  } as unknown as Response;
+  return { res, headers, varied };
+}
+
+test('setSharedPublicCache: credential-less request gets s-maxage with NO Vary: Cookie', () => {
+  const { res, headers, varied } = cacheRes();
+  setSharedPublicCache(cacheReq({}), res, 60);
+  assert.match(headers['Cache-Control'], /s-maxage=60/);
+  assert.match(headers['Cache-Control'], /max-age=30/); // browser TTL clamp
+  assert.equal(varied.includes('Cookie'), false);
+  assert.equal(varied.includes('Authorization'), false);
+});
+
+test('setSharedPublicCache: Authorization header degrades to the Vary-guarded header', () => {
+  const { res, headers, varied } = cacheRes();
+  setSharedPublicCache(cacheReq({ authorization: 'Bearer x' }), res, 60);
+  assert.equal(headers['Cache-Control'].includes('s-maxage'), false);
+  assert.equal(varied.includes('Cookie'), true);
+  assert.equal(varied.includes('Authorization'), true);
+});
+
+test('setSharedPublicCache: scriet_session cookie degrades to the Vary-guarded header', () => {
+  const { res, headers, varied } = cacheRes();
+  setSharedPublicCache(cacheReq({ cookie: 'theme=dark; scriet_session=abc' }), res, 60);
+  assert.equal(headers['Cache-Control'].includes('s-maxage'), false);
+  assert.equal(varied.includes('Cookie'), true);
+});
+
+test('setSharedPublicCache: unrelated cookies do NOT block shared caching', () => {
+  const { res, headers } = cacheRes();
+  setSharedPublicCache(cacheReq({ cookie: 'theme=dark; _ga=GA1.1' }), res, 60);
+  assert.match(headers['Cache-Control'], /s-maxage=60/);
 });

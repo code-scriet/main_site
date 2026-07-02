@@ -17,6 +17,7 @@ import {
   sanitizeQuestionForClient as sanitizeQuestionForClientPure,
 } from './quizEmissionPlanner.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
+import { peekCachedSettings } from '../utils/settingsCache.js';
 import { isUserBlocked } from '../middleware/blocks.js';
 
 // ─── Throttle map for answer_count_update broadcasts ─────────────────────────
@@ -89,7 +90,23 @@ interface QuizSocket extends Socket {
   userDisplayName?: string;
   userRole?: string;
   currentQuizId?: string;
+  // S4 capability handshake: true when this client's bundle advertised (in its
+  // join_quiz payload) that it understands rank folded into answer_result. The
+  // fold is applied ONLY to capable sockets, so flipping QUIZ_FOLD_RANK_IN_RESULT
+  // can never freeze the rank display of a player on an older cached bundle.
+  foldedRankOk?: boolean;
 }
+
+// S4: fold rank into answer_result for capable clients (halves reveal-time
+// unicasts for players who answered). Primary switch = the admin Settings
+// toggle (Settings.quizFoldRankInResult), read per-reveal via the SYNCHRONOUS
+// in-process settings-cache peek — zero DB work on the reveal path, live
+// (no-restart) toggling, and a cold/just-invalidated cache reads as OFF (the
+// safe legacy direction). The env var remains as an emergency force-ON
+// override. Default off ⇒ pre-S4 behavior.
+const QUIZ_FOLD_RANK_ENV = process.env.QUIZ_FOLD_RANK_IN_RESULT === 'true';
+const isFoldRankEnabled = (): boolean =>
+  QUIZ_FOLD_RANK_ENV || peekCachedSettings()?.quizFoldRankInResult === true;
 
 interface QuizAccessTokenPayload {
   userId: string;
@@ -196,7 +213,14 @@ export function initQuizSocket(io: SocketIOServer) {
   };
 
   const emitQuestionResults = (quizId: string, room: QuizRoom): void => {
-    const plan = planQuestionResults(quizId, room);
+    // S4: with the flag on, an answering player on a CAPABLE bundle (advertised
+    // foldedRankOk in join_quiz) gets rank inside answer_result instead of a
+    // separate my_rank_update; non-answerers and older bundles keep the residual
+    // my_rank_update push. Flag off (default) ⇒ pre-S4 two-message behavior.
+    const plan = planQuestionResults(quizId, room, {
+      foldRankInResult: isFoldRankEnabled(),
+      canFold: (socketId) => (quizNamespace.sockets.get(socketId) as QuizSocket | undefined)?.foldedRankOk === true,
+    });
     if (!plan) return;
 
     clearAnswerCountThrottle(quizId);
@@ -227,11 +251,14 @@ export function initQuizSocket(io: SocketIOServer) {
     };
 
     // ─── join_quiz ────────────────────────────────────────────────────────
-    socket.on('join_quiz', async ({ quizId, quizAccessToken }: { quizId: string; quizAccessToken?: string }) => {
+    socket.on('join_quiz', async ({ quizId, quizAccessToken, foldedRankOk }: { quizId: string; quizAccessToken?: string; foldedRankOk?: boolean }) => {
       if (!socket.userId || !quizId || !quizAccessToken) {
         socket.emit('quiz_error', { code: 'INVALID_INPUT', message: 'Missing quizId or access token' });
         return;
       }
+      // S4 capability handshake (see QuizSocket.foldedRankOk). Absent/false for
+      // pre-S4 bundles ⇒ they keep receiving my_rank_update unconditionally.
+      socket.foldedRankOk = foldedRankOk === true;
 
       const tokenPayload = verifyQuizAccessToken(quizAccessToken, quizId, socket.userId);
       if (!tokenPayload) {

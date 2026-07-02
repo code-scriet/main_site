@@ -536,6 +536,8 @@ export interface Settings {
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
   plagiarismCheckEnabled?: boolean;
+  quizFoldRankInResult?: boolean;
+  quizSnapshotEnabled?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;

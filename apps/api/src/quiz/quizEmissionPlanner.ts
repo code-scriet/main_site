@@ -42,6 +42,12 @@ export interface AnswerResultPayload {
     timeMs: number;
     newScore: number;
     newStreak: number;
+    // S4: present ONLY when foldRankInResult is on (flag QUIZ_FOLD_RANK_IN_RESULT).
+    // Lets an answering player learn their new rank from the SAME message instead
+    // of a duplicate my_rank_update. Optional so the client reader is tolerant of
+    // both shapes (flag off / mid-quiz flip / reconnect to an old server).
+    rank?: number;
+    totalPlayers?: number;
   };
 }
 
@@ -108,7 +114,19 @@ export function isUnscoredQuestionType(type: QuizQuestionData['questionType']): 
 // Hard Constraints #7 and #9 are enforced here: the top-10 slice is the
 // only leaderboard the broadcast ever sees, and my_rank_update entries
 // each carry their own socketId so the adapter can unicast them.
-export function planQuestionResults(quizId: string, room: QuizRoom): QuestionResultsPlan | null {
+export function planQuestionResults(
+  quizId: string,
+  room: QuizRoom,
+  options: {
+    foldRankInResult?: boolean;
+    // S4 capability gate: returns true when the socket's client advertised (via
+    // join_quiz { foldedRankOk: true }) that it reads rank out of answer_result.
+    // The fold is applied per-socket so an older cached bundle — which ignores
+    // the folded fields — keeps receiving my_rank_update and never sees its rank
+    // freeze. Omitted ⇒ every socket is treated as capable (unit tests).
+    canFold?: (socketId: string) => boolean;
+  } = {},
+): QuestionResultsPlan | null {
   const currentQ = room.questions[room.currentQuestionIndex];
   if (!currentQ || room.currentQuestionIndex < 0) return null;
 
@@ -124,10 +142,31 @@ export function planQuestionResults(quizId: string, room: QuizRoom): QuestionRes
 
   const isUnscoredType = isUnscoredQuestionType(currentQ.questionType);
 
+  const foldRank = options.foldRankInResult === true;
+  const canFold = options.canFold ?? (() => true);
+
+  // Fold-mode-only structures — gated so the default (flag off) path allocates
+  // nothing extra: at the ~900-player ceiling an unconditional build would be
+  // ~900 transient objects per reveal thrown away unread on the 400MB box.
+  const rankByUserId = foldRank
+    ? new Map(fullLeaderboard.map((entry, index) => [entry.userId, index + 1] as const))
+    : null;
+  // userIds whose rank was ACTUALLY folded into their answer_result this reveal —
+  // only these skip the residual my_rank_update below.
+  const foldedUserIds = foldRank ? new Set<string>() : null;
+
   const perPlayerResults: AnswerResultPayload[] = [];
   for (const [userId, answerRecord] of room.currentAnswers.entries()) {
     const player = room.players.get(userId);
     if (!player?.socketId || !player.connected) continue;
+    let rankFields: { rank: number; totalPlayers: number } | undefined;
+    if (rankByUserId && foldedUserIds && canFold(player.socketId)) {
+      const rank = rankByUserId.get(userId);
+      if (rank !== undefined) {
+        rankFields = { rank, totalPlayers: fullLeaderboard.length };
+        foldedUserIds.add(userId);
+      }
+    }
     perPlayerResults.push({
       socketId: player.socketId,
       payload: {
@@ -137,6 +176,7 @@ export function planQuestionResults(quizId: string, room: QuizRoom): QuestionRes
         timeMs: answerRecord.timeMs,
         newScore: player.score,
         newStreak: player.streak,
+        ...(rankFields ?? {}),
       },
     });
   }
@@ -146,6 +186,13 @@ export function planQuestionResults(quizId: string, room: QuizRoom): QuestionRes
     const entry = fullLeaderboard[i];
     const player = room.players.get(entry.userId);
     if (!player?.socketId || !player.connected) continue;
+    // S4 fold: skip ONLY players whose rank was actually folded into their
+    // answer_result above (flag on + capable socket + answered). Everyone else —
+    // non-answerers (their rank shifts as others score) AND older bundles that
+    // never advertised the capability — keeps the my_rank_update push exactly as
+    // before. Flag OFF ⇒ foldedUserIds is null ⇒ behavior is byte-identical to
+    // pre-S4 (HC#9 preserved in every configuration).
+    if (foldedUserIds?.has(entry.userId)) continue;
     myRankUpdates.push({
       socketId: player.socketId,
       payload: {

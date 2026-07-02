@@ -1,5 +1,5 @@
 import { makePrismaClient } from './prismaClient.js';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 const prisma = makePrismaClient();
 

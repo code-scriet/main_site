@@ -210,6 +210,15 @@ model Settings {
   // (or a language godbolt can't run, e.g. Node/JS). See CLAUDE.md → Execution Resilience.
   codeExecutionProvider String @default("wandbox") @map("code_execution_provider")
 
+  // S4/S6 runtime toggles (admin Settings UI). Hot paths read these via the
+  // SYNCHRONOUS in-process settings-cache peek (utils/settingsCache.ts) — never a
+  // per-event DB query — so toggling costs nothing at reveal/snapshot time and
+  // takes effect within the 5-min cache TTL (instantly after a settings PATCH,
+  // which invalidates the cache). Env vars QUIZ_FOLD_RANK_IN_RESULT /
+  // ENABLE_QUIZ_SNAPSHOT remain as emergency force-ON overrides.
+  quizFoldRankInResult Boolean @default(false) @map("quiz_fold_rank_in_result")
+  quizSnapshotEnabled  Boolean @default(false) @map("quiz_snapshot_enabled")
+
   // Site launch date — drives the "months since inception" stat on /about.
   siteLaunchDate DateTime @default("2026-01-01T00:00:00Z") @map("site_launch_date")
 

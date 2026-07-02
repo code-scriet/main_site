@@ -34,6 +34,7 @@ import { notificationsRouter } from './routes/notifications.js';
 import { searchRouter } from './routes/search.js';
 import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
+import { recoverQuizzesFromSnapshots, startQuizSnapshotScheduler, stopQuizSnapshotScheduler } from './quiz/quizSnapshot.js';
 import { quizStore } from './quiz/quizStore.js';
 import { playgroundRouter } from './routes/playground.js';
 import { creditsRouter } from './routes/credits.js';
@@ -617,6 +618,7 @@ const shutdown = async () => {
   stopReminderScheduler();
   stopQotdAutoPublishScheduler();
   stopRegistrationOpenScheduler();
+  stopQuizSnapshotScheduler(); // S6: stop the writer before rooms are flushed below
   clearAllContestRooms(); // drop in-memory contest realtime state (throttle timers)
 
   // Close Socket.io server first — disconnects all clients (quiz + attendance + competition)
@@ -709,6 +711,11 @@ const startHttpServerWithRetry = (attempt = 1) => {
     httpServer.removeListener('error', onError);
     logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
     void recoverActiveRounds();
+    // S6 (flag-gated no-op unless ENABLE_QUIZ_SNAPSHOT=true): rebuild crashed
+    // live quizzes from local snapshots, THEN start the periodic writer — the
+    // writer prunes rows for rooms that don't exist, so starting it first
+    // would delete the very snapshots recovery is about to read.
+    void recoverQuizzesFromSnapshots(io).finally(() => startQuizSnapshotScheduler());
   });
 };
 

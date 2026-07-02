@@ -35,6 +35,11 @@ export interface AnswerResult {
   timeMs: number;
   newScore: number;
   newStreak: number;
+  // S4: present ONLY when the server folds rank into answer_result
+  // (QUIZ_FOLD_RANK_IN_RESULT). Absent otherwise — the handler adopts rank only
+  // when present, so the flag-off shape behaves exactly as before.
+  rank?: number;
+  totalPlayers?: number;
 }
 
 export interface AnswerReceipt {
@@ -315,6 +320,13 @@ export const useQuizStore = create<QuizState>()(
         lastAnswerResult: data,
         myScore: data.newScore,
         myStreak: data.newStreak,
+        // S4: when the server folds rank into answer_result, adopt it here (same
+        // effect a my_rank_update would have had). The server only ever emits the
+        // pair atomically, so adopt both-or-neither — a malformed half-payload is
+        // ignored rather than mixing a new rank with a stale totalPlayers.
+        ...(typeof data.rank === 'number' && typeof data.totalPlayers === 'number'
+          ? { myRank: data.rank, totalPlayers: data.totalPlayers }
+          : {}),
       }),
 
     answerCountUpdate: (data) => set({ answeredCount: data.answered }),

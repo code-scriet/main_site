@@ -1783,11 +1783,30 @@ const server = app.listen(PORT, () => {
 // rooms gated by event registration (pg) / admin role. Reuses the HTTP CORS
 // allowlist so browser→relay is allowed for code./www./codescriet.dev.
 // ---------------------------------------------------------------------------
+// S7a: opt-in native eiows engine for the contest relay (same wire protocol, far
+// lower per-connection memory). Behind WS_ENGINE=eiows + try/require so a missing
+// native build falls back to the default `ws` engine and never breaks the relay.
+function resolveRelayWsEngine() {
+  if (process.env.WS_ENGINE !== 'eiows') return undefined;
+  try {
+    const { Server } = require('eiows');
+    console.log('[relay] Socket.IO using eiows (C++) WebSocket engine');
+    return Server;
+  } catch (err) {
+    console.warn('[relay] WS_ENGINE=eiows set but eiows failed to load; using default ws engine:', err && err.message);
+    return undefined;
+  }
+}
+
+const relayWsEngine = resolveRelayWsEngine();
 contestIo = new SocketIOServer(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true, methods: ['GET', 'POST'] },
   transports: ['websocket'],
   pingInterval: 10000,
   pingTimeout: 30000,
+  // Key omitted (not undefined) when unused — engine.io's Object.assign merge
+  // would copy an explicit undefined over its `ws` default and break connects.
+  ...(relayWsEngine ? { wsEngine: relayWsEngine } : {}),
 });
 
 function authSocket(socket) {

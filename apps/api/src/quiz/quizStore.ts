@@ -42,6 +42,9 @@ export interface AnswerRecord {
   questionId: string;
 }
 
+// NOTE: adding a stateful field here? Update quizSnapshot.ts (roomToSnapshot /
+// applySnapshotToRoom) — the crash-snapshot copies fields by name and a missed
+// one silently restores as its initQuiz default.
 export interface QuizRoom {
   quizId: string;
   meta: {
@@ -841,6 +844,9 @@ export const quizStore = {
     return { connectedPlayers: room.connectedCount, displayName: player.displayName };
   },
 
+  // _io is unused; kept for signature stability (quizSocket + quizSnapshot both
+  // thread it through). If the store ever starts using it, note both callers
+  // pass the ROOT server, not the /quiz namespace.
   scheduleEmptyRoomCleanup(quizId: string, _io: SocketIOServer): void {
     const room = quizRooms.get(quizId);
     if (!room) return;
@@ -962,5 +968,14 @@ export const quizStore = {
       }
     }
     return null;
+  },
+
+  /**
+   * S6: room ids for the crash-snapshot scheduler (quizSnapshot.ts). Purely
+   * additive read — the snapshot system observes rooms via getRoom() and never
+   * changes engine behavior.
+   */
+  listRoomIds(): string[] {
+    return Array.from(quizRooms.keys());
   },
 };

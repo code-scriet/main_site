@@ -1,11 +1,36 @@
-import { Server as SocketIOServer } from 'socket.io';
+import { Server as SocketIOServer, type ServerOptions } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import { createRequire } from 'node:module';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
 import { getSocketClientIp } from './clientIp.js';
 import { getInternalApiSecret, getPlaygroundRelayBase } from './internalApi.js';
 
 let io: SocketIOServer | null = null;
+
+// S7a: sync CJS require inside this ESM module — used only to lazy-load the
+// OPTIONAL native `eiows` engine when explicitly opted in.
+const nodeRequire = createRequire(import.meta.url);
+
+// S7a: opt-in C++ WebSocket engine (eiows, a µWebSockets fork) with far lower
+// per-connection memory than the default JS `ws` — the lever that raises the
+// ~900-concurrent socket ceiling. Enabled ONLY when WS_ENGINE=eiows, and behind a
+// try/require so a missing or unbuildable native module can NEVER break startup:
+// it logs and falls back to the stock engine. The Socket.IO wire protocol is
+// identical either way, so socket.io-client on web/playground is unaffected.
+function resolveWsEngine(): ServerOptions['wsEngine'] {
+  if (process.env.WS_ENGINE !== 'eiows') return undefined;
+  try {
+    const mod = nodeRequire('eiows') as { Server: ServerOptions['wsEngine'] };
+    logger.info('Socket.IO: using eiows (C++) WebSocket engine');
+    return mod.Server;
+  } catch (err) {
+    logger.warn('WS_ENGINE=eiows set but eiows failed to load; using default ws engine', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
 
 const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
 const SOCKET_CONNECT_MAX_PER_WINDOW = 30;
@@ -42,6 +67,7 @@ setInterval(() => {
 
 export function initializeSocket(httpServer: HTTPServer) {
   const isDevelopment = process.env.NODE_ENV === 'development';
+  const wsEngine = resolveWsEngine();
 
   io = new SocketIOServer(httpServer, {
     cors: {
@@ -92,6 +118,11 @@ export function initializeSocket(httpServer: HTTPServer) {
     transports: ['websocket'],
     maxHttpBufferSize: 1e6,
     upgradeTimeout: 10000,
+    // S7a: opt-in native engine (WS_ENGINE=eiows). The key MUST be omitted (not
+    // set to undefined) when unused: engine.io merges opts with Object.assign,
+    // which copies an explicit `wsEngine: undefined` OVER its `ws` default and
+    // would crash every connection. Every option above is preserved either way.
+    ...(wsEngine ? { wsEngine } : {}),
   });
 
   io.use((socket, next) => {
