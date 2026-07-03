@@ -91,6 +91,29 @@ test('S6: snapshot round-trip restores an active room as paused with state intac
   quizStore.cleanupQuiz(quizId);
 });
 
+test('S6: a host time-extension survives crash-restore (not capped at the base limit)', () => {
+  const quizId = 's6-extend-quiz';
+  quizStore.initQuiz(quizId, questions.map((q) => ({ ...q })), 'admin-u', 'admin-sock', 'S6 Extend');
+  quizStore.addPlayer(quizId, 'user-A', 'sock-A', 'Player A');
+  quizStore.advanceQuestion(quizId);
+  const room = quizStore.getRoom(quizId)!; // question 1 is a 30s question
+
+  // extend_time grants time by shifting the anchor forward (never the limit).
+  // Simulate +15s on a 30s question, snapshotting 10s of real wall-clock in.
+  const originalStart = room.currentQuestionStartTime;
+  room.currentQuestionStartTime = originalStart + 15_000; // +15s extension
+  const snap = roomToSnapshot(room, originalStart + 10_000)!;
+
+  const rebuilt = { ...room, players: new Map(room.players), kickedUserIds: new Set<string>() };
+  applySnapshotToRoom(rebuilt as typeof room, snap);
+  assert.equal(rebuilt.status, 'paused');
+  // 30s base − 10s elapsed + 15s extension = 35s. The old Math.min(timeLimitMs)
+  // clamp would have (wrongly) capped this at 30_000.
+  assert.equal(rebuilt.pausedTimeRemaining, 35_000);
+
+  quizStore.cleanupQuiz(quizId);
+});
+
 test('S6: finished/persisting rooms are never snapshotted; expired clocks clamp to 0', () => {
   const quizId = 's6-guard-quiz';
   quizStore.initQuiz(quizId, questions.map((q) => ({ ...q })), 'admin-u', 'admin-sock', 'S6 Guard');

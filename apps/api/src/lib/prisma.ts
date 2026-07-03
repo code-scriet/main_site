@@ -21,6 +21,11 @@ const resolvePoolMax = (): number => {
   }
 };
 
+// The frozen pool size, resolved once. Exported so callers that fan out many
+// independent reads can cap their concurrency BELOW it (leaving a connection
+// free for other traffic) instead of hard-coding "5".
+export const DB_POOL_MAX = resolvePoolMax();
+
 // Per-statement safety valve (S0). A runaway/cold aggregate would otherwise pin
 // one of the (frozen) 5 pool connections indefinitely, starving all other
 // requests. `statement_timeout` (ms) is applied at connection establishment via
@@ -59,8 +64,11 @@ const createPrismaClient = () => {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL,
     max: resolvePoolMax(),
-    // libpq startup option; honored per-connection by the Neon pooler. Omitted
-    // entirely when disabled so behavior is byte-identical to before S0.
+    // libpq startup option, applied per-connection ONLY where the pooler honors
+    // it — Neon's PgBouncer may honor, silently strip, or reject startup options
+    // (see the ⚠️ caveat on resolveStatementTimeoutMs above; that unverified
+    // behavior is why this is default-off). Omitted entirely when disabled so
+    // behavior is byte-identical to before S0.
     ...(statementTimeoutMs > 0 ? { options: `-c statement_timeout=${statementTimeoutMs}` } : {}),
   });
   return new PrismaClient({

@@ -94,3 +94,21 @@ test('singleFlight: an old compute settling cannot wipe a NEWER in-flight slot (
   assert.equal(await second, 'new');
   assert.equal(await third, 'new');
 });
+
+test('singleFlight: peek() is null cold, returns the last value even past TTL, and null after invalidate', async () => {
+  let n = 0;
+  const board = createTtlSingleFlight(1, async () => ({ v: ++n }));
+
+  assert.equal(board.peek(), null, 'cold peek is null before any compute lands');
+
+  const first = await board.get();
+  assert.deepEqual(board.peek(), first, 'peek returns the freshly computed value');
+
+  // Let the 1ms TTL lapse: get() would recompute, but peek() must still return
+  // the last cached value (stale-but-present is the whole point of the sync peek).
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(board.peek(), first, 'peek serves the stale value past TTL');
+
+  board.invalidate();
+  assert.equal(board.peek(), null, 'peek is null immediately after invalidate — a mutation is never masked');
+});

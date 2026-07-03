@@ -50,9 +50,12 @@ export function setPublicCache(res: Response, maxAgeSeconds = 60, staleWhileReva
  * /announcements, /team, /credits, /achievements); never on per-user routes
  * (e.g. /qotd/leaderboard/around-me) where even the degraded header is wrong.
  *
- * Browser TTL note: `max-age` (browser cache) is intentionally clamped to ≤30s
- * regardless of maxAgeSeconds — the parameter controls the SHARED `s-maxage`
- * TTL; browsers revalidate sooner so a stale-window mistake heals fast.
+ * Browser TTL note: on the SHARED (credential-less) branch `max-age` is
+ * intentionally clamped to ≤30s regardless of maxAgeSeconds — the parameter
+ * controls the SHARED `s-maxage` TTL, and browsers revalidate sooner so a
+ * mistakenly-shared body heals fast. The credentialed-degrade branch is NOT
+ * shared-cacheable, so it keeps the caller's full max-age (pre-S3 parity) —
+ * that "heals fast" rationale doesn't apply when nothing is stored at the edge.
  *
  * This is GUARD #1 of three and MUST ship together with the other two (Cloudflare
  * config, not code): (2) a Cache Rule scoped to an explicit path allowlist, and
@@ -64,7 +67,13 @@ export function setSharedPublicCache(req: Request, res: Response, maxAgeSeconds 
   const hasCredentials =
     Boolean(req.headers.authorization) || (req.headers.cookie ?? '').includes('scriet_session=');
   if (hasCredentials) {
-    setPublicCache(res, Math.min(maxAgeSeconds, 30), staleWhileRevalidateSeconds);
+    // Degrade to the per-audience header. This branch emits no s-maxage (nothing
+    // is stored at a shared edge), so neither the ≤30s max-age clamp nor the
+    // maxAgeSeconds*5 shared stale window applies — both are shared-cache tuning.
+    // Restore the pre-S3 `setPublicCache(res, 60)` behavior exactly so the
+    // logged-in cohort keeps its full browser TTL (max-age=60, SWR=120) instead
+    // of the halved/inflated window S3 briefly introduced.
+    setPublicCache(res, maxAgeSeconds, Math.min(staleWhileRevalidateSeconds, maxAgeSeconds * 2));
     return;
   }
   res.setHeader(

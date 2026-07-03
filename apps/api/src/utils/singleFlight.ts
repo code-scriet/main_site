@@ -20,8 +20,13 @@
 //    BEFORE the invalidation may still serve its (then-current) waiters but can
 //    never write the cache — closing the stale-write-back window where a
 //    pre-invalidation board would otherwise be served for a full TTL
+//  - synchronous peek: the last cached value, returned WITHOUT awaiting and even
+//    past its TTL — for hot paths that cannot await (e.g. the settings feature
+//    flags read on the quiz reveal/snapshot tick). null until the first compute
+//    lands and again immediately after invalidate().
 export interface TtlSingleFlight<T> {
   get(): Promise<T>;
+  peek(): T | null;
   invalidate(): void;
 }
 
@@ -47,6 +52,12 @@ export function createTtlSingleFlight<T>(ttlMs: number, compute: () => Promise<T
         });
       inflight = p;
       return p;
+    },
+    peek(): T | null {
+      // Deliberately ignores expiresAt: a stale-but-present value is the whole
+      // point of a sync peek (any concurrent get() refreshes it). Only cleared
+      // by invalidate() (cache=null) — so a mutation is never masked.
+      return cache?.data ?? null;
     },
     invalidate(): void {
       generation += 1;
