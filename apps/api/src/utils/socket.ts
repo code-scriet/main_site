@@ -12,24 +12,77 @@ let io: SocketIOServer | null = null;
 // OPTIONAL native `eiows` engine when explicitly opted in.
 const nodeRequire = createRequire(import.meta.url);
 
-// S7a: opt-in C++ WebSocket engine (eiows, a µWebSockets fork) with far lower
-// per-connection memory than the default JS `ws` — the lever that raises the
-// ~900-concurrent socket ceiling. Enabled ONLY when WS_ENGINE=eiows, and behind a
-// try/require so a missing or unbuildable native module can NEVER break startup:
-// it logs and falls back to the stock engine. The Socket.IO wire protocol is
-// identical either way, so socket.io-client on web/playground is unaffected.
-function resolveWsEngine(): ServerOptions['wsEngine'] {
-  if (process.env.WS_ENGINE !== 'eiows') return undefined;
+// ─── WebSocket engine selection (S7a) ────────────────────────────────────────
+// eiows (a µWebSockets C++ fork) is the DEFAULT engine — ≈5-8x lower
+// per-connection memory than stock JS `ws`, the lever that raises the
+// ~900-concurrent socket ceiling. It stays an optionalDependency, so the
+// selection can never hard-break startup:
+//   • (default)             → use eiows
+//   • WS_ENGINE=ws          → force stock `ws` (instant, no-code rollback)
+//   • eiows unavailable     → AUTOMATICALLY fall back to `ws`, but LOUDLY (error
+//                             log + the /health `wsEngine` field), so a silent
+//                             native-build regression can't quietly cost you the
+//                             headroom while you believe eiows is active
+//   • WS_ENGINE_STRICT=true → refuse to boot instead of falling back, so a
+//                             regressed build fails the DEPLOY, not production
+// The Socket.IO wire protocol is identical either way — socket.io-client on
+// web/playground is unaffected.
+export type WsEngineName = 'eiows' | 'ws';
+
+// Pure, unit-tested decision core: given the env intent + a loader (which throws
+// when eiows can't be required), pick the engine. `strict` turns a load failure
+// into a thrown error instead of a `ws` fallback; the load error is returned (not
+// swallowed) so the caller can log it.
+export function chooseWsEngine(opts: {
+  forceStock: boolean;
+  strict: boolean;
+  loadEiows: () => { Server: unknown };
+}): { engine: WsEngineName; server: unknown; error?: unknown } {
+  if (opts.forceStock) return { engine: 'ws', server: undefined };
   try {
-    const mod = nodeRequire('eiows') as { Server: ServerOptions['wsEngine'] };
-    logger.info('Socket.IO: using eiows (C++) WebSocket engine');
-    return mod.Server;
+    const mod = opts.loadEiows();
+    return { engine: 'eiows', server: mod.Server };
   } catch (err) {
-    logger.warn('WS_ENGINE=eiows set but eiows failed to load; using default ws engine', {
+    if (opts.strict) throw err;
+    return { engine: 'ws', server: undefined, error: err };
+  }
+}
+
+let activeWsEngine: WsEngineName = 'ws';
+/** The WebSocket engine actually in use after initializeSocket() — surfaced on /health. */
+export function getActiveWsEngine(): WsEngineName {
+  return activeWsEngine;
+}
+
+function resolveWsEngine(): ServerOptions['wsEngine'] {
+  const forceStock = process.env.WS_ENGINE === 'ws';
+  const strict = process.env.WS_ENGINE_STRICT === 'true';
+  let result: ReturnType<typeof chooseWsEngine>;
+  try {
+    result = chooseWsEngine({
+      forceStock,
+      strict,
+      loadEiows: () => nodeRequire('eiows') as { Server: unknown },
+    });
+  } catch (err) {
+    // Only reachable with WS_ENGINE_STRICT=true and eiows unavailable: fail loud.
+    logger.error('Socket.IO: eiows required (WS_ENGINE_STRICT=true) but failed to load — refusing to start', {
       err: err instanceof Error ? err.message : String(err),
     });
-    return undefined;
+    throw err;
   }
+  activeWsEngine = result.engine;
+  if (result.engine === 'eiows') {
+    logger.info('Socket.IO: using eiows (C++) WebSocket engine (low-memory default)');
+  } else if (forceStock) {
+    logger.info('Socket.IO: WebSocket engine forced to stock `ws` (WS_ENGINE=ws)');
+  } else {
+    logger.error(
+      'Socket.IO: eiows unavailable — FELL BACK to stock `ws`. The ~5-8x per-connection memory headroom is NOT active. Rebuild eiows, or set WS_ENGINE=ws to make this intentional (or WS_ENGINE_STRICT=true to fail the deploy instead).',
+      { err: result.error instanceof Error ? result.error.message : String(result.error) },
+    );
+  }
+  return result.server as ServerOptions['wsEngine'];
 }
 
 const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
