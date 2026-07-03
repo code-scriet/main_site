@@ -43,13 +43,13 @@
     "setup": "npm install && npm run db:migrate && npm run db:seed"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "@types/node": "^20.19.27",
-    "concurrently": "^9.2.1",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.0",
+    "concurrently": "^10.0.3",
     "dotenv": "^17.2.3",
     "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.5",
     "typescript": "^6.0.3"
   },
   "dependencies": {
