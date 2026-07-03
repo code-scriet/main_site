@@ -3,7 +3,8 @@ import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { Prisma, type UserBlockFeature } from '@prisma/client';
 import crypto from 'crypto';
-import { prisma } from '../lib/prisma.js';
+import { prisma, DB_POOL_MAX } from '../lib/prisma.js';
+import { createConcurrencyLimiter } from '../utils/concurrency.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
@@ -1309,7 +1310,9 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       (target as Record<string, unknown>).lastLoginIp = null;
     }
 
-    // not N+1: single $transaction, all caps explicit
+    // not N+1: all caps explicit; concurrency bounded below the pool (see comment
+    // on the Promise.all below).
+    const readLimit = createConcurrencyLimiter(Math.max(2, DB_POOL_MAX - 1));
     const [
       eventRegistrations,
       certificates,
@@ -1338,13 +1341,15 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       invitationsSentCount,
       uploadedImagesCount,
       // S2a: read-only admin snapshot — no read feeds a later write, so the
-      // single-MVCC-snapshot guarantee of $transaction([]) is unneeded. Array-form
-      // $transaction serializes all 26 reads on ONE pooled connection (holding 1/5
-      // of the frozen pool for their full sum); Promise.all fans them across the
-      // pool (bounded to `max` by node-postgres) — ~5x faster wall-clock and no
-      // single-connection monopoly. Response shape is identical.
+      // single-MVCC-snapshot guarantee of $transaction([]) is unneeded. A bare
+      // Promise.all fans all 26 reads across the pool at once, momentarily
+      // grabbing EVERY one of the frozen 5 connections (HC #1/#3) and able to
+      // queue a latency-critical live-quiz persist behind admin vanity stats.
+      // Bounding to POOL−1 keeps the parallel win (~ceil(26/4) vs 26 sequential
+      // round-trips) while ALWAYS leaving a connection free. Response shape is
+      // identical — each `readLimit(() => …)` runs its query, just gated on a slot.
     ] = await Promise.all([
-      prisma.eventRegistration.findMany({
+      readLimit(() => prisma.eventRegistration.findMany({
         where: { userId: targetId },
         select: {
           id: true, eventId: true, timestamp: true, attended: true, scannedAt: true,
@@ -1353,28 +1358,28 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         },
         orderBy: { timestamp: 'desc' },
         take: 100,
-      }),
-      prisma.certificate.findMany({
+      })),
+      readLimit(() => prisma.certificate.findMany({
         where: { recipientId: targetId },
         select: { id: true, certId: true, type: true, eventName: true, issuedAt: true, isRevoked: true, viewCount: true },
         orderBy: { issuedAt: 'desc' },
         take: 50,
-      }),
-      prisma.qOTDSubmission.findMany({
+      })),
+      readLimit(() => prisma.qOTDSubmission.findMany({
         where: { userId: targetId },
         select: { id: true, timestamp: true, qotd: { select: { id: true, date: true, difficulty: true, question: true } } },
         orderBy: { timestamp: 'desc' },
         take: 100,
-      }),
-      prisma.execution.count({ where: { userId: targetId } }),
-      prisma.snippet.count({ where: { userId: targetId } }),
-      prisma.playgroundDailyUsage.findMany({
+      })),
+      readLimit(() => prisma.execution.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.snippet.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.playgroundDailyUsage.findMany({
         where: { userId: targetId },
         select: { usageDate: true, count: true },
         orderBy: { usageDate: 'desc' },
         take: 30,
-      }),
-      prisma.quizParticipant.findMany({
+      })),
+      readLimit(() => prisma.quizParticipant.findMany({
         where: { userId: targetId },
         select: {
           id: true, finalScore: true, finalRank: true, joinedAt: true,
@@ -1382,29 +1387,29 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         },
         orderBy: { joinedAt: 'desc' },
         take: 50,
-      }),
-      prisma.competitionSubmission.count({ where: { userId: targetId } }),
-      prisma.pollVote.count({ where: { userId: targetId } }),
-      prisma.pollFeedback.count({ where: { userId: targetId } }),
-      prisma.poll.count({ where: { createdBy: targetId } }),
-      prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } }),
-      prisma.eventTeam.count({ where: { leaderId: targetId } }),
-      prisma.eventTeamMember.count({ where: { userId: targetId } }),
+      })),
+      readLimit(() => prisma.competitionSubmission.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.pollVote.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.pollFeedback.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.poll.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } })),
+      readLimit(() => prisma.eventTeam.count({ where: { leaderId: targetId } })),
+      readLimit(() => prisma.eventTeamMember.count({ where: { userId: targetId } })),
       // Coding: judged-submission volume + AC rate, and QOTD solves (ACCEPTED).
-      prisma.problemSubmission.count({ where: { userId: targetId } }),
-      prisma.problemSubmission.count({ where: { userId: targetId, verdict: 'ACCEPTED' } }),
-      prisma.problemSubmission.count({ where: { userId: targetId, contextType: 'QOTD', verdict: 'ACCEPTED' } }),
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId, verdict: 'ACCEPTED' } })),
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId, contextType: 'QOTD', verdict: 'ACCEPTED' } })),
       // Content authored by this user (drives the "Created" section).
-      prisma.event.count({ where: { createdBy: targetId } }),
-      prisma.announcement.count({ where: { createdBy: targetId } }),
-      prisma.quiz.count({ where: { createdBy: targetId } }),
-      prisma.qOTD.count({ where: { createdById: targetId } }),
-      prisma.problem.count({ where: { createdBy: targetId } }),
-      prisma.problemSheet.count({ where: { createdBy: targetId } }),
+      readLimit(() => prisma.event.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.announcement.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.quiz.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.qOTD.count({ where: { createdById: targetId } })),
+      readLimit(() => prisma.problem.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.problemSheet.count({ where: { createdBy: targetId } })),
       // Network/community + uploads.
-      prisma.eventInvitation.count({ where: { inviteeUserId: targetId } }),
-      prisma.eventInvitation.count({ where: { invitedById: targetId } }),
-      prisma.uploadedImage.count({ where: { userId: targetId } }),
+      readLimit(() => prisma.eventInvitation.count({ where: { inviteeUserId: targetId } })),
+      readLimit(() => prisma.eventInvitation.count({ where: { invitedById: targetId } })),
+      readLimit(() => prisma.uploadedImage.count({ where: { userId: targetId } })),
     ]);
 
     return ApiResponse.success(res, {

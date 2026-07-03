@@ -385,10 +385,11 @@ statsRouter.get('/home', async (req: Request, res: Response) => {
 
 // S2b: /stats/dashboard is admin-only GLOBAL counts (no per-admin data) and was
 // recomputed (~28 aggregates + trailing queries) on every load — incl. React
-// Query refetch-on-focus storms. Same single-flight TTL PATTERN as getHomePayload
-// (which hand-rolls it at 60s), here via createTtlSingleFlight at a 30s TTL cache
-// getHomePayload uses so concurrent admin loads collapse to at most one aggregate
-// burst per window. 30s staleness is fine for a stats dashboard.
+// Query refetch-on-focus storms. Wrapped in the shared createTtlSingleFlight
+// primitive at a 30s TTL so concurrent admin loads collapse to at most one
+// aggregate burst per window. This is the same single-flight PATTERN
+// getHomePayload hand-rolls (separately, at 60s) — a distinct board, not a
+// shared cache/TTL. 30s staleness is fine for a stats dashboard.
 const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
 const computeDashboardStats = async () => {
     const now = new Date();

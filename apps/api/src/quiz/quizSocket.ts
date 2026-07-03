@@ -17,7 +17,7 @@ import {
   sanitizeQuestionForClient as sanitizeQuestionForClientPure,
 } from './quizEmissionPlanner.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
-import { peekCachedSettings } from '../utils/settingsCache.js';
+import { isSyncSettingsFlagEnabled } from '../utils/settingsCache.js';
 import { isUserBlocked } from '../middleware/blocks.js';
 
 // ─── Throttle map for answer_count_update broadcasts ─────────────────────────
@@ -106,7 +106,7 @@ interface QuizSocket extends Socket {
 // override. Default off ⇒ pre-S4 behavior.
 const QUIZ_FOLD_RANK_ENV = process.env.QUIZ_FOLD_RANK_IN_RESULT === 'true';
 const isFoldRankEnabled = (): boolean =>
-  QUIZ_FOLD_RANK_ENV || peekCachedSettings()?.quizFoldRankInResult === true;
+  isSyncSettingsFlagEnabled('quizFoldRankInResult', QUIZ_FOLD_RANK_ENV);
 
 interface QuizAccessTokenPayload {
   userId: string;

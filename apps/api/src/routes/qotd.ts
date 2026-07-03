@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import type { Request } from '../lib/http.js';
-import { ProblemLanguage, type Problem, type QOTD } from '@prisma/client';
+import { Prisma, ProblemLanguage, type Problem, type QOTD } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -164,22 +164,35 @@ interface TotalLeaderboardEntry {
   solveDays: number;
 }
 
+// Shared QOTD-scoring predicate for the total + around-me boards (aliases `ps`
+// for problem_submissions, `q` for the joined qotd). Kept as ONE fragment so the
+// two boards can never silently diverge on the reopen/IST rules below.
+//
+// Prisma stores DateTime as `timestamp(3)` (without time zone) holding the UTC
+// instant. To get the IST calendar date we must first say "this is UTC"
+// (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
+// (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
+// first step inverts the offset and silently drops every row whose IST date
+// differs from its UTC date (i.e. anything submitted before 05:30 IST or QOTD
+// rows whose UTC midnight is the previous IST day).
+// A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own IST
+// date, so the same-day match would silently drop it forever — even after an
+// admin accepts it. Such a solve is only ever stored with verdict='ACCEPTED'
+// once accepted (held solves stay PENDING), and the active-day gate means the
+// ONLY way a QOTD-context row is off-day is a reopen-accepted solve. So
+// `OR verdict='ACCEPTED'` re-admits exactly those accepted late solves (PENDING
+// holds stay excluded) without changing live-day behaviour, honouring the
+// feature's "marks/leaderboard count normally" intent.
+const QOTD_SCORING_WHERE = Prisma.sql`
+  ps.context_type = 'QOTD'
+    AND (
+      DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+      OR ps.verdict = 'ACCEPTED'
+    )
+`;
+
 async function computeTotalLeaderboard(): Promise<{ entries: TotalLeaderboardEntry[] }> {
-  // Prisma stores DateTime as `timestamp(3)` (without time zone) holding the
-  // UTC instant. To get the IST calendar date we must first say "this is UTC"
-  // (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
-  // (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
-  // first step inverts the offset and silently drops every row whose IST date
-  // differs from its UTC date (i.e. anything submitted before 05:30 IST or
-  // QOTD rows whose UTC midnight is the previous IST day).
-  // A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own
-  // IST date, so the same-day match below would silently drop it forever — even
-  // after an admin accepts it. Such a solve is only ever stored with
-  // verdict='ACCEPTED' once accepted (held solves stay PENDING), and the
-  // active-day gate means the ONLY way a QOTD-context row is off-day is a
-  // reopen-accepted solve. So `OR verdict='ACCEPTED'` re-admits exactly those
-  // accepted late solves (PENDING holds stay excluded) without changing live-day
-  // behaviour, honouring the feature's "marks/leaderboard count normally" intent.
   const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
     SELECT ps.user_id,
            SUM(ps.score)::int AS total_score,
@@ -188,12 +201,7 @@ async function computeTotalLeaderboard(): Promise<{ entries: TotalLeaderboardEnt
            COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
     FROM problem_submissions ps
     JOIN qotd q ON q.id = ps.context_key
-    WHERE ps.context_type = 'QOTD'
-      AND (
-        DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-        OR ps.verdict = 'ACCEPTED'
-      )
+    WHERE ${QOTD_SCORING_WHERE}
     GROUP BY ps.user_id
     ORDER BY total_score DESC, first_solve ASC
     LIMIT ${TOTAL_LEADERBOARD_MAX};
@@ -280,15 +288,7 @@ async function computeAroundMeRanked(): Promise<AroundMeRankRow[]> {
              MIN(ps.submitted_at) AS first_solve
       FROM problem_submissions ps
       JOIN qotd q ON q.id = ps.context_key
-      WHERE ps.context_type = 'QOTD'
-        -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
-        -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
-        -- from the rank window once an admin accepts it.
-        AND (
-          DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-          OR ps.verdict = 'ACCEPTED'
-        )
+      WHERE ${QOTD_SCORING_WHERE}
       GROUP BY ps.user_id
     ), ranked AS (
       SELECT user_id, total_score, first_solve,

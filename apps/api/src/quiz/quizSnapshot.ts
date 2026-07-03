@@ -39,7 +39,7 @@ import { quizStore } from './quizStore.js';
 import type { AnswerRecord, PlayerState, QuizQuestionData, QuizRoom } from './quizStore.js';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../utils/logger.js';
-import { getCachedSettings, peekCachedSettings } from '../utils/settingsCache.js';
+import { getCachedSettings, isSyncSettingsFlagEnabled } from '../utils/settingsCache.js';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -55,7 +55,7 @@ const RECOVERY_MAX_AGE_MS = 30 * 60 * 1000;
 // force-ON env override. Cold/unpopulated cache reads as OFF (safe default).
 const SNAPSHOT_ENV = process.env.ENABLE_QUIZ_SNAPSHOT === 'true';
 export const isQuizSnapshotEnabled = (): boolean =>
-  SNAPSHOT_ENV || peekCachedSettings()?.quizSnapshotEnabled === true;
+  isSyncSettingsFlagEnabled('quizSnapshotEnabled', SNAPSHOT_ENV);
 
 // ─── Pure conversion (unit-tested without sqlite) ────────────────────────────
 
@@ -153,9 +153,12 @@ export function applySnapshotToRoom(room: QuizRoom, snap: QuizRoomSnapshot): voi
   if (snap.status === 'active') {
     const question = snap.questions[snap.currentQuestionIndex];
     const timeLimitMs = (question?.timeLimitSeconds ?? 0) * 1000;
-    const elapsed = Math.max(0, snap.savedAt - snap.currentQuestionStartTime);
     room.status = 'paused';
-    room.pausedTimeRemaining = Math.min(timeLimitMs, Math.max(0, timeLimitMs - elapsed));
+    // Remaining = deadline − snapshot instant. currentQuestionStartTime already
+    // absorbs any host extend_time/reduce (which shifts the anchor rather than
+    // the limit), so deriving from it preserves a granted extension instead of
+    // capping at the base limit; an already-expired clock clamps to 0.
+    room.pausedTimeRemaining = Math.max(0, snap.currentQuestionStartTime + timeLimitMs - snap.savedAt);
   } else {
     room.status = snap.status;
     room.pausedTimeRemaining = snap.pausedTimeRemaining;
@@ -237,9 +240,16 @@ function snapshotTick(): void {
     const now = Date.now();
     const activeIds: string[] = [];
     const rows: Array<{ quizId: string; payload: string }> = [];
+    const liveRoomIds = new Set<string>();
     for (const quizId of quizStore.listRoomIds()) {
       const room = quizStore.getRoom(quizId);
       if (!room) continue;
+      liveRoomIds.add(quizId);
+      // A room's allAnswers only grows during a quiz, so once it has crossed the
+      // size cap it stays oversized — skip the (multi-MB) roomToSnapshot +
+      // JSON.stringify entirely on every later tick instead of re-doing the work
+      // just to re-discover the skip. Cleared below when the room goes away.
+      if (oversizeWarned.has(quizId)) continue;
       const snap = roomToSnapshot(room, now);
       if (!snap) continue;
       const payload = JSON.stringify(snap);
@@ -249,14 +259,17 @@ function snapshotTick(): void {
       // rather than allowed to stall reveals — crash durability is best-effort,
       // liveness of the running quiz is not negotiable.
       if (payload.length > MAX_SNAPSHOT_BYTES) {
-        if (!oversizeWarned.has(quizId)) {
-          oversizeWarned.add(quizId);
-          logger.warn('Quiz snapshot skipped: room too large', { quizId, bytes: payload.length });
-        }
+        oversizeWarned.add(quizId);
+        logger.warn('Quiz snapshot skipped: room too large', { quizId, bytes: payload.length });
         continue;
       }
       activeIds.push(quizId);
       rows.push({ quizId, payload });
+    }
+    // Drop warn-markers for rooms that no longer exist so the Set can't grow
+    // unbounded across the long-lived process (mirrors deleteNotIn for the DB).
+    for (const id of oversizeWarned) {
+      if (!liveRoomIds.has(id)) oversizeWarned.delete(id);
     }
     const write = db.transaction(() => {
       for (const row of rows) db.upsert.run(row.quizId, row.payload, now);
