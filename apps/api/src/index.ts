@@ -50,7 +50,7 @@ import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
 import { initializeDatabase, populateAnnouncementSlugs, populateProfileSlugs } from './utils/init.js';
-import { initializeSocket } from './utils/socket.js';
+import { initializeSocket, getActiveWsEngine } from './utils/socket.js';
 import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
@@ -372,6 +372,10 @@ app.get('/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     environment: NODE_ENV,
     version: process.env.npm_package_version || '1.0.0',
+    // S7a: which WebSocket engine actually loaded — 'eiows' (C++, the low-memory
+    // default) or 'ws' (fell back / forced). Lets you confirm the memory win is
+    // live with one curl instead of grepping boot logs.
+    wsEngine: getActiveWsEngine(),
   });
 });
 

@@ -69,6 +69,6 @@
   },
   "optionalDependencies": {
     "better-sqlite3": "^12.11.1",
-    "eiows": "^9.2.0"
+    "eiows": "9.2.0"
   }
 }

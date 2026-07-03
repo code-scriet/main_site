@@ -1743,6 +1743,8 @@ app.get('/health', (_req, res) => {
     dbConnected: dbReady,
     activeSessions: userSessions.size,
     cachedExecutions: execCache.size,
+    // S7a: which WebSocket engine the /competition relay actually loaded.
+    wsEngine: relayActiveWsEngine,
   });
 });
 
@@ -1783,17 +1785,31 @@ const server = app.listen(PORT, () => {
 // rooms gated by event registration (pg) / admin role. Reuses the HTTP CORS
 // allowlist so browser→relay is allowed for code./www./codescriet.dev.
 // ---------------------------------------------------------------------------
-// S7a: opt-in native eiows engine for the contest relay (same wire protocol, far
-// lower per-connection memory). Behind WS_ENGINE=eiows + try/require so a missing
-// native build falls back to the default `ws` engine and never breaks the relay.
+// S7a: eiows (C++, ≈5-8x lower per-connection memory) is the DEFAULT relay
+// engine. optionalDependency + try/require so it can never hard-break the relay:
+// WS_ENGINE=ws forces stock `ws`; an unavailable eiows falls back to `ws` LOUDLY
+// (error log + the /health `wsEngine` field); WS_ENGINE_STRICT=true refuses to
+// start instead of falling back. Wire protocol is identical → clients unaffected.
+let relayActiveWsEngine = 'ws';
 function resolveRelayWsEngine() {
-  if (process.env.WS_ENGINE !== 'eiows') return undefined;
+  if (process.env.WS_ENGINE === 'ws') {
+    console.log('[relay] WebSocket engine forced to stock `ws` (WS_ENGINE=ws)');
+    relayActiveWsEngine = 'ws';
+    return undefined;
+  }
   try {
     const { Server } = require('eiows');
-    console.log('[relay] Socket.IO using eiows (C++) WebSocket engine');
+    console.log('[relay] Socket.IO using eiows (C++) WebSocket engine (low-memory default)');
+    relayActiveWsEngine = 'eiows';
     return Server;
   } catch (err) {
-    console.warn('[relay] WS_ENGINE=eiows set but eiows failed to load; using default ws engine:', err && err.message);
+    const detail = err && err.message;
+    if (process.env.WS_ENGINE_STRICT === 'true') {
+      console.error('[relay] eiows required (WS_ENGINE_STRICT=true) but failed to load — refusing to start:', detail);
+      throw new Error('eiows unavailable and WS_ENGINE_STRICT=true: ' + detail);
+    }
+    console.error('[relay] eiows unavailable — FELL BACK to stock `ws`; the per-connection memory headroom is NOT active. Rebuild eiows or set WS_ENGINE=ws:', detail);
+    relayActiveWsEngine = 'ws';
     return undefined;
   }
 }
