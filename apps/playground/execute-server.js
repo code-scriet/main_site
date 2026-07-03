@@ -1803,10 +1803,10 @@ function resolveRelayWsEngine() {
     relayActiveWsEngine = 'eiows';
     return Server;
   } catch (err) {
-    const detail = err && err.message;
+    const detail = err instanceof Error ? err.message : String(err);
     if (process.env.WS_ENGINE_STRICT === 'true') {
       console.error('[relay] eiows required (WS_ENGINE_STRICT=true) but failed to load — refusing to start:', detail);
-      throw new Error('eiows unavailable and WS_ENGINE_STRICT=true: ' + detail);
+      throw new Error('eiows unavailable and WS_ENGINE_STRICT=true: ' + detail, { cause: err });
     }
     console.error('[relay] eiows unavailable — FELL BACK to stock `ws`; the per-connection memory headroom is NOT active. Rebuild eiows or set WS_ENGINE=ws:', detail);
     relayActiveWsEngine = 'ws';
