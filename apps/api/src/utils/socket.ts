@@ -8,8 +8,9 @@ import { getInternalApiSecret, getPlaygroundRelayBase } from './internalApi.js';
 
 let io: SocketIOServer | null = null;
 
-// S7a: sync CJS require inside this ESM module — used only to lazy-load the
-// OPTIONAL native `eiows` engine when explicitly opted in.
+// S7a: sync CJS require inside this ESM module — used to lazy-load the OPTIONAL
+// native `eiows` engine, which is the DEFAULT WebSocket engine (see
+// resolveWsEngine below); a require failure falls back to stock `ws`.
 const nodeRequire = createRequire(import.meta.url);
 
 // ─── WebSocket engine selection (S7a) ────────────────────────────────────────
