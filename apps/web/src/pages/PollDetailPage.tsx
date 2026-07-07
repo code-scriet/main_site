@@ -227,7 +227,10 @@ export default function PollDetailPage() {
       <CardContent className="space-y-3">
         {!user ? (
           <Link to={loginHref} className="block">
-            <Button variant="outline" className="w-full">
+            <Button
+              variant="outline"
+              className="w-full border-zinc-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-[#0b0f16] dark:text-zinc-100 dark:hover:bg-[#111827]"
+            >
               Sign in to submit your question
             </Button>
           </Link>
@@ -251,7 +254,7 @@ export default function PollDetailPage() {
             </div>
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full border-zinc-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-[#0b0f16] dark:text-zinc-100 dark:hover:bg-[#111827]"
               onClick={handleFeedbackSubmit}
               disabled={submittingFeedback || !feedbackMessage.trim()}
             >
@@ -452,12 +455,14 @@ export default function PollDetailPage() {
                       <CardContent className="space-y-3">
                         {!user ? (
                           <Link to={loginHref} className="block">
-                            <Button className="w-full">Sign in to vote</Button>
+                            <Button className="w-full bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-500 dark:text-black dark:hover:bg-amber-400">
+                              Sign in to vote
+                            </Button>
                           </Link>
                         ) : (
                           <>
                             <Button
-                              className="w-full"
+                              className="w-full bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-500 dark:text-black dark:hover:bg-amber-400"
                               onClick={handleVoteSubmit}
                               disabled={voteDisabled || submittingVote}
                             >
