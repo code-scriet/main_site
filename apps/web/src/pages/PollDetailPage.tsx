@@ -162,7 +162,7 @@ export default function PollDetailPage() {
   if (loading) {
     return (
       <Layout>
-        <section className="min-h-screen bg-stone-50 px-4 py-16">
+        <section className={pageShellClass}>
           <div className="mx-auto flex max-w-5xl items-center justify-center py-24">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
           </div>
@@ -175,12 +175,12 @@ export default function PollDetailPage() {
     return (
       <Layout>
         <SEO title="Poll Not Found" noIndex={true} />
-        <section className="min-h-screen bg-stone-50 px-4 py-16">
+        <section className={pageShellClass}>
           <div className="mx-auto max-w-3xl">
-            <Card className="border-red-200 shadow-sm">
+            <Card className="border-red-200 bg-white shadow-sm dark:border-red-900/50 dark:bg-[#0d1017] dark:shadow-black/30">
               <CardHeader>
-                <CardTitle className="text-red-700">Poll Not Found</CardTitle>
-                <CardDescription className="text-red-600">
+                <CardTitle className="text-red-700 dark:text-red-300">Poll Not Found</CardTitle>
+                <CardDescription className="text-red-600 dark:text-red-300/80">
                   {error || 'The poll you are looking for is unavailable.'}
                 </CardDescription>
               </CardHeader>
@@ -207,13 +207,20 @@ export default function PollDetailPage() {
   const feedbackLength = feedbackMessage.trim().length;
   const feedbackRemaining = FEEDBACK_MAX_LENGTH - feedbackLength;
 
+  const pageShellClass = 'min-h-screen bg-stone-50 px-4 py-10 sm:py-14 dark:bg-[#07090f]';
+  const surfaceClass = 'border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30';
+  const mutedSurfaceClass = 'border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-[#11151e]';
+  const primaryTextClass = 'text-gray-950 dark:text-zinc-100';
+  const secondaryTextClass = 'text-gray-600 dark:text-zinc-300';
+  const tertiaryTextClass = 'text-gray-500 dark:text-zinc-400';
+
   const feedbackPanel = (
-    <Card className="border-gray-200 shadow-none">
+    <Card className={surfaceClass}>
       <CardHeader className="space-y-2">
-        <CardTitle className="text-lg text-gray-950">
+        <CardTitle className={cn('text-lg', primaryTextClass)}>
           {isQuestionTypePoll ? 'Ask your question' : 'What question do you want to ask the speaker?'}
         </CardTitle>
-        <CardDescription>
+        <CardDescription className={secondaryTextClass}>
           There is no right or wrong answer. Share your question clearly so the speaker team can review it.
         </CardDescription>
       </CardHeader>
@@ -235,8 +242,9 @@ export default function PollDetailPage() {
                 placeholder="Example: What practical steps should students take in the first 30 days to start in this domain?"
                 rows={6}
                 maxLength={FEEDBACK_MAX_LENGTH}
+                className="bg-white text-gray-950 placeholder:text-gray-400 dark:border-zinc-700 dark:bg-[#0b0f16] dark:text-zinc-100 dark:placeholder:text-zinc-500"
               />
-              <div className="flex items-center justify-between text-xs text-gray-500">
+              <div className={cn('flex items-center justify-between text-xs', tertiaryTextClass)}>
                 <span>No right or wrong answer. Ask freely.</span>
                 <span>{feedbackRemaining} characters left</span>
               </div>
@@ -258,7 +266,7 @@ export default function PollDetailPage() {
                 'Submit question'
               )}
             </Button>
-            <p className="text-xs text-gray-500">
+            <p className={tertiaryTextClass}>
               Your response is linked to your account so admins can review all questions and organize them for the speaker.
             </p>
           </>
@@ -275,7 +283,7 @@ export default function PollDetailPage() {
         url={`/polls/${poll.slug}`}
       />
 
-      <section className="min-h-screen bg-stone-50 py-10 sm:py-14">
+      <section className={pageShellClass}>
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
@@ -288,8 +296,8 @@ export default function PollDetailPage() {
             </Button>
           </div>
 
-          <Card className="border-gray-200 shadow-sm">
-            <CardHeader className="space-y-4 border-b border-gray-100 pb-5">
+          <Card className={surfaceClass}>
+            <CardHeader className="space-y-4 border-b border-gray-100 pb-5 dark:border-zinc-800">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={poll.isClosed ? 'secondary' : 'success'}>
                   {poll.isClosed ? 'Poll closed' : 'Poll open'}
@@ -321,21 +329,21 @@ export default function PollDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <CardTitle className="text-2xl leading-tight text-gray-950 sm:text-4xl">
+                <CardTitle className={cn('text-2xl leading-tight sm:text-4xl', primaryTextClass)}>
                   {poll.question}
                 </CardTitle>
                 {poll.description && (
-                  <CardDescription className="max-w-3xl text-base leading-7 text-gray-600">
+                  <CardDescription className={cn('max-w-3xl text-base leading-7', secondaryTextClass)}>
                     {poll.description}
                   </CardDescription>
                 )}
               </div>
 
-              <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
-                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className={cn('grid gap-3 text-sm sm:grid-cols-2', secondaryTextClass)}>
+                <div className={cn('flex items-center gap-2 rounded-lg px-3 py-2', mutedSurfaceClass)}>
                   <span>Feedback enabled</span>
                 </div>
-                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className={cn('flex items-center gap-2 rounded-lg px-3 py-2', mutedSurfaceClass)}>
                   <CalendarClock className="h-4 w-4 text-amber-600" />
                   <span>{poll.deadline ? formatDateTime(poll.deadline) : 'No deadline set'}</span>
                 </div>
@@ -345,7 +353,7 @@ export default function PollDetailPage() {
             <CardContent className={cn('pt-6', isQuestionTypePoll ? 'space-y-4' : 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]')}>
               {isQuestionTypePoll ? (
                 <>
-                  <p className="text-sm text-gray-500">
+                  <p className={tertiaryTextClass}>
                     This is a question-type poll. Submit your question below and admins will review it for the speaker session.
                   </p>
                   {feedbackPanel}
@@ -353,7 +361,7 @@ export default function PollDetailPage() {
               ) : (
                 <>
                   <div className="space-y-4">
-                    <p className="text-sm text-gray-500">
+                    <p className={tertiaryTextClass}>
                       Public results are shown as percentages only. Raw counts and submission totals stay visible to admins only.
                     </p>
 
@@ -370,8 +378,8 @@ export default function PollDetailPage() {
                             className={cn(
                               'w-full rounded-xl border px-4 py-4 text-left transition-colors',
                               isSelected
-                                ? 'border-amber-400 bg-amber-50'
-                                : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/40',
+                                ? 'border-amber-400 bg-amber-50 dark:border-amber-400/70 dark:bg-amber-500/10'
+                                : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/40 dark:border-zinc-800 dark:bg-[#0d1017] dark:hover:border-amber-500/40 dark:hover:bg-amber-500/10',
                               (poll.isClosed || !user) && 'cursor-default',
                             )}
                           >
@@ -383,22 +391,22 @@ export default function PollDetailPage() {
                                       'inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-semibold',
                                       isSelected
                                         ? 'border-amber-500 bg-amber-500 text-white'
-                                        : 'border-gray-300 text-gray-500',
+                                        : 'border-gray-300 text-gray-500 dark:border-zinc-600 dark:text-zinc-400',
                                     )}
                                   >
                                     {poll.allowMultipleChoices ? (isSelected ? '✓' : '+') : isSelected ? '●' : '○'}
                                   </span>
-                                  <span className={cn('text-base text-gray-900', isSelected && 'font-semibold')}>
+                                  <span className={cn('text-base text-gray-900 dark:text-zinc-100', isSelected && 'font-semibold')}>
                                     {option.text}
                                   </span>
                                 </div>
                               </div>
-                              <div className="shrink-0 text-right text-sm text-gray-500">
-                                <div className="font-medium text-gray-900">{option.percentage}%</div>
+                              <div className={cn('shrink-0 text-right text-sm', tertiaryTextClass)}>
+                                <div className={cn('font-medium', primaryTextClass)}>{option.percentage}%</div>
                               </div>
                             </div>
 
-                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800">
                               <div
                                 className={cn(
                                   'h-full rounded-full transition-[width] duration-300',
@@ -413,12 +421,12 @@ export default function PollDetailPage() {
                     </div>
 
                     {poll.currentUserVote && (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-500/10 dark:text-emerald-200">
                         <div className="flex items-center gap-2 font-medium">
                           <CheckCircle2 className="h-4 w-4" />
                           Your vote is saved.
                         </div>
-                        <p className="mt-1 text-emerald-700">
+                        <p className="mt-1 text-emerald-700 dark:text-emerald-300/90">
                           Last updated {formatDateTime(poll.currentUserVote.updatedAt)}.
                         </p>
                       </div>
@@ -428,10 +436,10 @@ export default function PollDetailPage() {
                   </div>
 
                   <div className="space-y-4">
-                    <Card className="border-gray-200 shadow-none">
+                    <Card className={surfaceClass}>
                       <CardHeader className="space-y-2">
-                        <CardTitle className="text-lg text-gray-950">Cast your vote</CardTitle>
-                        <CardDescription>
+                        <CardTitle className={cn('text-lg', primaryTextClass)}>Cast your vote</CardTitle>
+                        <CardDescription className={secondaryTextClass}>
                           {poll.isClosed
                             ? 'Voting has ended for this poll.'
                             : user
@@ -465,16 +473,16 @@ export default function PollDetailPage() {
                               )}
                             </Button>
                             {poll.currentUserVote && !poll.allowVoteChange && (
-                              <p className="text-xs text-gray-500">
+                              <p className={tertiaryTextClass}>
                                 Vote changes are disabled for this poll.
                               </p>
                             )}
                             {poll.isAnonymous ? (
-                              <p className="text-xs text-gray-500">
+                              <p className={tertiaryTextClass}>
                                 Voting stays anonymous. Admins only see totals, not who picked each option.
                               </p>
                             ) : (
-                              <p className="text-xs text-gray-500">
+                              <p className={tertiaryTextClass}>
                                 This is a named poll. Admins can review who voted for which option.
                               </p>
                             )}
