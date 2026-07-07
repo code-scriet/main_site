@@ -159,6 +159,13 @@ export default function PollDetailPage() {
     }
   };
 
+  const pageShellClass = 'min-h-screen px-4 py-10 sm:py-14';
+  const surfaceClass = 'border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30';
+  const mutedSurfaceClass = 'border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-[#11151e]';
+  const primaryTextClass = 'text-gray-950 dark:text-zinc-100';
+  const secondaryTextClass = 'text-gray-600 dark:text-zinc-300';
+  const tertiaryTextClass = 'text-gray-500 dark:text-zinc-400';
+
   if (loading) {
     return (
       <Layout>
@@ -206,13 +213,6 @@ export default function PollDetailPage() {
     (Boolean(poll.currentUserVote) && !poll.allowVoteChange);
   const feedbackLength = feedbackMessage.trim().length;
   const feedbackRemaining = FEEDBACK_MAX_LENGTH - feedbackLength;
-
-  const pageShellClass = 'min-h-screen px-4 py-10 sm:py-14';
-  const surfaceClass = 'border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30';
-  const mutedSurfaceClass = 'border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-[#11151e]';
-  const primaryTextClass = 'text-gray-950 dark:text-zinc-100';
-  const secondaryTextClass = 'text-gray-600 dark:text-zinc-300';
-  const tertiaryTextClass = 'text-gray-500 dark:text-zinc-400';
 
   const feedbackPanel = (
     <Card className={surfaceClass}>
