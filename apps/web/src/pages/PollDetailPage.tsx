@@ -162,7 +162,7 @@ export default function PollDetailPage() {
   if (loading) {
     return (
       <Layout>
-        <section className={pageShellClass}>
+        <section className={pageShellClass} style={{ background: 'var(--pub-canvas)' }}>
           <div className="mx-auto flex max-w-5xl items-center justify-center py-24">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
           </div>
@@ -175,7 +175,7 @@ export default function PollDetailPage() {
     return (
       <Layout>
         <SEO title="Poll Not Found" noIndex={true} />
-        <section className={pageShellClass}>
+        <section className={pageShellClass} style={{ background: 'var(--pub-canvas)' }}>
           <div className="mx-auto max-w-3xl">
             <Card className="border-red-200 bg-white shadow-sm dark:border-red-900/50 dark:bg-[#0d1017] dark:shadow-black/30">
               <CardHeader>
@@ -207,7 +207,7 @@ export default function PollDetailPage() {
   const feedbackLength = feedbackMessage.trim().length;
   const feedbackRemaining = FEEDBACK_MAX_LENGTH - feedbackLength;
 
-  const pageShellClass = 'min-h-screen bg-stone-50 px-4 py-10 sm:py-14 dark:bg-[#07090f]';
+  const pageShellClass = 'min-h-screen px-4 py-10 sm:py-14';
   const surfaceClass = 'border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30';
   const mutedSurfaceClass = 'border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-[#11151e]';
   const primaryTextClass = 'text-gray-950 dark:text-zinc-100';
@@ -286,7 +286,7 @@ export default function PollDetailPage() {
         url={`/polls/${poll.slug}`}
       />
 
-      <section className={pageShellClass}>
+      <section className={pageShellClass} style={{ background: 'var(--pub-canvas)' }}>
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
