@@ -151,7 +151,7 @@ export default function AdminPublicView() {
       isPublished: detail.isPublished,
       eventId: detail.eventId ?? '',
     });
-    setPollType('NORMAL');
+    setPollType(detail.options.length === 0 ? 'QUESTION' : 'NORMAL');
     setEditorOpen(true);
   };
   const handleAddOption = () => {
@@ -163,15 +163,31 @@ export default function AdminPublicView() {
   const handleRemoveOption = (index: number) => {
     setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== index) }));
   };
+  const handlePollTypeChange = (type: PollType) => {
+    setPollType(type);
+    setForm((current) => ({
+      ...current,
+      allowMultipleChoices: type === 'QUESTION' ? false : current.allowMultipleChoices,
+      options: type === 'QUESTION' ? [] : (current.options.length >= 2 ? current.options : ['', '']),
+    }));
+  };
   const handleSave = async () => {
     if (!token) return;
     if (!form.question.trim()) { toast.error('Question is required'); return; }
     const cleanedOptions = form.options.map((o) => o.trim()).filter(Boolean);
-    if (cleanedOptions.length < 2) { toast.error('At least two options are required'); return; }
+    if (pollType === 'NORMAL' && cleanedOptions.length < 2) {
+      toast.error('At least two options are required');
+      return;
+    }
     setSaving(true);
     try {
       // S-10: empty event link → null (avoids failing the uuid validator).
-      const payload: PollInput = { ...form, options: cleanedOptions, eventId: form.eventId || null };
+      const payload: PollInput = {
+        ...form,
+        options: pollType === 'QUESTION' ? [] : cleanedOptions,
+        allowMultipleChoices: pollType === 'QUESTION' ? false : form.allowMultipleChoices,
+        eventId: form.eventId || null,
+      };
       if (editorMode === 'edit' && editingPollId) {
         await api.updatePoll(editingPollId, payload, token);
         toast.success('Poll updated');
@@ -499,7 +515,7 @@ export default function AdminPublicView() {
             setForm={setForm}
             events={eventOptions}
             pollType={pollType}
-            onPollTypeChange={setPollType}
+            onPollTypeChange={handlePollTypeChange}
             onAddOption={handleAddOption}
             onOptionChange={handleOptionChange}
             onRemoveOption={handleRemoveOption}
