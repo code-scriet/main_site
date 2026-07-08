@@ -95,16 +95,10 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
   };
 
   const handleClick = (it: NotifItem) => {
-    // Admin/auto messages (announcements, event messages, feedback prompts…) carry
-    // their content in the body — show it in full (Markdown + clickable links)
-    // rather than forwarding to a page. Action notifications (invitations, certs,
-    // quiz) keep their direct-navigation behaviour.
-    if (it.group === 'broadcasts' && it.body?.trim()) {
-      setActive(it);
-      onClose();
-      return;
-    }
-    if (it.link) openLink(it.link);
+    // Every notification opens the detail dialog: the full body renders as Markdown
+    // (clickable links), and its link is offered as an explicit "Open …" action
+    // rather than silently forwarding the user away.
+    setActive(it);
     onClose();
   };
 
