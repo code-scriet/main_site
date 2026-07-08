@@ -168,7 +168,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | Path | Auth | Notes |
 |---|---|---|
 | `/api/auth/*` | No (50/15min) | Includes `/dev-login` (gated), `/reset-password` (20/15min), `/request-password-reset` (5/15min/IP + 3/15min/email, neutral response) |
-| `/api/events/*` | Mixed | |
+| `/api/events/*` | Mixed | `POST /:id/message-registrants` (creator or ADMIN/PRESIDENT) fans a custom subject/body to an event's registrants over in-app bell (`broadcastNotification` CUSTOM audience) and/or email (`sendBulk`, `admin_mail` category → `mailingEnabled` guard); audience = all\|participants\|guests\|attended\|absent (+`dayNumber` for multi-day), 2000-recipient cap, audit `EVENT_MESSAGE_REGISTRANTS`. `POST /:id/feedback-poll` (same creator-or-admin gate) auto-creates + publishes a feedback `Poll` linked via `Poll.eventId` (idempotent — reuses an existing linked published poll), deadline = event end (or start) +24h; `sendNow=true` (default) sends bell+email now to the chosen audience and reserves `Event.feedbackSentAt` so the S-10 scheduler skips it, `sendNow=false` leaves delivery to S-10, audit `EVENT_FEEDBACK_POLL_ENABLED` |
 | `/api/registrations/*` | User | |
 | `/api/announcements/*` | Mixed | |
 | `/api/polls/*` | GET=optional, vote/feedback=User, admin=Admin | |
@@ -204,7 +204,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 
 **Admin-deep-control endpoints (`/api/users`):** `:id/full`, `:id/activity`, `:id/audit`, `:id/streak/{reset-current,restore-longest}` (PRES/SA), `:id/blocks` (GET=Admin, POST=PRES/SA), `:id/blocks/:feature` DELETE (PRES/SA), `:id/force-logout` (PRES/SA), `:id/password-reset` (PRES/SA), `:id/restore` (SA only), `:id` DELETE `?hard=true` (soft=PRES, hard=SA).
 
-**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,notifications,settings}` (**`/admin/problems` is the consolidated coding hub** — `AdminProblemsHub`, tabs via `?tab=catalog|qotd|review|proposals|sheets`: Catalog=`AdminProblems`, QOTD=`CreateQOTD` embedded, Review=`AdminSubmissionReview` embedded + filters, Proposals=core draft QOTDs + unpublished problems, **Sheets=`AdminSheets`** (manage every topic-ladder sheet incl. member-proposed drafts — publish/unpublish/edit/delete via the now-wired `updateProblemSheet`; draft-count badge); **`/admin/submission-review` now redirects to `?tab=review`**; `/dashboard/qotd` is the limited **Propose QOTD** form for non-admins and redirects admins into the hub), `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
+**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,notifications,settings}` (**`/admin/problems` is the consolidated coding hub** — `AdminProblemsHub`, tabs via `?tab=catalog|qotd|review|proposals|sheets`: Catalog=`AdminProblems`, QOTD=`CreateQOTD` embedded, Review=`AdminSubmissionReview` embedded + filters, Proposals=core draft QOTDs + unpublished problems, **Sheets=`AdminSheets`** (manage every topic-ladder sheet incl. member-proposed drafts — publish/unpublish/edit/delete via the now-wired `updateProblemSheet`; draft-count badge); **`/admin/submission-review` now redirects to `?tab=review`**; `/dashboard/qotd` is the limited **Propose QOTD** form for non-admins and redirects admins into the hub), `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token). `/admin/event-registrations/:eventId` (`AdminEventRegistrationDetail`) has tabs Registrations / Invitations / **Message** (`?tab=message` — `EventRegistrantComposer`, registrant messaging via `POST /:id/message-registrants`) plus a **Feedback poll** action (`POST /:id/feedback-poll`).
 
 ---
 
@@ -400,7 +400,7 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 `join:event`/`leave:event` c→s · `attendance:marked`/`unmarked`/`bulk` s→c (broadcast to `event:${eventId}`).
 
 ### Components (apps/web/src/components/attendance/)
-`QRTicket` (countdown→QR→attended badge + day breakdown) · `AdminScanner` (offline-first, day selector, audio, manual checkin) · `AttendanceManager` (CRUD table, day selector, bulk, export, absentees email) · `EventCertificateWizard` (attendance/competition wizard with optional `minDays` filter + per-batch event-name override) · `EventAdminHub` (tabs: Details/Scanner/Manage + Certificates for Admin; routes `/admin/events/:eventId/attendance` or `/dashboard/events/:eventId/attendance`) · `AttendanceHistory`.
+`QRTicket` (countdown→QR→attended badge + day breakdown) · `AdminScanner` (offline-first, day selector, audio, manual checkin) · `AttendanceManager` (CRUD table, day selector, bulk, export, absentees email) · `EventCertificateWizard` (attendance/competition wizard with optional `minDays` filter + per-batch event-name override) · `EventAdminHub` (tabs: Details/Scanner/Manage + Certificates for Admin; routes `/admin/events/:eventId/attendance` or `/dashboard/events/:eventId/attendance`) · `AttendanceHistory`. Registrant messaging lives on the **Event Registrations admin page**, not this hub — see Frontend route map.
 
 ---
 
@@ -466,6 +466,7 @@ Single/multi-select polls with deadlines, anonymous voting, per-user feedback.
 - Anonymous polls strip identifiers from public payloads; admin exports still resolve identities.
 - `allowVoteChange=true` → vote handler deletes prior `PollVoteSelection` rows in same txn as new selection writes.
 - `PollFeedback` unique `[pollId,userId]` — resubmit overwrites.
+- **Event feedback poll (one-click):** `POST /api/events/:id/feedback-poll` auto-generates + publishes a poll from the event (question/options/anonymous+comment) and links it via `Poll.eventId`, deadline = event end+24h. `sendNow=true` delivers bell+email immediately to the chosen audience; `sendNow=false` leaves delivery to the existing S-10 `sendEventFeedbackRequests` scheduler (attendees, ~2h after end).
 
 Endpoints: `GET /api/polls` (optional auth) · `GET /:idOrSlug` · `POST /:idOrSlug/vote` · `POST /:idOrSlug/feedback` · `GET /admin/public-view` · `GET /admin/public-view/:id` · POST/PUT/DELETE (Admin) · `GET /:id/admin/export.xlsx`.
 
@@ -755,6 +756,7 @@ CORS subdomain wildcard removed (explicit allowlist) · URL sanitization XSS (st
 | Certificate persistence (schema-fallback writers) | [apps/api/src/utils/certificatePersistence.ts](apps/api/src/utils/certificatePersistence.ts) |
 | Signature processing | [apps/api/src/utils/processSignatureImage.ts](apps/api/src/utils/processSignatureImage.ts) |
 | Attendance token | [apps/api/src/utils/attendanceToken.ts](apps/api/src/utils/attendanceToken.ts) |
+| Event recipient resolver (audience → registrants, shared by message-registrants + feedback-poll) | [apps/api/src/utils/eventRecipients.ts](apps/api/src/utils/eventRecipients.ts) |
 | Quiz socket / store | [apps/api/src/quiz/quizSocket.ts](apps/api/src/quiz/quizSocket.ts) · [quizStore.ts](apps/api/src/quiz/quizStore.ts) |
 | Attendance socket | [apps/api/src/attendance/attendanceSocket.ts](apps/api/src/attendance/attendanceSocket.ts) |
 | Resource routers | [apps/api/src/routes/](apps/api/src/routes/) |

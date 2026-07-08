@@ -7,16 +7,18 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { EventStatus, Prisma, RegistrationType } from '@prisma/client';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
-import { emailService } from '../utils/email.js';
+import { emailService, EmailTemplates } from '../utils/email.js';
 import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { sanitizeHtml } from '../utils/sanitize.js';
+import { sanitizeHtml, sanitizeText } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+import { buildAudienceWhere, fetchEventRecipients, type EventAudience } from '../utils/eventRecipients.js';
 import { reconcileEventStatusesSoon, armRegistrationOpenTimer, cancelRegistrationOpenTimer } from '../utils/scheduler.js';
 import { requireUuid } from '../utils/idParams.js';
 import { setPublicCache, setSharedPublicCache } from '../utils/response.js';
@@ -1098,6 +1100,296 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
     res.json({ success: true, data: registrations });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
+  }
+});
+
+// ── Message an event's registrants (in-app bell + email) ────────────────────
+// Admin composer that fans out a custom subject/body to the people registered
+// for a specific event — the same machinery the auto edit/cancel notice uses
+// (broadcastNotification CUSTOM audience + emailService), generalized. Both
+// channels are optional per send; audience can be narrowed to participants /
+// guests / attended / absent. Guarded by the event ownership rule (creator or
+// ADMIN/PRESIDENT) like the PUT/DELETE handlers.
+const MESSAGE_MAX_RECIPIENTS = 2000; // free-tier ceiling; sendBulk batches under this
+const messageRegistrantsSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(5000),
+  bodyType: z.enum(['markdown', 'html']).default('markdown'),
+  channels: z
+    .object({ email: z.boolean().default(false), inApp: z.boolean().default(false) })
+    .refine((c) => c.email || c.inApp, { message: 'Select at least one channel' }),
+  audience: z.enum(['all', 'participants', 'guests', 'attended', 'absent']).default('all'),
+  dayNumber: z.number().int().min(1).max(10).optional(),
+});
+
+eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+    const authUser = getAuthUser(req)!;
+    const parsed = messageRegistrantsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors.map((e) => e.message).join(', ') },
+      });
+    }
+    const { subject, body, bodyType, channels, audience, dayNumber } = parsed.data;
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true, slug: true, createdBy: true, eventDays: true },
+    });
+    if (!event) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+
+    // Ownership: creator, ADMIN, or PRESIDENT only (mirrors PUT/DELETE /:id).
+    const isCreatorOrAdmin =
+      event.createdBy === authUser.id || authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'You can only message registrants of events you created' },
+      });
+    }
+
+    const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
+
+    const regs = await prisma.eventRegistration.findMany({
+      where: { eventId, ...buildAudienceWhere(audience, effectiveDay) },
+      select: { userId: true, user: { select: { email: true } } },
+      take: MESSAGE_MAX_RECIPIENTS + 1,
+    });
+
+    if (regs.length > MESSAGE_MAX_RECIPIENTS) {
+      return res.status(400).json({
+        success: false,
+        error: { message: `Too many recipients (>${MESSAGE_MAX_RECIPIENTS}). Narrow the audience and try again.` },
+      });
+    }
+
+    const userIds = [...new Set(regs.map((r) => r.userId))];
+    const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+
+    if (userIds.length === 0) {
+      return res.json({ success: true, data: { notified: 0, emailed: 0, audience }, message: 'No matching registrants' });
+    }
+
+    // Resolve whether email can actually go out (mailing toggle + testing mode
+    // are handled inside emailService). If email is the ONLY channel and mailing
+    // is disabled, nothing would send — surface that clearly.
+    let mailingEnabled = true;
+    if (channels.email) {
+      const settings = await getCachedSettings();
+      if (settings && settings.mailingEnabled === false) {
+        mailingEnabled = false;
+      }
+    }
+    if (channels.email && !mailingEnabled && !channels.inApp) {
+      return res.status(403).json({ success: false, error: { message: 'Mailing is currently disabled' } });
+    }
+
+    let notified = 0;
+    let emailed = 0;
+
+    // In-app bell — CUSTOM audience targeting the registrant userIds.
+    if (channels.inApp) {
+      await broadcastNotification({
+        source: 'ADMIN',
+        audience: 'CUSTOM',
+        audienceUserIds: userIds,
+        category: 'event',
+        icon: 'calendar',
+        title: subject,
+        body,
+        link: `/events/${event.slug}`,
+        refEntity: 'event',
+        refEntityId: event.slug,
+        createdById: authUser.id,
+      });
+      notified = userIds.length;
+    }
+
+    // Email — branded shell via adminMail + sendBulk (Brevo messageVersions,
+    // one message per recipient, no address leakage). {{event}} substituted once.
+    if (channels.email && mailingEnabled && emails.length > 0) {
+      const substituted = body.replace(/\{\{event\}\}/g, event.title);
+      const safeBody = bodyType === 'html' ? sanitizeHtml(substituted) : substituted;
+      const tpl = EmailTemplates.adminMail(subject, safeBody, bodyType);
+      const sent = await emailService.sendBulk(emails, tpl.subject, tpl.html, tpl.text, 'admin_mail');
+      if (sent) emailed = emails.length;
+    }
+
+    await auditLog(authUser.id, 'EVENT_MESSAGE_REGISTRANTS', 'event', eventId, {
+      audience,
+      channels: { email: channels.email, inApp: channels.inApp },
+      dayNumber: effectiveDay ?? null,
+      notified,
+      emailed,
+    });
+
+    return res.json({ success: true, data: { notified, emailed, audience } });
+  } catch (error) {
+    logger.error('Failed to message event registrants', {
+      eventId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ success: false, error: { message: 'Failed to message registrants' } });
+  }
+});
+
+// ── Enable a post-event feedback poll (auto-generate + optionally send) ──────
+// One click: builds a feedback Poll from the event's details (rating question +
+// open comment via PollFeedback), links it to the event (Poll.eventId), publishes
+// it, and sets the deadline to 24h after the event ends. Delivery:
+//   • sendNow=true  → send bell+email immediately to the admin-selected audience
+//                     and reserve Event.feedbackSentAt so the S-10 scheduler skips.
+//   • sendNow=false → leave feedbackSentAt null; the S-10 scheduler
+//                     (sendEventFeedbackRequests) auto-sends to attendees ~2h after
+//                     the event ends. (Schedulers are OFF in local dev.)
+// Idempotent: an existing published poll already linked to the event is reused.
+const FEEDBACK_OPTIONS = ['Excellent', 'Good', 'Average', 'Poor'];
+const feedbackPollSchema = z.object({
+  audience: z.enum(['all', 'participants', 'guests', 'attended', 'absent']).default('attended'),
+  dayNumber: z.number().int().min(1).max(10).optional(),
+  channels: z
+    .object({ email: z.boolean().default(true), inApp: z.boolean().default(true) })
+    .default({ email: true, inApp: true }),
+  sendNow: z.boolean().default(true),
+});
+
+async function generateEventPollSlug(question: string): Promise<string> {
+  const base = generateSlug(question) || 'feedback';
+  const existing = await prisma.poll.findMany({ where: { slug: { startsWith: base } }, select: { slug: true } });
+  return generateUniqueSlug(base, existing.map((p) => p.slug).filter(Boolean));
+}
+
+eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+    const authUser = getAuthUser(req)!;
+    const parsed = feedbackPollSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors.map((e) => e.message).join(', ') } });
+    }
+    const { audience, dayNumber, channels, sendNow } = parsed.data;
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true, slug: true, createdBy: true, eventDays: true, startDate: true, endDate: true, feedbackSentAt: true },
+    });
+    if (!event) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+    const isCreatorOrAdmin = event.createdBy === authUser.id || authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You can only enable feedback for events you created' } });
+    }
+
+    // Deadline = 24h after the event ends; if that instant is already past
+    // (enabling long after the event), give recipients a fresh 24h window.
+    const base = event.endDate ?? event.startDate;
+    const nowMs = Date.now();
+    let deadlineMs = base.getTime() + 24 * 60 * 60 * 1000;
+    if (deadlineMs <= nowMs) deadlineMs = nowMs + 24 * 60 * 60 * 1000;
+    const deadline = new Date(deadlineMs);
+
+    // Idempotent: reuse an existing published poll linked to this event.
+    let poll = await prisma.poll.findFirst({
+      where: { eventId, isPublished: true },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, slug: true, question: true, deadline: true },
+    });
+    let created = false;
+    if (!poll) {
+      const question = `How was ${event.title}?`;
+      const slug = await generateEventPollSlug(question);
+      poll = await prisma.poll.create({
+        data: {
+          question: sanitizeText(question).trim(),
+          description: 'Your feedback helps us improve future events — it only takes a minute. Add a comment below too.',
+          slug,
+          allowMultipleChoices: false,
+          allowVoteChange: true,
+          isAnonymous: true,
+          deadline,
+          isPublished: true,
+          eventId,
+          createdBy: authUser.id,
+          options: { create: FEEDBACK_OPTIONS.map((text, index) => ({ text, sortOrder: index })) },
+        },
+        select: { id: true, slug: true, question: true, deadline: true },
+      });
+      created = true;
+    }
+
+    let notified = 0;
+    let emailed = 0;
+    let sent = false;
+
+    if (sendNow) {
+      // Reserve so the scheduler never double-sends this event's feedback.
+      if (event.feedbackSentAt === null) {
+        await prisma.event.updateMany({ where: { id: eventId, feedbackSentAt: null }, data: { feedbackSentAt: new Date() } }).catch(() => undefined);
+      }
+      const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
+      const { userIds, emails } = await fetchEventRecipients(eventId, audience as EventAudience, effectiveDay);
+      if (channels.inApp && userIds.length > 0) {
+        await broadcastNotification({
+          source: 'AUTO_EVENT',
+          audience: 'CUSTOM',
+          audienceUserIds: userIds,
+          category: 'event',
+          icon: 'calendar',
+          title: `How was ${event.title}?`,
+          body: 'Share quick feedback — it only takes a minute.',
+          link: `/polls/${poll.slug}`,
+          refEntity: 'event-feedback',
+          refEntityId: eventId,
+          createdById: authUser.id,
+        });
+        notified = userIds.length;
+      }
+      if (channels.email && emails.length > 0) {
+        const ok = await emailService.sendEventFeedback(emails, event.title, poll.slug);
+        if (ok) emailed = emails.length;
+      }
+      sent = true;
+    }
+
+    await auditLog(authUser.id, 'EVENT_FEEDBACK_POLL_ENABLED', 'event', eventId, {
+      pollId: poll.id,
+      pollSlug: poll.slug,
+      created,
+      sentNow: sendNow,
+      audience,
+      notified,
+      emailed,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        poll: { id: poll.id, slug: poll.slug, question: poll.question, deadline: poll.deadline, shareUrl: `${process.env.FRONTEND_URL || ''}/polls/${poll.slug}` },
+        created,
+        sent,
+        notified,
+        emailed,
+        audience,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to enable event feedback poll', {
+      eventId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ success: false, error: { message: 'Failed to enable feedback poll' } });
   }
 });
 
