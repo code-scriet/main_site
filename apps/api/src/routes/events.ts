@@ -1165,7 +1165,10 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
       });
     }
 
-    const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
+    // Only honour dayNumber when it's a real day of a multi-day event; an
+    // out-of-range value falls back to overall attendance rather than silently
+    // matching zero registrants.
+    const effectiveDay = event.eventDays > 1 && dayNumber && dayNumber <= event.eventDays ? dayNumber : undefined;
 
     const { userIds, emails, count } = await fetchEventRecipients(eventId, audience, effectiveDay);
     if (count > EVENT_RECIPIENT_CAP) {
@@ -1308,7 +1311,10 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
     // poll, so an over-cap request fails cleanly without leaving a poll behind.
     let recipients: { userIds: string[]; emails: string[] } | null = null;
     if (shouldSendNow) {
-      const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
+      // Only honour dayNumber when it's a real day of a multi-day event; an
+    // out-of-range value falls back to overall attendance rather than silently
+    // matching zero registrants.
+    const effectiveDay = event.eventDays > 1 && dayNumber && dayNumber <= event.eventDays ? dayNumber : undefined;
       const r = await fetchEventRecipients(eventId, audience, effectiveDay);
       if (r.count > EVENT_RECIPIENT_CAP) {
         return res.status(400).json({
@@ -1353,8 +1359,12 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
 
     if (shouldSendNow && recipients) {
       // Reserve so the S-10 scheduler never double-sends this event's feedback.
+      // Best-effort: if the write hiccups we still deliver, but log it since a
+      // missed reservation could let the scheduler re-send later.
       if (event.feedbackSentAt === null) {
-        await prisma.event.updateMany({ where: { id: eventId, feedbackSentAt: null }, data: { feedbackSentAt: new Date() } }).catch(() => undefined);
+        await prisma.event
+          .updateMany({ where: { id: eventId, feedbackSentAt: null }, data: { feedbackSentAt: new Date() } })
+          .catch((e) => logger.warn('feedbackSentAt reservation failed (scheduler may re-send)', { eventId, error: e instanceof Error ? e.message : String(e) }));
       }
       if (channels.inApp && recipients.userIds.length > 0) {
         await broadcastNotification({
