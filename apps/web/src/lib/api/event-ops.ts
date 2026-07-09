@@ -4,6 +4,43 @@
 // certificates, and timed competition rounds.
 
 import { API_URL, request } from './_internal';
+
+export type MessageRegistrantsAudience = 'all' | 'participants' | 'guests' | 'attended' | 'absent';
+
+export const EVENT_AUDIENCE_OPTIONS: { value: MessageRegistrantsAudience; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'participants', label: 'Participants' },
+  { value: 'guests', label: 'Guests' },
+  { value: 'attended', label: 'Attended' },
+  { value: 'absent', label: 'Absent' },
+];
+
+export interface MessageRegistrantsPayload {
+  subject: string;
+  body: string;
+  bodyType?: 'markdown' | 'html';
+  channels: { email: boolean; inApp: boolean };
+  audience?: MessageRegistrantsAudience;
+  dayNumber?: number;
+}
+
+export interface EnableFeedbackPollPayload {
+  audience?: MessageRegistrantsAudience;
+  dayNumber?: number;
+  channels?: { email: boolean; inApp: boolean };
+  sendNow?: boolean;
+}
+
+export interface EnableFeedbackPollResult {
+  poll: { id: string; slug: string; question: string; deadline: string | null; shareUrl: string };
+  created: boolean;
+  sent: boolean;
+  scheduled: boolean;
+  notified: number;
+  emailed: number;
+  audience: MessageRegistrantsAudience;
+}
+
 import type {
   AttendanceCertificateRecipientsResponse,
   AttendanceHistoryEvent,
@@ -109,6 +146,10 @@ export const eventOpsApi = {
   },
   emailAbsentees: (eventId: string, subject: string, body: string, token: string, dayNumber?: number) =>
     request<{ emailed: number; sent?: number; dayNumber?: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body, dayNumber }), token }),
+  messageEventRegistrants: (eventId: string, payload: MessageRegistrantsPayload, token: string) =>
+    request<{ notified: number; emailed: number; audience: MessageRegistrantsAudience }>(`/events/${eventId}/message-registrants`, { method: 'POST', body: JSON.stringify(payload), token }),
+  enableEventFeedbackPoll: (eventId: string, payload: EnableFeedbackPollPayload, token: string) =>
+    request<EnableFeedbackPollResult>(`/events/${eventId}/feedback-poll`, { method: 'POST', body: JSON.stringify(payload), token }),
   getAttendanceCertRecipients: (eventId: string, token: string, minDays?: number, includeGuestNonAttendees?: boolean) => {
     const params = new URLSearchParams();
     if (typeof minDays === 'number') params.set('minDays', String(minDays));

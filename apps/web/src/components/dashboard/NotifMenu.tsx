@@ -5,8 +5,10 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Award, Zap, Shield, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { api, type NotifItem } from '@/lib/api';
 import { Pill } from '@/components/dash';
+import { NotificationDialog } from '@/components/dashboard/NotificationDialog';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/dateUtils';
 
@@ -25,9 +27,14 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
 
 export function NotifMenu({ open, onClose, anchorRef }: Props) {
   const { token } = useAuth();
+  const { settings } = useSettings();
+  const accent = settings?.accentColor || 'rust';
   const navigate = useNavigate();
   const qc = useQueryClient();
   const popRef = useRef<HTMLDivElement>(null);
+  // The full-message dialog. Lives independent of the popover's open state so it
+  // survives the popover closing when a message is opened.
+  const [active, setActive] = useState<NotifItem | null>(null);
   // Persist the tab choice so reopening the menu lands the user back where
   // they were. localStorage is safe here — the value is a 2-letter enum.
   const NOTIF_TAB_STORAGE = 'notif-menu-tab';
@@ -75,18 +82,25 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
     qc.invalidateQueries({ queryKey: ['notifications'] });
   };
 
-  const handleClick = (it: NotifItem) => {
-    if (it.link) {
-      // Absolute URLs (e.g. a cross-subdomain playground link an admin pasted into
-      // a broadcast) must NOT go through the router — navigate() would resolve them
-      // against the current route and mangle them into
-      // `https://codescriet.dev/admin/https:/code.codescriet.dev/...`. Open them as-is.
-      if (/^https?:\/\//i.test(it.link) || it.link.startsWith('//')) {
-        window.open(it.link, '_blank', 'noopener,noreferrer');
-      } else {
-        navigate(it.link);
-      }
+  const openLink = (link: string) => {
+    // Absolute URLs (e.g. a cross-subdomain playground link an admin pasted into
+    // a broadcast) must NOT go through the router — navigate() would resolve them
+    // against the current route and mangle them into
+    // `https://codescriet.dev/admin/https:/code.codescriet.dev/...`. Open them as-is.
+    if (/^https?:\/\//i.test(link) || link.startsWith('//')) {
+      window.open(link, '_blank', 'noopener,noreferrer');
+    } else {
+      navigate(link);
     }
+  };
+
+  const handleClick = (it: NotifItem) => {
+    // Every notification with content opens the detail dialog: the full body renders
+    // as Markdown (clickable links), and its link is offered as an explicit "Open …"
+    // action rather than silently forwarding the user away. A notification with
+    // neither a body nor a link has nothing to show or open — just close the popover.
+    if (!it.body?.trim() && !it.link) { onClose(); return; }
+    setActive(it);
     onClose();
   };
 
@@ -104,9 +118,11 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open, onClose, anchorRef]);
 
-  if (!open) return null;
+  if (!open && !active) return null;
 
   return (
+    <>
+      {open && (
     <div
       ref={popRef}
       data-dashboard="true"
@@ -181,6 +197,15 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
         })}
       </div>
     </div>
+      )}
+
+      <NotificationDialog
+        item={active}
+        accent={accent}
+        onClose={() => setActive(null)}
+        onOpenLink={openLink}
+      />
+    </>
   );
 }
 
