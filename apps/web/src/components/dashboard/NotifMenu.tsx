@@ -95,9 +95,11 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
   };
 
   const handleClick = (it: NotifItem) => {
-    // Every notification opens the detail dialog: the full body renders as Markdown
-    // (clickable links), and its link is offered as an explicit "Open …" action
-    // rather than silently forwarding the user away.
+    // Every notification with content opens the detail dialog: the full body renders
+    // as Markdown (clickable links), and its link is offered as an explicit "Open …"
+    // action rather than silently forwarding the user away. A notification with
+    // neither a body nor a link has nothing to show or open — just close the popover.
+    if (!it.body?.trim() && !it.link) { onClose(); return; }
     setActive(it);
     onClose();
   };

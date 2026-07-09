@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type EventAdminRegistration, type Event as EventT, type EventRegistrationExportFilters, type RegistrationType } from '@/lib/api';
-import type { MessageRegistrantsAudience } from '@/lib/api/event-ops';
+import { EVENT_AUDIENCE_OPTIONS, type MessageRegistrantsAudience } from '@/lib/api/event-ops';
 import { Avatar, DSCard, EmptyState, Field, Pill, SegmentedTabs, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -102,6 +102,7 @@ export default function AdminEventRegistrationDetail() {
   const [fbEmail, setFbEmail] = useState(true);
   const [fbInApp, setFbInApp] = useState(true);
   const [fbSendNow, setFbSendNow] = useState(true);
+  const [fbEnded, setFbEnded] = useState(false);
   const [fbLoading, setFbLoading] = useState(false);
 
   const deleteEventMut = useMutation({
@@ -268,7 +269,8 @@ export default function AdminEventRegistrationDetail() {
     try {
       const res = await api.enableEventFeedbackPoll(eventId, { audience: fbAudience, channels: { email: fbEmail, inApp: fbInApp }, sendNow: fbSendNow }, token);
       if (res.sent) toast.success(`Feedback poll sent · ${res.notified} notified · ${res.emailed} emailed`);
-      else toast.success('Feedback poll created — it will auto-send after the event ends');
+      else if (res.scheduled) toast.success('Feedback poll created — auto-sends to attendees after the event ends');
+      else toast.success('Feedback poll created');
       setFeedbackOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to enable feedback poll');
@@ -326,6 +328,7 @@ export default function AdminEventRegistrationDetail() {
               onClick={() => {
                 const ended = new Date(event.endDate ?? event.startDate).getTime() < Date.now();
                 setFbSendNow(ended);
+                setFbEnded(ended);
                 setFeedbackOpen(true);
               }}
             >
@@ -736,21 +739,21 @@ export default function AdminEventRegistrationDetail() {
           <div className="text-[12.5px] text-[var(--ds-text-3)]">
             Auto-creates a feedback poll (&ldquo;How was {event.title}?&rdquo;) with a 24-hour deadline after the event ends, and sends the link.
           </div>
-          <Field label="Audience">
-            <div className="overflow-x-auto">
-              <SegmentedTabs
-                items={[
-                  { value: 'all', label: 'All' },
-                  { value: 'participants', label: 'Participants' },
-                  { value: 'guests', label: 'Guests' },
-                  { value: 'attended', label: 'Attended' },
-                  { value: 'absent', label: 'Absent' },
-                ]}
-                value={fbAudience}
-                onChange={(v) => setFbAudience(v as MessageRegistrantsAudience)}
-              />
+          {fbSendNow || fbEnded ? (
+            <Field label="Audience">
+              <div className="overflow-x-auto">
+                <SegmentedTabs
+                  items={EVENT_AUDIENCE_OPTIONS}
+                  value={fbAudience}
+                  onChange={(v) => setFbAudience(v as MessageRegistrantsAudience)}
+                />
+              </div>
+            </Field>
+          ) : (
+            <div className="text-[11.5px] text-[var(--ds-text-3)]">
+              Auto-sends to attendees ~2h after the event ends.
             </div>
-          </Field>
+          )}
           <div className="flex flex-col gap-2">
             <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ds-text-2)]">
               <input type="checkbox" checked={fbEmail} onChange={(e) => setFbEmail(e.target.checked)} className="size-4" />

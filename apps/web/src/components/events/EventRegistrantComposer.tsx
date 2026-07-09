@@ -7,13 +7,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import type { MessageRegistrantsAudience } from '@/lib/api/event-ops';
+import { EVENT_AUDIENCE_OPTIONS, type MessageRegistrantsAudience } from '@/lib/api/event-ops';
 import { DSCard, Field, SegmentedTabs, type SegmentedItem } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Markdown } from '@/components/ui/markdown';
+import { MarkdownMessage } from '@/components/dashboard/MarkdownMessage';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -84,14 +84,14 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
   const daySensitive = audience === 'attended' || audience === 'absent';
 
   const audienceItems: SegmentedItem<MessageRegistrantsAudience>[] = useMemo(() => {
-    const absent = stats ? Math.max(stats.participants - stats.attended, 0) : undefined;
-    return [
-      { value: 'all', label: 'All', count: stats?.total },
-      { value: 'participants', label: 'Participants', count: stats?.participants },
-      { value: 'guests', label: 'Guests', count: stats?.guests },
-      { value: 'attended', label: 'Attended', count: stats?.attended },
-      { value: 'absent', label: 'Absent', count: absent },
-    ];
+    const counts: Partial<Record<MessageRegistrantsAudience, number | undefined>> = {
+      all: stats?.total,
+      participants: stats?.participants,
+      guests: stats?.guests,
+      attended: stats?.attended,
+      absent: stats ? Math.max(stats.participants - stats.attended, 0) : undefined,
+    };
+    return EVENT_AUDIENCE_OPTIONS.map((opt) => ({ ...opt, count: counts[opt.value] }));
   }, [stats]);
 
   const estimatedCount = useMemo(() => {
@@ -245,7 +245,7 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
               <span className="text-[12px] font-medium text-[var(--ds-text-2)]">Preview</span>
               <div className="mt-1.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
                 {bodyType === 'markdown' ? (
-                  <Markdown>{body.replace(/\{\{event\}\}/g, eventName)}</Markdown>
+                  <MarkdownMessage>{body.replace(/\{\{event\}\}/g, eventName)}</MarkdownMessage>
                 ) : (
                   <iframe
                     title="HTML preview"

@@ -18,7 +18,15 @@ import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
-import { buildAudienceWhere, fetchEventRecipients, type EventAudience } from '../utils/eventRecipients.js';
+import {
+  buildAudienceWhere,
+  fetchEventRecipients,
+  computeFeedbackDeadline,
+  resolveFeedbackDelivery,
+  EVENT_AUDIENCES,
+  EVENT_RECIPIENT_CAP,
+  type EventAudience,
+} from '../utils/eventRecipients.js';
 import { reconcileEventStatusesSoon, armRegistrationOpenTimer, cancelRegistrationOpenTimer } from '../utils/scheduler.js';
 import { requireUuid } from '../utils/idParams.js';
 import { setPublicCache, setSharedPublicCache } from '../utils/response.js';
@@ -1110,7 +1118,8 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
 // channels are optional per send; audience can be narrowed to participants /
 // guests / attended / absent. Guarded by the event ownership rule (creator or
 // ADMIN/PRESIDENT) like the PUT/DELETE handlers.
-const MESSAGE_MAX_RECIPIENTS = 2000; // free-tier ceiling; sendBulk batches under this
+// Audience enum derived from the single EVENT_AUDIENCES source (shared by both endpoints).
+const eventAudienceEnum = z.enum([...EVENT_AUDIENCES] as [EventAudience, ...EventAudience[]]);
 const messageRegistrantsSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(5000),
@@ -1118,7 +1127,7 @@ const messageRegistrantsSchema = z.object({
   channels: z
     .object({ email: z.boolean().default(false), inApp: z.boolean().default(false) })
     .refine((c) => c.email || c.inApp, { message: 'Select at least one channel' }),
-  audience: z.enum(['all', 'participants', 'guests', 'attended', 'absent']).default('all'),
+  audience: eventAudienceEnum.default('all'),
   dayNumber: z.number().int().min(1).max(10).optional(),
 });
 
@@ -1158,21 +1167,13 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
 
     const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
 
-    const regs = await prisma.eventRegistration.findMany({
-      where: { eventId, ...buildAudienceWhere(audience, effectiveDay) },
-      select: { userId: true, user: { select: { email: true } } },
-      take: MESSAGE_MAX_RECIPIENTS + 1,
-    });
-
-    if (regs.length > MESSAGE_MAX_RECIPIENTS) {
+    const { userIds, emails, count } = await fetchEventRecipients(eventId, audience, effectiveDay);
+    if (count > EVENT_RECIPIENT_CAP) {
       return res.status(400).json({
         success: false,
-        error: { message: `Too many recipients (>${MESSAGE_MAX_RECIPIENTS}). Narrow the audience and try again.` },
+        error: { message: `Too many recipients (>${EVENT_RECIPIENT_CAP}). Narrow the audience and try again.` },
       });
     }
-
-    const userIds = [...new Set(regs.map((r) => r.userId))];
-    const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
 
     if (userIds.length === 0) {
       return res.json({ success: true, data: { notified: 0, emailed: 0, audience }, message: 'No matching registrants' });
@@ -1195,6 +1196,11 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
     let notified = 0;
     let emailed = 0;
 
+    // {{event}} substituted once for both channels. The bell renders Markdown (not
+    // raw HTML — the renderer escapes it), so an HTML-typed body is flattened to
+    // text for the in-app notification; email keeps the sanitized HTML.
+    const substituted = body.replace(/\{\{event\}\}/g, event.title);
+
     // In-app bell — CUSTOM audience targeting the registrant userIds.
     if (channels.inApp) {
       await broadcastNotification({
@@ -1204,7 +1210,7 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
         category: 'event',
         icon: 'calendar',
         title: subject,
-        body,
+        body: bodyType === 'html' ? sanitizeText(substituted) : substituted,
         link: `/events/${event.slug}`,
         refEntity: 'event',
         refEntityId: event.slug,
@@ -1214,9 +1220,8 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
     }
 
     // Email — branded shell via adminMail + sendBulk (Brevo messageVersions,
-    // one message per recipient, no address leakage). {{event}} substituted once.
+    // one message per recipient, no address leakage).
     if (channels.email && mailingEnabled && emails.length > 0) {
-      const substituted = body.replace(/\{\{event\}\}/g, event.title);
       const safeBody = bodyType === 'html' ? sanitizeHtml(substituted) : substituted;
       const tpl = EmailTemplates.adminMail(subject, safeBody, bodyType);
       const sent = await emailService.sendBulk(emails, tpl.subject, tpl.html, tpl.text, 'admin_mail');
@@ -1253,7 +1258,7 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
 // Idempotent: an existing published poll already linked to the event is reused.
 const FEEDBACK_OPTIONS = ['Excellent', 'Good', 'Average', 'Poor'];
 const feedbackPollSchema = z.object({
-  audience: z.enum(['all', 'participants', 'guests', 'attended', 'absent']).default('attended'),
+  audience: eventAudienceEnum.default('attended'),
   dayNumber: z.number().int().min(1).max(10).optional(),
   channels: z
     .object({ email: z.boolean().default(true), inApp: z.boolean().default(true) })
@@ -1292,13 +1297,27 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
       return res.status(403).json({ success: false, error: { message: 'You can only enable feedback for events you created' } });
     }
 
-    // Deadline = 24h after the event ends; if that instant is already past
-    // (enabling long after the event), give recipients a fresh 24h window.
+    const now = new Date();
     const base = event.endDate ?? event.startDate;
-    const nowMs = Date.now();
-    let deadlineMs = base.getTime() + 24 * 60 * 60 * 1000;
-    if (deadlineMs <= nowMs) deadlineMs = nowMs + 24 * 60 * 60 * 1000;
-    const deadline = new Date(deadlineMs);
+    const deadline = computeFeedbackDeadline(base, now);
+    // Deferring an already-ended event would risk a silent no-op (the S-10
+    // scheduler only fires within a window AFTER the event), so send now instead.
+    const { shouldSendNow, willSchedule } = resolveFeedbackDelivery(sendNow, base, now);
+
+    // When sending now, resolve recipients + enforce the cap BEFORE creating the
+    // poll, so an over-cap request fails cleanly without leaving a poll behind.
+    let recipients: { userIds: string[]; emails: string[] } | null = null;
+    if (shouldSendNow) {
+      const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
+      const r = await fetchEventRecipients(eventId, audience, effectiveDay);
+      if (r.count > EVENT_RECIPIENT_CAP) {
+        return res.status(400).json({
+          success: false,
+          error: { message: `Too many recipients (>${EVENT_RECIPIENT_CAP}). Narrow the audience and try again.` },
+        });
+      }
+      recipients = { userIds: r.userIds, emails: r.emails };
+    }
 
     // Idempotent: reuse an existing published poll linked to this event.
     let poll = await prisma.poll.findFirst({
@@ -1331,20 +1350,17 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
 
     let notified = 0;
     let emailed = 0;
-    let sent = false;
 
-    if (sendNow) {
-      // Reserve so the scheduler never double-sends this event's feedback.
+    if (shouldSendNow && recipients) {
+      // Reserve so the S-10 scheduler never double-sends this event's feedback.
       if (event.feedbackSentAt === null) {
         await prisma.event.updateMany({ where: { id: eventId, feedbackSentAt: null }, data: { feedbackSentAt: new Date() } }).catch(() => undefined);
       }
-      const effectiveDay = event.eventDays > 1 ? dayNumber : undefined;
-      const { userIds, emails } = await fetchEventRecipients(eventId, audience as EventAudience, effectiveDay);
-      if (channels.inApp && userIds.length > 0) {
+      if (channels.inApp && recipients.userIds.length > 0) {
         await broadcastNotification({
           source: 'AUTO_EVENT',
           audience: 'CUSTOM',
-          audienceUserIds: userIds,
+          audienceUserIds: recipients.userIds,
           category: 'event',
           icon: 'calendar',
           title: `How was ${event.title}?`,
@@ -1354,20 +1370,20 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
           refEntityId: eventId,
           createdById: authUser.id,
         });
-        notified = userIds.length;
+        notified = recipients.userIds.length;
       }
-      if (channels.email && emails.length > 0) {
-        const ok = await emailService.sendEventFeedback(emails, event.title, poll.slug);
-        if (ok) emailed = emails.length;
+      if (channels.email && recipients.emails.length > 0) {
+        const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
+        if (ok) emailed = recipients.emails.length;
       }
-      sent = true;
     }
 
     await auditLog(authUser.id, 'EVENT_FEEDBACK_POLL_ENABLED', 'event', eventId, {
       pollId: poll.id,
       pollSlug: poll.slug,
       created,
-      sentNow: sendNow,
+      sentNow: shouldSendNow,
+      scheduled: willSchedule,
       audience,
       notified,
       emailed,
@@ -1378,7 +1394,8 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
       data: {
         poll: { id: poll.id, slug: poll.slug, question: poll.question, deadline: poll.deadline, shareUrl: `${process.env.FRONTEND_URL || ''}/polls/${poll.slug}` },
         created,
-        sent,
+        sent: shouldSendNow,
+        scheduled: willSchedule,
         notified,
         emailed,
         audience,

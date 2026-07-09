@@ -7,6 +7,14 @@ import { API_URL, request } from './_internal';
 
 export type MessageRegistrantsAudience = 'all' | 'participants' | 'guests' | 'attended' | 'absent';
 
+export const EVENT_AUDIENCE_OPTIONS: { value: MessageRegistrantsAudience; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'participants', label: 'Participants' },
+  { value: 'guests', label: 'Guests' },
+  { value: 'attended', label: 'Attended' },
+  { value: 'absent', label: 'Absent' },
+];
+
 export interface MessageRegistrantsPayload {
   subject: string;
   body: string;
@@ -27,6 +35,7 @@ export interface EnableFeedbackPollResult {
   poll: { id: string; slug: string; question: string; deadline: string | null; shareUrl: string };
   created: boolean;
   sent: boolean;
+  scheduled: boolean;
   notified: number;
   emailed: number;
   audience: MessageRegistrantsAudience;
