@@ -36,6 +36,8 @@ export interface EnableFeedbackPollResult {
   created: boolean;
   sent: boolean;
   scheduled: boolean;
+  /** True when the feedback send was skipped because it had already been sent (idempotent). */
+  alreadySent?: boolean;
   notified: number;
   emailed: number;
   audience: MessageRegistrantsAudience;

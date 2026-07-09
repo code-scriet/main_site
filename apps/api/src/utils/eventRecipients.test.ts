@@ -10,6 +10,7 @@ import {
   buildAudienceWhere,
   computeFeedbackDeadline,
   resolveFeedbackDelivery,
+  resolveEffectiveDay,
   EVENT_AUDIENCES,
   EVENT_RECIPIENT_CAP,
 } from './eventRecipients.js';
@@ -114,4 +115,20 @@ test('EVENT_AUDIENCES lists exactly the five supported audiences', () => {
 test('EVENT_RECIPIENT_CAP is a positive number', () => {
   assert.equal(typeof EVENT_RECIPIENT_CAP, 'number');
   assert.ok(EVENT_RECIPIENT_CAP > 0);
+});
+
+test('resolveEffectiveDay: single-day event ignores dayNumber', () => {
+  assert.equal(resolveEffectiveDay(1, 1), undefined);
+});
+
+test('resolveEffectiveDay: multi-day event with in-range dayNumber passes it through', () => {
+  assert.equal(resolveEffectiveDay(3, 2), 2);
+});
+
+test('resolveEffectiveDay: multi-day event with out-of-range dayNumber falls back to undefined', () => {
+  assert.equal(resolveEffectiveDay(3, 5), undefined);
+});
+
+test('resolveEffectiveDay: multi-day event with no dayNumber → undefined', () => {
+  assert.equal(resolveEffectiveDay(3, undefined), undefined);
 });

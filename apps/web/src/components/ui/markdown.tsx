@@ -21,7 +21,22 @@ const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const SAFE_IMAGE_PROTOCOLS = new Set(['http:', 'https:']);
 const URL_BASE = 'https://codescriet.dev';
 
-function sanitizeUrl(raw: string | undefined, allowedProtocols: Set<string>): string | null {
+/**
+ * http(s)/mailto/tel + site-relative only; everything else is neutered.
+ *
+ * Security note: a value starting with `/` is only trusted as site-relative
+ * when it's a SINGLE leading slash. A browser normalizes backslashes to
+ * forward slashes and treats a leading `//` as protocol-relative (it adopts
+ * the current page's scheme but an attacker-controlled host) — so
+ * `/\evil.com`, `/\/evil.com`, and `\\evil.com` all collapse to `//evil.com`
+ * and would otherwise sail through as a "safe" relative href, rendering as a
+ * same-tab link with no external-link cue. Reject any value containing a
+ * backslash, or beginning with `//`, outright rather than treating it as
+ * relative or letting it resolve via `new URL()` (whose base-relative
+ * resolution treats a `//`-prefixed reference as protocol-relative too, so it
+ * would come back as an "allowed" https URL instead of being rejected).
+ */
+export function sanitizeUrl(raw: string | undefined, allowedProtocols: Set<string>): string | null {
   if (!raw) {
     return null;
   }
@@ -31,8 +46,16 @@ function sanitizeUrl(raw: string | undefined, allowedProtocols: Set<string>): st
     return null;
   }
 
-  if (value.startsWith('#') || value.startsWith('/')) {
+  if (value.startsWith('#')) {
     return value;
+  }
+
+  if (value.includes('\\')) {
+    return null;
+  }
+
+  if (value.startsWith('/')) {
+    return value.startsWith('//') ? null : value;
   }
 
   try {
@@ -46,11 +69,11 @@ function sanitizeUrl(raw: string | undefined, allowedProtocols: Set<string>): st
   }
 }
 
-function getSafeLinkHref(raw: string | undefined): string | null {
+export function getSafeLinkHref(raw: string | undefined): string | null {
   return sanitizeUrl(raw, SAFE_LINK_PROTOCOLS);
 }
 
-function getSafeImageSrc(raw: string | undefined): string | null {
+export function getSafeImageSrc(raw: string | undefined): string | null {
   return sanitizeUrl(raw, SAFE_IMAGE_PROTOCOLS);
 }
 

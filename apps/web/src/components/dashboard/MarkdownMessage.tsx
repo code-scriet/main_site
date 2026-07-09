@@ -7,22 +7,7 @@
 
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
-
-/** http(s)/mailto/tel + site-relative only; everything else is neutered. */
-export function safeHref(raw?: string): string | null {
-  if (!raw) return null;
-  const v = raw.trim();
-  if (!v) return null;
-  if (v.startsWith('/') || v.startsWith('#')) return v;
-  try {
-    const u = new URL(v, 'https://codescriet.dev');
-    return SAFE_PROTOCOLS.has(u.protocol) ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
+import { getSafeLinkHref, getSafeImageSrc } from '@/components/ui/markdown';
 
 export function isExternal(link: string): boolean {
   return /^https?:\/\//i.test(link) || link.startsWith('//');
@@ -31,7 +16,7 @@ export function isExternal(link: string): boolean {
 const mdComponents: Components = {
   p: ({ children }) => <p className="mb-2.5 text-[13.5px] leading-relaxed text-[var(--ds-text-2)] last:mb-0">{children}</p>,
   a: ({ href, children }) => {
-    const h = safeHref(href);
+    const h = getSafeLinkHref(href);
     if (!h) return <span>{children}</span>;
     const ext = isExternal(h);
     return (
@@ -43,6 +28,18 @@ const mdComponents: Components = {
       >
         {children}
       </a>
+    );
+  },
+  // react-markdown would otherwise render an unvetted `<img src>` for
+  // `![](url)`, which fires an auto GET the moment the message is opened
+  // (tracking pixel / IP leak) and could point at a `javascript:`/`data:`
+  // src. Vet it the same way ui/markdown.tsx does and render nothing for a
+  // disallowed src.
+  img: ({ src, alt }) => {
+    const safeSrc = getSafeImageSrc(src);
+    if (!safeSrc) return null;
+    return (
+      <img src={safeSrc} alt={alt || ''} className="my-2 h-auto max-w-full rounded-[6px]" loading="lazy" />
     );
   },
   strong: ({ children }) => <strong className="font-semibold text-[var(--ds-text-1)]">{children}</strong>,

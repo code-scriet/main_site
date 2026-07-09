@@ -268,7 +268,8 @@ export default function AdminEventRegistrationDetail() {
     setFbLoading(true);
     try {
       const res = await api.enableEventFeedbackPoll(eventId, { audience: fbAudience, channels: { email: fbEmail, inApp: fbInApp }, sendNow: fbSendNow }, token);
-      if (res.sent) toast.success(`Feedback poll sent · ${res.notified} notified · ${res.emailed} emailed`);
+      if (res.alreadySent) toast.success('Feedback was already sent for this event');
+      else if (res.sent) toast.success(`Feedback poll sent · ${res.notified} notified · ${res.emailed} emailed`);
       else if (res.scheduled) toast.success('Feedback poll created — auto-sends to attendees after the event ends');
       else toast.success('Feedback poll created');
       setFeedbackOpen(false);
@@ -777,7 +778,7 @@ export default function AdminEventRegistrationDetail() {
               <Button
                 size="sm"
                 onClick={handleEnableFeedbackPoll}
-                disabled={fbLoading || (fbSendNow && !fbEmail && !fbInApp)}
+                disabled={fbLoading || ((fbSendNow || fbEnded) && !fbEmail && !fbInApp)}
               >
                 {fbLoading ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
                 {fbSendNow ? 'Enable & send' : 'Enable'}
