@@ -1351,7 +1351,11 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
         // A concurrent first-enable can race this same slug into existence
         // between the findFirst above and this create (unique constraint on
         // Poll.slug). Reuse the poll the other request just created instead of
-        // surfacing a 500.
+        // surfacing a 500. NOTE: this recovers only a SAME-event race — a
+        // cross-event slug collision (a different event's poll grabbing this
+        // slug via a TOCTOU against generateUniqueSlug) leaves `poll` null and
+        // deliberately falls through to the `if (!poll) throw` guard below (a
+        // safe 500, not silent corruption).
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           poll = await prisma.poll.findFirst({
             where: { eventId, isPublished: true },
@@ -1373,6 +1377,9 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
     let notified = 0;
     let emailed = 0;
     let alreadySent = false;
+    // Set when we won the reservation but delivered nothing (crash or a total
+    // no-op): we roll the reservation back so the one-shot isn't burned.
+    let released = false;
 
     if (shouldSendNow) {
       // Atomic reserve-then-send: only the request whose updateMany actually
@@ -1385,35 +1392,56 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
         where: { id: eventId, feedbackSentAt: null },
         data: { feedbackSentAt: new Date() },
       });
+      // Release the reservation we just won (set feedbackSentAt back to null) so
+      // a failed/empty send doesn't permanently mark the event as sent — a retry
+      // or the S-10 scheduler can then still deliver it.
+      const releaseReservation = () =>
+        prisma.event
+          .updateMany({ where: { id: eventId }, data: { feedbackSentAt: null } })
+          .catch((err) => logger.warn('feedbackSentAt release failed', { eventId, error: err instanceof Error ? err.message : String(err) }));
+
       if (reserved.count === 0) {
         alreadySent = true;
       } else if (recipients) {
-        if (channels.inApp && recipients.userIds.length > 0) {
-          await broadcastNotification({
-            source: 'AUTO_EVENT',
-            audience: 'CUSTOM',
-            audienceUserIds: recipients.userIds,
-            category: 'event',
-            icon: 'calendar',
-            title: `How was ${event.title}?`,
-            body: 'Share quick feedback — it only takes a minute.',
-            link: `/polls/${poll.slug}`,
-            refEntity: 'event-feedback',
-            refEntityId: eventId,
-            createdById: authUser.id,
-          });
-          notified = recipients.userIds.length;
+        try {
+          if (channels.inApp && recipients.userIds.length > 0) {
+            await broadcastNotification({
+              source: 'AUTO_EVENT',
+              audience: 'CUSTOM',
+              audienceUserIds: recipients.userIds,
+              category: 'event',
+              icon: 'calendar',
+              title: `How was ${event.title}?`,
+              body: 'Share quick feedback — it only takes a minute.',
+              link: `/polls/${poll.slug}`,
+              refEntity: 'event-feedback',
+              refEntityId: eventId,
+              createdById: authUser.id,
+            });
+            notified = recipients.userIds.length;
+          }
+          if (channels.email && recipients.emails.length > 0) {
+            const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
+            if (ok) emailed = recipients.emails.length;
+          }
+        } catch (sendErr) {
+          // A transient failure (e.g. the notification-feed write) must not burn
+          // the one-shot: roll the reservation back, then surface the error.
+          await releaseReservation();
+          throw sendErr;
         }
-        if (channels.email && recipients.emails.length > 0) {
-          const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
-          if (ok) emailed = recipients.emails.length;
+        // Reservation won but nothing actually went out (mailing disabled/soft
+        // failure, or an empty audience): release it so it can be retried.
+        if (notified === 0 && emailed === 0) {
+          await releaseReservation();
+          released = true;
         }
       }
     }
 
-    // `sent` reflects an actual delivery: shouldSendNow AND the reservation was
-    // won (not already sent by a prior call/the scheduler).
-    const sent = shouldSendNow && !alreadySent;
+    // `sent` reflects an actual delivery: shouldSendNow, the reservation was won
+    // (not already sent), and it wasn't released for delivering nothing.
+    const sent = shouldSendNow && !alreadySent && !released;
 
     await auditLog(authUser.id, 'EVENT_FEEDBACK_POLL_ENABLED', 'event', eventId, {
       pollId: poll.id,
