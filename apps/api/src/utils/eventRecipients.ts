@@ -86,7 +86,17 @@ export function computeFeedbackDeadline(base: Date, now: Date): Date {
  * chosen audience. Deferring (`sendNow=false`) hands off to the S-10 scheduler —
  * but that only fires within a window AFTER the event ends, so deferring an
  * already-ended event would risk a silent no-op. In that case we send now
- * instead (honouring the chosen audience). Pure — unit-tested.
+ * instead (honouring the chosen audience).
+ *
+ * `ended` is intentionally computed the same way the S-10 scheduler
+ * (`sendEventFeedbackRequests`) windows its own send: `base = endDate ?? startDate`,
+ * and the event counts as "ended" once `base <= now` — so an event with no
+ * `endDate` is considered ended as soon as its `startDate` passes. This is a
+ * deliberate mirror, not an oversight: if the two definitions of "ended" ever
+ * disagreed, `sendNow=false` on such an event could defer to a scheduler window
+ * that this function believes is already open (or vice versa), silently
+ * dropping the send. Keep this in lockstep with the scheduler's window if that
+ * ever changes. Pure — unit-tested.
  */
 export function resolveFeedbackDelivery(
   sendNow: boolean,
@@ -96,4 +106,15 @@ export function resolveFeedbackDelivery(
   const ended = base.getTime() <= now.getTime();
   const shouldSendNow = sendNow || ended;
   return { shouldSendNow, willSchedule: !shouldSendNow };
+}
+
+/**
+ * Only honour `dayNumber` when it's a real day of a multi-day event; an
+ * out-of-range or single-day value falls back to overall attendance (`undefined`)
+ * rather than silently matching zero registrants. Shared by the message-registrants
+ * and feedback-poll handlers so the "which day counts" rule can't drift between them.
+ * Pure — unit-tested.
+ */
+export function resolveEffectiveDay(eventDays: number, dayNumber?: number): number | undefined {
+  return eventDays > 1 && dayNumber && dayNumber <= eventDays ? dayNumber : undefined;
 }

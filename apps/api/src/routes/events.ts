@@ -23,6 +23,7 @@ import {
   fetchEventRecipients,
   computeFeedbackDeadline,
   resolveFeedbackDelivery,
+  resolveEffectiveDay,
   EVENT_AUDIENCES,
   EVENT_RECIPIENT_CAP,
   type EventAudience,
@@ -1047,14 +1048,7 @@ eventsRouter.get('/:id/registrations/stats', authMiddleware, requireRole('CORE_M
       prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.PARTICIPANT } }),
       prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.GUEST } }),
       prisma.eventRegistration.count({
-        where: {
-          eventId,
-          registrationType: RegistrationType.PARTICIPANT,
-          OR: [
-            { attended: true },
-            { dayAttendances: { some: { attended: true } } },
-          ],
-        },
+        where: { eventId, ...buildAudienceWhere('attended') },
       }),
     ]);
     res.json({ success: true, data: { total, participants, guests, attended } });
@@ -1122,7 +1116,10 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
 const eventAudienceEnum = z.enum([...EVENT_AUDIENCES] as [EventAudience, ...EventAudience[]]);
 const messageRegistrantsSchema = z.object({
   subject: z.string().trim().min(1).max(200),
-  body: z.string().trim().min(1).max(5000),
+  // Kept in lockstep with broadcastNotification's 2000-char bell body slice
+  // (utils/notifications.ts) so the in-app bell and email never diverge on
+  // long messages.
+  body: z.string().trim().min(1).max(2000),
   bodyType: z.enum(['markdown', 'html']).default('markdown'),
   channels: z
     .object({ email: z.boolean().default(false), inApp: z.boolean().default(false) })
@@ -1165,10 +1162,7 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
       });
     }
 
-    // Only honour dayNumber when it's a real day of a multi-day event; an
-    // out-of-range value falls back to overall attendance rather than silently
-    // matching zero registrants.
-    const effectiveDay = event.eventDays > 1 && dayNumber && dayNumber <= event.eventDays ? dayNumber : undefined;
+    const effectiveDay = resolveEffectiveDay(event.eventDays, dayNumber);
 
     const { userIds, emails, count } = await fetchEventRecipients(eventId, audience, effectiveDay);
     if (count > EVENT_RECIPIENT_CAP) {
@@ -1202,7 +1196,9 @@ eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_
     // {{event}} substituted once for both channels. The bell renders Markdown (not
     // raw HTML — the renderer escapes it), so an HTML-typed body is flattened to
     // text for the in-app notification; email keeps the sanitized HTML.
-    const substituted = body.replace(/\{\{event\}\}/g, event.title);
+    // Function replacement (not a string) — a string replacement treats
+    // $&/$$/$`/$'/$n in event.title as special patterns and would corrupt output.
+    const substituted = body.replace(/\{\{event\}\}/g, () => event.title);
 
     // In-app bell — CUSTOM audience targeting the registrant userIds.
     if (channels.inApp) {
@@ -1265,6 +1261,7 @@ const feedbackPollSchema = z.object({
   dayNumber: z.number().int().min(1).max(10).optional(),
   channels: z
     .object({ email: z.boolean().default(true), inApp: z.boolean().default(true) })
+    .refine((c) => c.email || c.inApp, { message: 'Select at least one channel' })
     .default({ email: true, inApp: true }),
   sendNow: z.boolean().default(true),
 });
@@ -1311,10 +1308,7 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
     // poll, so an over-cap request fails cleanly without leaving a poll behind.
     let recipients: { userIds: string[]; emails: string[] } | null = null;
     if (shouldSendNow) {
-      // Only honour dayNumber when it's a real day of a multi-day event; an
-    // out-of-range value falls back to overall attendance rather than silently
-    // matching zero registrants.
-    const effectiveDay = event.eventDays > 1 && dayNumber && dayNumber <= event.eventDays ? dayNumber : undefined;
+      const effectiveDay = resolveEffectiveDay(event.eventDays, dayNumber);
       const r = await fetchEventRecipients(eventId, audience, effectiveDay);
       if (r.count > EVENT_RECIPIENT_CAP) {
         return res.status(400).json({
@@ -1335,65 +1329,130 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
     if (!poll) {
       const question = `How was ${event.title}?`;
       const slug = await generateEventPollSlug(question);
-      poll = await prisma.poll.create({
-        data: {
-          question: sanitizeText(question).trim(),
-          description: 'Your feedback helps us improve future events — it only takes a minute. Add a comment below too.',
-          slug,
-          allowMultipleChoices: false,
-          allowVoteChange: true,
-          isAnonymous: true,
-          deadline,
-          isPublished: true,
-          eventId,
-          createdBy: authUser.id,
-          options: { create: FEEDBACK_OPTIONS.map((text, index) => ({ text, sortOrder: index })) },
-        },
-        select: { id: true, slug: true, question: true, deadline: true },
-      });
-      created = true;
+      try {
+        poll = await prisma.poll.create({
+          data: {
+            question: sanitizeText(question).trim(),
+            description: 'Your feedback helps us improve future events — it only takes a minute. Add a comment below too.',
+            slug,
+            allowMultipleChoices: false,
+            allowVoteChange: true,
+            isAnonymous: true,
+            deadline,
+            isPublished: true,
+            eventId,
+            createdBy: authUser.id,
+            options: { create: FEEDBACK_OPTIONS.map((text, index) => ({ text, sortOrder: index })) },
+          },
+          select: { id: true, slug: true, question: true, deadline: true },
+        });
+        created = true;
+      } catch (e) {
+        // A concurrent first-enable can race this same slug into existence
+        // between the findFirst above and this create (unique constraint on
+        // Poll.slug). Reuse the poll the other request just created instead of
+        // surfacing a 500. NOTE: this recovers only a SAME-event race — a
+        // cross-event slug collision (a different event's poll grabbing this
+        // slug via a TOCTOU against generateUniqueSlug) leaves `poll` null and
+        // deliberately falls through to the `if (!poll) throw` guard below (a
+        // safe 500, not silent corruption).
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          poll = await prisma.poll.findFirst({
+            where: { eventId, isPublished: true },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, slug: true, question: true, deadline: true },
+          });
+        } else {
+          throw e;
+        }
+      }
+    }
+    if (!poll) {
+      // Unreachable in practice (create succeeded, or the P2002 recovery found
+      // the concurrently-created poll) — guards against silently continuing
+      // with no poll if it somehow isn't.
+      throw new Error(`Failed to resolve feedback poll for event ${eventId}`);
     }
 
     let notified = 0;
     let emailed = 0;
+    let alreadySent = false;
+    // Set when we won the reservation but delivered nothing (crash or a total
+    // no-op): we roll the reservation back so the one-shot isn't burned.
+    let released = false;
 
-    if (shouldSendNow && recipients) {
-      // Reserve so the S-10 scheduler never double-sends this event's feedback.
-      // Best-effort: if the write hiccups we still deliver, but log it since a
-      // missed reservation could let the scheduler re-send later.
-      if (event.feedbackSentAt === null) {
-        await prisma.event
-          .updateMany({ where: { id: eventId, feedbackSentAt: null }, data: { feedbackSentAt: new Date() } })
-          .catch((e) => logger.warn('feedbackSentAt reservation failed (scheduler may re-send)', { eventId, error: e instanceof Error ? e.message : String(e) }));
-      }
-      if (channels.inApp && recipients.userIds.length > 0) {
-        await broadcastNotification({
-          source: 'AUTO_EVENT',
-          audience: 'CUSTOM',
-          audienceUserIds: recipients.userIds,
-          category: 'event',
-          icon: 'calendar',
-          title: `How was ${event.title}?`,
-          body: 'Share quick feedback — it only takes a minute.',
-          link: `/polls/${poll.slug}`,
-          refEntity: 'event-feedback',
-          refEntityId: eventId,
-          createdById: authUser.id,
-        });
-        notified = recipients.userIds.length;
-      }
-      if (channels.email && recipients.emails.length > 0) {
-        const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
-        if (ok) emailed = recipients.emails.length;
+    if (shouldSendNow) {
+      // Atomic reserve-then-send: only the request whose updateMany actually
+      // flips feedbackSentAt from null to non-null goes on to deliver. A
+      // concurrent duplicate call (or a race with the S-10 scheduler, which
+      // reserves the same column) finds `count === 0` and skips — this is what
+      // makes the send happen at most once, replacing the old best-effort
+      // check-then-write that left a window for a double-send.
+      const reserved = await prisma.event.updateMany({
+        where: { id: eventId, feedbackSentAt: null },
+        data: { feedbackSentAt: new Date() },
+      });
+      // Release the reservation we just won (set feedbackSentAt back to null) so
+      // a failed/empty send doesn't permanently mark the event as sent — a retry
+      // or the S-10 scheduler can then still deliver it.
+      const releaseReservation = () =>
+        prisma.event
+          .updateMany({ where: { id: eventId }, data: { feedbackSentAt: null } })
+          .catch((err) => logger.warn('feedbackSentAt release failed', { eventId, error: err instanceof Error ? err.message : String(err) }));
+
+      if (reserved.count === 0) {
+        alreadySent = true;
+      } else if (recipients) {
+        try {
+          if (channels.inApp && recipients.userIds.length > 0) {
+            await broadcastNotification({
+              source: 'AUTO_EVENT',
+              audience: 'CUSTOM',
+              audienceUserIds: recipients.userIds,
+              category: 'event',
+              icon: 'calendar',
+              title: `How was ${event.title}?`,
+              body: 'Share quick feedback — it only takes a minute.',
+              link: `/polls/${poll.slug}`,
+              refEntity: 'event-feedback',
+              refEntityId: eventId,
+              createdById: authUser.id,
+            });
+            notified = recipients.userIds.length;
+          }
+          if (channels.email && recipients.emails.length > 0) {
+            const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
+            if (ok) emailed = recipients.emails.length;
+          }
+        } catch (sendErr) {
+          // A transient failure (e.g. the notification-feed write) must not burn
+          // the one-shot: roll the reservation back, then surface the error.
+          // BUT only if nothing was delivered yet — the bell is sent before the
+          // email, so if it already went out we KEEP the reservation, otherwise a
+          // retry would re-send the bell (duplicate) after the email step threw.
+          if (notified === 0 && emailed === 0) await releaseReservation();
+          throw sendErr;
+        }
+        // Reservation won but nothing actually went out (mailing disabled/soft
+        // failure, or an empty audience): release it so it can be retried.
+        if (notified === 0 && emailed === 0) {
+          await releaseReservation();
+          released = true;
+        }
       }
     }
+
+    // `sent` reflects an actual delivery: shouldSendNow, the reservation was won
+    // (not already sent), and it wasn't released for delivering nothing.
+    const sent = shouldSendNow && !alreadySent && !released;
 
     await auditLog(authUser.id, 'EVENT_FEEDBACK_POLL_ENABLED', 'event', eventId, {
       pollId: poll.id,
       pollSlug: poll.slug,
       created,
-      sentNow: shouldSendNow,
+      sentNow: sent,
       scheduled: willSchedule,
+      alreadySent,
       audience,
       notified,
       emailed,
@@ -1404,8 +1463,9 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
       data: {
         poll: { id: poll.id, slug: poll.slug, question: poll.question, deadline: poll.deadline, shareUrl: `${process.env.FRONTEND_URL || ''}/polls/${poll.slug}` },
         created,
-        sent: shouldSendNow,
+        sent,
         scheduled: willSchedule,
+        alreadySent,
         notified,
         emailed,
         audience,

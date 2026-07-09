@@ -82,34 +82,39 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
 
   const isMultiDay = eventDays > 1;
   const daySensitive = audience === 'attended' || audience === 'absent';
+  // attended/absent are the only audiences whose actual send is scoped to a
+  // single day (via dayNumber); the `stats` fetch is day-agnostic (all-days
+  // totals), so for those two on a multi-day event the number would be
+  // misleading next to a specific-day send.
+  const isDaySensitiveAudience = (v: MessageRegistrantsAudience) => v === 'attended' || v === 'absent';
 
-  const audienceItems: SegmentedItem<MessageRegistrantsAudience>[] = useMemo(() => {
-    const counts: Partial<Record<MessageRegistrantsAudience, number | undefined>> = {
+  // Single source of truth for per-audience counts — audienceItems and
+  // estimatedCount both derive from this so they can't desync.
+  const counts = useMemo<Partial<Record<MessageRegistrantsAudience, number | undefined>>>(
+    () => ({
       all: stats?.total,
       participants: stats?.participants,
       guests: stats?.guests,
       attended: stats?.attended,
       absent: stats ? Math.max(stats.participants - stats.attended, 0) : undefined,
-    };
-    return EVENT_AUDIENCE_OPTIONS.map((opt) => ({ ...opt, count: counts[opt.value] }));
-  }, [stats]);
+    }),
+    [stats],
+  );
+
+  const audienceItems: SegmentedItem<MessageRegistrantsAudience>[] = useMemo(
+    () =>
+      EVENT_AUDIENCE_OPTIONS.map((opt) => ({
+        ...opt,
+        count: isMultiDay && isDaySensitiveAudience(opt.value) ? undefined : counts[opt.value],
+      })),
+    [counts, isMultiDay],
+  );
 
   const estimatedCount = useMemo(() => {
     if (!stats) return null;
-    switch (audience) {
-      case 'participants':
-        return stats.participants;
-      case 'guests':
-        return stats.guests;
-      case 'attended':
-        return stats.attended;
-      case 'absent':
-        return Math.max(stats.participants - stats.attended, 0);
-      case 'all':
-      default:
-        return stats.total;
-    }
-  }, [stats, audience]);
+    if (isMultiDay && daySensitive) return null;
+    return counts[audience] ?? null;
+  }, [stats, counts, audience, isMultiDay, daySensitive]);
 
   const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const canSend =
@@ -162,7 +167,16 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
           </div>
 
           {/* Audience */}
-          <Field label="Audience" hint={estimatedCount != null ? `~${estimatedCount} recipient${estimatedCount === 1 ? '' : 's'}` : undefined}>
+          <Field
+            label="Audience"
+            hint={
+              estimatedCount != null
+                ? `~${estimatedCount} recipient${estimatedCount === 1 ? '' : 's'}`
+                : isMultiDay && daySensitive
+                  ? 'Recipient count depends on the selected day'
+                  : undefined
+            }
+          >
             <div className="overflow-x-auto">
               <SegmentedTabs items={audienceItems} value={audience} onChange={setAudience} />
             </div>
@@ -235,7 +249,7 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
               onChange={(e) => setBody(e.target.value)}
               placeholder={bodyType === 'markdown' ? 'Write your message… (Markdown supported)' : '<p>Your HTML message…</p>'}
               rows={7}
-              maxLength={5000}
+              maxLength={2000}
             />
           </Field>
 
@@ -245,13 +259,13 @@ export default function EventRegistrantComposer({ eventId, eventName, eventDays 
               <span className="text-[12px] font-medium text-[var(--ds-text-2)]">Preview</span>
               <div className="mt-1.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
                 {bodyType === 'markdown' ? (
-                  <MarkdownMessage>{body.replace(/\{\{event\}\}/g, eventName)}</MarkdownMessage>
+                  <MarkdownMessage>{body.replace(/\{\{event\}\}/g, () => eventName)}</MarkdownMessage>
                 ) : (
                   <iframe
                     title="HTML preview"
                     sandbox=""
                     className="h-40 w-full rounded border-0 bg-white"
-                    srcDoc={body.replace(/\{\{event\}\}/g, eventName)}
+                    srcDoc={body.replace(/\{\{event\}\}/g, () => eventName)}
                   />
                 )}
               </div>
