@@ -1427,7 +1427,10 @@ eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER
         } catch (sendErr) {
           // A transient failure (e.g. the notification-feed write) must not burn
           // the one-shot: roll the reservation back, then surface the error.
-          await releaseReservation();
+          // BUT only if nothing was delivered yet — the bell is sent before the
+          // email, so if it already went out we KEEP the reservation, otherwise a
+          // retry would re-send the bell (duplicate) after the email step threw.
+          if (notified === 0 && emailed === 0) await releaseReservation();
           throw sendErr;
         }
         // Reservation won but nothing actually went out (mailing disabled/soft
