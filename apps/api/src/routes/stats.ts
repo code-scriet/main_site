@@ -464,10 +464,16 @@ const computeDashboardStats = async () => {
       prisma.playgroundDailyUsage.count({
         where: { usageDate: new Date(now.toISOString().slice(0, 10)) },
       }),
-      // Top contributor this month — most QOTD submissions in the month
-      prisma.qOTDSubmission.groupBy({
+      // Top contributor this month — most QOTDs SOLVED in the month.
+      // Modern QOTDs are problem-backed: the legacy `qOTDSubmission` table is only
+      // ever written by POST /api/qotd/:id/submit, which 400s for problem-backed
+      // QOTDs — so counting it here left this tile permanently empty ("—") in prod.
+      // The real solve lives in ProblemSubmission (contextType='QOTD', one ACCEPTED
+      // row per user per QOTD via the [userId,problemId,contextType,contextKey]
+      // unique key), the same source the QOTD leaderboards use.
+      prisma.problemSubmission.groupBy({
         by: ['userId'],
-        where: { timestamp: { gte: startOfMonth } },
+        where: { contextType: 'QOTD', verdict: 'ACCEPTED', submittedAt: { gte: startOfMonth } },
         _count: { userId: true },
         orderBy: { _count: { userId: 'desc' } },
         take: 1,

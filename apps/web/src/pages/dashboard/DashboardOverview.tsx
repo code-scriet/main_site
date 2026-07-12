@@ -1128,24 +1128,27 @@ function AdminStatStrip({
     playgroundActiveToday: num(raw.playgroundActiveToday),
   };
   const fmt = (n: number) => n.toLocaleString();
-  const tiles: Array<{ l: string; v: string; d?: string | null; tone?: 'success' | 'danger' | 'neutral' }> = [
-    { l: 'Total users', v: fmt(i.totalUsers), d: i.usersDelta >= 0 ? `+${i.usersDelta} wow` : `${i.usersDelta} wow`, tone: i.usersDelta >= 0 ? 'success' : 'danger' },
-    { l: 'Active events', v: `${i.activeEvents}`, d: i.upcomingEvents > 0 ? `${i.upcomingEvents} upcoming` : null, tone: 'neutral' },
-    { l: 'Pending invites', v: fmt(i.pendingInvitationsCount), d: null },
-    { l: 'Certs this month', v: fmt(i.certificatesThisMonth), d: null },
-    { l: 'Live scans · 1h', v: fmt(i.liveScansLastHour), d: i.liveScansLastHour > 0 ? 'live' : null, tone: 'neutral' },
-    { l: 'Quiz sessions · 7d', v: fmt(i.quizSessionsLast7d), d: null },
-    { l: 'Reg → attended', v: `${pct(i.attendedThisWeek, i.registrationsThisWeek)}%`, d: `${i.attendedThisWeek}/${i.registrationsThisWeek}`, tone: 'neutral' },
-    { l: 'Avg streak', v: `${i.averageStreak}`, d: `max ${i.longestStreakOverall}`, tone: 'neutral' },
-    { l: 'AC rate · 7d', v: `${i.acRatePct}%`, d: `${fmt(i.submissionsThisWeek)} subs`, tone: 'neutral' },
+  // `help` is a one-line description surfaced as a hover tooltip so each terse
+  // tile (windows like ·1h / ·7d, ratios like Reg → attended) is self-explaining.
+  const tiles: Array<{ l: string; v: string; d?: string | null; tone?: 'success' | 'danger' | 'neutral'; help: string }> = [
+    { l: 'Total users', v: fmt(i.totalUsers), d: i.usersDelta >= 0 ? `+${i.usersDelta} wow` : `${i.usersDelta} wow`, tone: i.usersDelta >= 0 ? 'success' : 'danger', help: 'All registered accounts. The delta is new sign-ups this week vs. last week (week-over-week).' },
+    { l: 'Active events', v: `${i.activeEvents}`, d: i.upcomingEvents > 0 ? `${i.upcomingEvents} upcoming` : null, tone: 'neutral', help: 'Events currently ONGOING. “upcoming” counts events that have not started yet.' },
+    { l: 'Pending invites', v: fmt(i.pendingInvitationsCount), d: null, help: 'Guest / speaker / judge invitations that are still awaiting a response.' },
+    { l: 'Certs this month', v: fmt(i.certificatesThisMonth), d: null, help: 'Certificates issued since the 1st of this calendar month (revoked ones excluded).' },
+    { l: 'Live scans · 1h', v: fmt(i.liveScansLastHour), d: i.liveScansLastHour > 0 ? 'live' : null, tone: 'neutral', help: 'Attendance QR check-ins in the last 60 minutes (participants only — guests excluded).' },
+    { l: 'Quiz sessions · 7d', v: fmt(i.quizSessionsLast7d), d: null, help: 'Live quizzes run (active or finished) in the last 7 days.' },
+    { l: 'Reg → attended', v: `${pct(i.attendedThisWeek, i.registrationsThisWeek)}%`, d: `${i.attendedThisWeek}/${i.registrationsThisWeek}`, tone: 'neutral', help: 'This week’s attendance conversion: of people who registered in the last 7 days, how many were marked attended. Shown as attended / registered.' },
+    { l: 'Avg streak', v: `${i.averageStreak}`, d: `max ${i.longestStreakOverall}`, tone: 'neutral', help: 'Average current QOTD solving streak across all users. “max” is the single longest current streak.' },
+    { l: 'AC rate · 7d', v: `${i.acRatePct}%`, d: `${fmt(i.submissionsThisWeek)} subs`, tone: 'neutral', help: 'Accepted-verdict rate across all problem submissions in the last 7 days. “subs” is the total submission count over that window.' },
     {
       l: 'Top contributor',
       v: i.topContributor?.name?.split(' ')[0] ?? '—',
       d: i.topContributor ? `${i.topContributor.count} QOTDs` : null,
       tone: 'neutral',
+      help: 'The user who has solved the most QOTDs (accepted) so far this calendar month. Shows “—” when no one has solved a QOTD yet this month.',
     },
-    { l: 'Network pending', v: fmt(i.networkPending), d: null },
-    { l: 'Playground cap', v: `${i.playgroundPressurePct}%`, d: `${i.playgroundAtCap}/${i.playgroundActiveToday}`, tone: i.playgroundPressurePct > 70 ? 'danger' : 'neutral' },
+    { l: 'Network pending', v: fmt(i.networkPending), d: null, help: 'Network profiles awaiting admin verification.' },
+    { l: 'Playground cap', v: `${i.playgroundPressurePct}%`, d: `${i.playgroundAtCap}/${i.playgroundActiveToday}`, tone: i.playgroundPressurePct > 70 ? 'danger' : 'neutral', help: 'Daily-quota pressure: of users who ran code in the playground today, the share that hit their daily limit. Shown as at-cap / active-today.' },
   ];
   return (
     <Section eyebrow="Admin" title="Today at a glance">
@@ -1153,8 +1156,9 @@ function AdminStatStrip({
         {tiles.map((s, idx) => (
           <div
             key={idx}
+            title={s.help}
             className={cn(
-              'min-w-0',
+              'min-w-0 cursor-help',
               idx % 6 !== 0 && 'lg:border-l lg:border-[var(--border-subtle)] lg:pl-5',
             )}
           >
