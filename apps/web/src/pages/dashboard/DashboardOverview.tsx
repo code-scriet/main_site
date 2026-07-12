@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Zap, Calendar, Trophy, Terminal, Inbox, Briefcase,
   ChevronRight, ArrowRight, Flame, Check, Bookmark, Activity, TrendingUp,
-  Circle, User,
+  Circle, User, Info,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -1162,7 +1162,10 @@ function AdminStatStrip({
               idx % 6 !== 0 && 'lg:border-l lg:border-[var(--border-subtle)] lg:pl-5',
             )}
           >
-            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">{s.l}</div>
+            <div className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">
+              {s.l}
+              <Info size={10} aria-hidden className="opacity-40 shrink-0 transition-opacity group-hover:opacity-70" />
+            </div>
             <div className="flex items-baseline gap-2 mt-1.5">
               <span className="text-[22px] font-semibold tabular-nums leading-none text-[var(--ds-text-1)]">{s.v}</span>
               {s.d && (
