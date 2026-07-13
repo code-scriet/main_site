@@ -62,6 +62,7 @@ import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishSche
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
+import { resolveRateLimitKey, resolveAuthRateLimitKey, isUserRateLimitKey } from './utils/rateLimitKey.js';
 
 // Environment is loaded by ./config/loadEnv.js (imported first, above) so the
 // Prisma client sees DATABASE_URL at construction time.
@@ -322,28 +323,49 @@ if (process.env.LOG_IP_DIAGNOSTICS === 'true') {
 }
 
 // Rate limiting - General API
-// S2: all IP-keyed limiters share getClientIp() (CF-Connecting-IP when the
-// peer is a Cloudflare range, else Express's trust-proxy resolution) so the
-// HTTP and socket layers agree about what "the client IP" is.
+// NAT-safe keying (contest capacity): requests with a VALID access token are
+// bucketed per-user; only anonymous traffic shares the IP bucket. Without
+// this, 120-200 students behind one campus NAT share a single 500/15min
+// bucket (~33 req/min for the whole hall) and a contest dies at the front
+// door. Bucket-minting by token rotation is impossible — resolveRateLimitKey
+// only grants a user bucket after HMAC signature verification; junk tokens
+// stay pinned to the IP. IP resolution still goes through getClientIp() (S2)
+// so the HTTP and socket layers agree about what "the client IP" is.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // limit each IP to 500 requests per windowMs
+  // Per-user budget is sized for the contest arena's polling fallback
+  // (status + leaderboard + clarifications + proctor heartbeat ≈ 15-20/min
+  // when the socket relay is down). The anonymous IP bucket is wider than the
+  // old 500 because it is now shared ONLY by unauthenticated traffic — e.g. a
+  // NAT'd hall bootstrapping sign-ins — not by every request from campus.
+  max: (req) => (isUserRateLimitKey(resolveRateLimitKey(req)) ? 800 : 2000),
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => getClientIp(req),
+  keyGenerator: (req) => resolveRateLimitKey(req),
 });
 app.use('/api', limiter);
 
-// Stricter rate limiting for auth endpoints (50 vs the general 500 per window)
+// Stricter rate limiting for auth endpoints. Keying (NAT-safe, see
+// utils/rateLimitKey.ts): verified sessions per-user (covers /auth/me),
+// anonymous credential posts per (IP, email) — so a 200-student login storm
+// from one campus NAT works, while brute-forcing any SINGLE account from one
+// IP is capped tighter than the old shared bucket. Spray attacks across many
+// emails from one IP remain bounded by the general limiter's IP bucket.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 50 auth attempts per 15 minutes
+  // (skipSuccessfulRequests: only FAILED attempts count toward these.)
+  // per-user 300 · per-(IP,email) 15 failed tries per account · plain-IP 50
+  // (OAuth redirects/exchange-code carry no email; keeps the legacy headroom).
+  max: (req) => {
+    if (isUserRateLimitKey(resolveRateLimitKey(req))) return 300;
+    return typeof (req.body as { email?: unknown } | undefined)?.email === 'string' ? 15 : 50;
+  },
   message: { error: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
-  keyGenerator: (req) => getClientIp(req),
+  keyGenerator: (req) => resolveAuthRateLimitKey(req),
 });
 
 // Passport setup

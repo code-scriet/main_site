@@ -11,6 +11,7 @@ import { prisma, withRetry } from '../lib/prisma.js';
 import { type AuthUser } from '../middleware/auth.js';
 import { hasPermission } from '../middleware/role.js';
 import { runJudge, type JudgeResult } from './codeJudge.js';
+import { isJudgeLaneSaturated, type JudgeLane } from './executionRouting.js';
 import { consumeDailyQuota, refundDailyQuota, formatUsageDate, getIstDateKey } from './dailyLimit.js';
 import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
@@ -575,6 +576,21 @@ function calculateScore(
   };
 }
 
+// Fast-fail admission: when the judge's queue for a lane is already past its
+// cap, reject BEFORE consuming the student's attempt/quota. Piling more waiters
+// onto the semaphore only grows latency for everyone, and an eventual
+// JUDGE_ERROR on a submit would land in the admin review queue as noise —
+// there's nothing to review when the code never ran.
+function assertJudgeHasCapacity(lane: JudgeLane): void {
+  if (isJudgeLaneSaturated(lane)) {
+    throw new ProblemHttpError(
+      503,
+      'The judge is at full capacity right now — your attempt was not counted. Please try again in about a minute.',
+      'JUDGE_BUSY',
+    );
+  }
+}
+
 export async function runProblemTests(params: RunProblemParams): Promise<ProblemRunResult> {
   // PRACTICE is bucketed by IST day — stamp the key server-side so a client whose
   // clock straddles the IST midnight boundary can't send a key the server rejects
@@ -600,6 +616,7 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
     throw new ProblemHttpError(403, 'Your account has been blocked from the playground.', 'FORBIDDEN');
   }
 
+  assertJudgeHasCapacity('testrun');
   const daily = await consumeDailyQuota(params.user.id, 1);
   if (!daily.allowed) {
     throw new ProblemHttpError(429, 'Daily playground limit reached', 'RATE_LIMITED');
@@ -663,6 +680,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
 
   const { viaReopen } = await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });
 
+  assertJudgeHasCapacity('submit');
   const capReservation = await reserveSubmitCap(problem, params.user.id, params.contextType, params.contextKey);
   const daily = await consumeDailyQuota(params.user.id, 1);
   if (!daily.allowed) {
