@@ -239,17 +239,30 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
 // round / 403 not registered) as the old inline queries, but 120–250 students polling
 // every 15s now share ONE round query per 10s window and one registration query per
 // user per 30s instead of two fresh queries per poll each. Every round/problem write
-// below calls invalidateRoundCache; the registration staleness tradeoff (positive-only,
-// 30s, submits still gated live in problemsCore.validateProblemContext) is documented
-// in roundCache.ts.
-async function ensureRegisteredForRound(roundId: string, userId: string) {
+// below calls invalidateRoundCache.
+//
+// `liveRegistration`: endpoints that PERSIST contest artifacts (IMAGE_TARGET
+// /save + /submit) pass true to re-check the registration fresh — the 30s
+// positive-registration staleness window applies ONLY to read-only polls and the
+// harmless heartbeat. (DSA submits never come through here; they're gated live in
+// problemsCore.validateProblemContext.) Tradeoff details in roundCache.ts.
+async function ensureRegisteredForRound(
+  roundId: string,
+  userId: string,
+  opts: { liveRegistration?: boolean } = {},
+) {
   const round = await getCachedRound(roundId);
 
   if (!round) {
     throw { status: 404, code: ErrorCodes.NOT_FOUND, message: 'Competition round not found' };
   }
 
-  const registered = await isRegisteredCached(userId, round.eventId);
+  const registered = opts.liveRegistration
+    ? (await prisma.eventRegistration.findUnique({
+        where: { userId_eventId: { userId, eventId: round.eventId } },
+        select: { id: true },
+      })) !== null
+    : await isRegisteredCached(userId, round.eventId);
 
   if (!registered) {
     throw {
@@ -1471,7 +1484,8 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists an autosave — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     const isLockedFallback = round.status === 'LOCKED';
     if ((round.status !== 'ACTIVE' && !isLockedFallback) || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is not accepting saves right now.');
@@ -1617,7 +1631,8 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists the final submission — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     if (round.status !== 'ACTIVE' || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is no longer accepting submissions.');
     }

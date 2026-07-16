@@ -1,4 +1,4 @@
-import { Server as SocketIOServer, type ServerOptions } from 'socket.io';
+import { Server as SocketIOServer, type ServerOptions, type Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { createRequire } from 'node:module';
 import { logger } from './logger.js';
@@ -124,7 +124,7 @@ function isConnectionAllowed(key: string): boolean {
 }
 
 /** Resolve the NAT-safe bucket key for a handshake (per-user or per-IP). */
-function socketConnectKey(socket: Parameters<typeof getSocketClientIp>[0]): string {
+function socketConnectKey(socket: Socket): string {
   return resolveSocketConnectKey({
     ip: getSocketClientIp(socket),
     auth: socket.handshake.auth,

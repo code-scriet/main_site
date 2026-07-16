@@ -22,12 +22,14 @@
 //     never wrongly blocked.
 //
 // Staleness tradeoff (deliberate): a registration deleted mid-contest (team
-// dissolve, invitation revoke) can still read as valid for up to 30s on these
-// READ-ONLY contest endpoints. That is acceptable — the authoritative submit
-// gate lives in problemsCore.validateProblemContext (which re-checks live and is
-// untouched here), so a de-registered user can view/poll for up to 30s but
-// cannot submit. The round cache never masks a write either: every state
-// transition (start/lock/judging/finish/extend/edit/delete/publish-as-practice)
+// dissolve, invitation revoke) can still read as valid for up to 30s — but ONLY
+// on read-only polls and the heartbeat. Every endpoint that PERSISTS a contest
+// artifact re-checks fresh: IMAGE_TARGET /save + /submit pass
+// `liveRegistration: true` to ensureRegisteredForRound (bypassing this cache),
+// and DSA submits are gated live in problemsCore.validateProblemContext. So a
+// de-registered user can view/poll for up to 30s but cannot persist anything.
+// The round cache never masks a write either: every state transition
+// (start/lock/judging/finish/extend/edit/delete/publish-as-practice)
 // invalidates it, so a stale ACTIVE round is at most 10s behind and the actual
 // lock is enforced by the server-side timer regardless.
 
@@ -209,5 +211,6 @@ const prodCache = createRoundCache(
 
 export const getCachedRound = prodCache.getCachedRound;
 export const invalidateRoundCache = prodCache.invalidateRoundCache;
-export const invalidateAllRoundCache = prodCache.invalidateAllRoundCache;
 export const isRegisteredCached = prodCache.isRegisteredCached;
+// (invalidateAllRoundCache stays on the factory interface for tests; no prod
+// caller exists — boot always starts with a cold cache in a fresh process.)
