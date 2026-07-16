@@ -22,6 +22,11 @@ interface Props {
 
 const PROVIDERS: Array<{ id: string; label: string; blurb: string }> = [
   {
+    id: 'balanced',
+    label: 'Balanced (both)',
+    blurb: 'Recommended for contests. Splits every run/submit across Wandbox AND godbolt (least-loaded first), roughly doubling judge throughput. A failing host is avoided automatically; JavaScript always runs on Wandbox.',
+  },
+  {
     id: 'wandbox',
     label: 'Wandbox',
     blurb: 'Primary historically. Runs all four languages (Python, JavaScript, C++, Java). Falls back to godbolt on an outage — except JavaScript, which godbolt cannot run.',
@@ -59,11 +64,11 @@ export function CodeExecutionCard({ settings, onChange, lastSavedAt, onSaved }: 
   return (
     <SettingsCard
       title="Code execution provider"
-      description="Primary upstream for the problems judge, contest DSA, QOTD, and the playground. The chosen provider is tried first everywhere; the other engages automatically on an infra outage."
+      description="Upstream for the problems judge, contest DSA, QOTD, and the playground. Balanced spreads load across both hosts; a fixed provider is tried first everywhere with the other engaging automatically on an infra outage."
       icon={Cpu}
       lastSavedAt={lastSavedAt}
     >
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         {PROVIDERS.map((p) => {
           const active = current === p.id;
           return (
@@ -93,7 +98,7 @@ export function CodeExecutionCard({ settings, onChange, lastSavedAt, onSaved }: 
         })}
       </div>
       <p className="text-[11.5px] text-[var(--ds-text-3)]">
-        Note: godbolt has no JavaScript/Node runtime, so JS always runs on Wandbox. The worker change must be deployed to Cloudflare for godbolt to take effect.
+        Note: godbolt has no JavaScript/Node runtime, so JS always runs on Wandbox. Balanced needs no Cloudflare redeploy — the API resolves a concrete host per request before calling the worker.
       </p>
     </SettingsCard>
   );

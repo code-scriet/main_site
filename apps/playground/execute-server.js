@@ -278,7 +278,7 @@ const playgroundSettingsCache = {
 // OWN TTL/query — kept separate from the daily-limit read so a missing column on
 // a not-yet-migrated DB can't knock the daily limit back to its default.
 const DEFAULT_CODE_PROVIDER = 'wandbox';
-const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt'];
+const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt', 'balanced'];
 const providerCache = {
   expiresAt: 0,
   provider: DEFAULT_CODE_PROVIDER,
@@ -286,6 +286,55 @@ const providerCache = {
 
 function normalizeCodeProvider(value) {
   return VALID_CODE_PROVIDERS.includes(value) ? value : DEFAULT_CODE_PROVIDER;
+}
+
+// Balanced-mode routing (a miniature of apps/api/src/utils/executionRouting.ts):
+// each execution resolves the setting to ONE concrete provider — 'balanced'
+// alternates between healthy hosts, a host that infra-fails is deprioritized
+// for a short cooldown, and JS/TS always go to Wandbox (godbolt compiles but
+// cannot EXECUTE them). O(1) memory; the CF Worker's per-request fallback chain
+// remains the safety net underneath.
+const PROVIDER_COOLDOWN_MS = 45_000;
+const providerCooldownUntil = { wandbox: 0, godbolt: 0 };
+let providerRoundRobin = 0;
+
+function providerCanRunLanguage(provider, language) {
+  if (provider === 'godbolt') return language !== 'javascript' && language !== 'typescript';
+  return true;
+}
+
+function resolveExecutionProvider(setting, language) {
+  const candidates = ['wandbox', 'godbolt'].filter((p) => providerCanRunLanguage(p, language));
+  if (candidates.length === 1) return candidates[0];
+  const now = Date.now();
+  const healthy = (p) => providerCooldownUntil[p] <= now;
+
+  if (setting !== 'balanced') {
+    // Fixed primary: pre-route to the other host only while the primary is
+    // cooling down and the other is healthy (same net effect as the worker's
+    // fallback, without paying the upstream stall first).
+    const other = setting === 'wandbox' ? 'godbolt' : 'wandbox';
+    if (!healthy(setting) && healthy(other)) return other;
+    return setting;
+  }
+
+  const pool = candidates.filter(healthy);
+  const pick = pool.length > 0 ? pool : candidates;
+  if (pick.length === 1) return pick[0];
+  providerRoundRobin ^= 1;
+  return pick[providerRoundRobin];
+}
+
+function reportProviderInfraFailure(provider) {
+  if (provider in providerCooldownUntil) {
+    providerCooldownUntil[provider] = Date.now() + PROVIDER_COOLDOWN_MS;
+  }
+}
+
+function reportProviderSuccess(provider) {
+  if (provider in providerCooldownUntil) {
+    providerCooldownUntil[provider] = 0;
+  }
 }
 
 const userExecCounts = new Map(); // in-memory fallback cache
@@ -798,7 +847,8 @@ async function executeCode(language, code, stdin) {
   const timeout = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT);
 
   try {
-    const provider = await getCodeExecutionProvider();
+    const providerSetting = await getCodeExecutionProvider();
+    const provider = resolveExecutionProvider(providerSetting, language);
     const body = {
       compiler: config.compiler,
       code,
@@ -839,6 +889,14 @@ async function executeCode(language, code, stdin) {
       throw new Error(sanitizeError(result.error));
     }
 
+    // Router health accounting: a redeployed worker reports which provider
+    // actually served (`judge_provider`) and whether the requested one
+    // infra-failed en route (`judge_fallback`). Absent fields (older worker)
+    // degrade to requested-provider-only accounting.
+    if (result.judge_fallback === true) {
+      reportProviderInfraFailure(provider);
+    }
+
     // Parse Wandbox response fields:
     //   program_output  = stdout from the program
     //   program_error   = stderr from the program (may contain warnings, not always errors)
@@ -857,10 +915,21 @@ async function executeCode(language, code, stdin) {
     // Throw a tagged retryable error so the caller can retry / show a friendly
     // message instead of presenting it as a spurious compilation error.
     if (!stdout && isInfraFailure(compilerErr || stderr)) {
+      // Every provider in the worker's chain failed for this request — cool
+      // down both the one we asked for and the one that answered (if known),
+      // so the retry (and other users) steer around them briefly.
+      reportProviderInfraFailure(provider);
+      if (result.judge_provider && result.judge_provider !== provider) {
+        reportProviderInfraFailure(result.judge_provider);
+      }
       const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
       infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
       throw infraErr;
     }
+
+    // Any non-infra outcome (clean run, warnings, a real compile error) came
+    // from a healthy host.
+    reportProviderSuccess(result.judge_provider || provider);
 
     // Determine if this is truly an error:
     // - If we have stdout (program_output), the program ran successfully.

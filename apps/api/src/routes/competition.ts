@@ -18,6 +18,7 @@ import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../compet
 import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
 import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
 import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
+import { getCachedRound, invalidateRoundCache, isRegisteredCached } from '../competition/roundCache.js';
 import { getProblemTests } from '../utils/problemsCore.js';
 import { findPlagiarismPairs, type PlagiarismInput, type PlagiarismPair } from '../competition/plagiarism.js';
 
@@ -232,67 +233,38 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
   };
 }
 
-async function ensureRegisteredForRound(roundId: string, userId: string) {
-  const round = await prisma.competitionRound.findUnique({
-    where: { id: roundId },
-    select: {
-      id: true,
-      eventId: true,
-      title: true,
-      description: true,
-      duration: true,
-      status: true,
-      roundType: true,
-      startedAt: true,
-      lockedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      targetImageUrl: true,
-      participantScope: true,
-      leadersOnly: true,
-      allowedTeamIds: true,
-      proctored: true,
-      penaltyModel: true,
-      leaderboardFreezeMinutes: true,
-      finalWeight: true,
-      problems: {
-        orderBy: { displayOrder: 'asc' },
-        include: {
-          problem: {
-            select: {
-              id: true,
-              slug: true,
-              title: true,
-              difficulty: true,
-              allowedLanguages: true,
-              isPublished: true,
-            },
-          },
-        },
-      },
-      event: {
-        select: {
-          teamRegistration: true,
-        },
-      },
-    },
-  });
+// Cached round + registration gate for the contest polling endpoints (GET /:roundId,
+// proctor heartbeat/me, save/submit/my-submission, violation). The round select shape
+// lives in roundCache.ts (roundCacheSelect) — same returned object, same throws (404
+// round / 403 not registered) as the old inline queries, but 120–250 students polling
+// every 15s now share ONE round query per 10s window and one registration query per
+// user per 30s instead of two fresh queries per poll each. Every round/problem write
+// below calls invalidateRoundCache.
+//
+// `liveRegistration`: endpoints that PERSIST contest artifacts (IMAGE_TARGET
+// /save + /submit) pass true to re-check the registration fresh — the 30s
+// positive-registration staleness window applies ONLY to read-only polls and the
+// harmless heartbeat. (DSA submits never come through here; they're gated live in
+// problemsCore.validateProblemContext.) Tradeoff details in roundCache.ts.
+async function ensureRegisteredForRound(
+  roundId: string,
+  userId: string,
+  opts: { liveRegistration?: boolean } = {},
+) {
+  const round = await getCachedRound(roundId);
 
   if (!round) {
     throw { status: 404, code: ErrorCodes.NOT_FOUND, message: 'Competition round not found' };
   }
 
-  const registration = await prisma.eventRegistration.findUnique({
-    where: {
-      userId_eventId: {
-        userId,
-        eventId: round.eventId,
-      },
-    },
-    select: { id: true },
-  });
+  const registered = opts.liveRegistration
+    ? (await prisma.eventRegistration.findUnique({
+        where: { userId_eventId: { userId, eventId: round.eventId } },
+        select: { id: true },
+      })) !== null
+    : await isRegisteredCached(userId, round.eventId);
 
-  if (!registration) {
+  if (!registered) {
     throw {
       status: 403,
       code: ErrorCodes.FORBIDDEN,
@@ -421,6 +393,11 @@ async function autoLockRound(roundId: string): Promise<boolean> {
     const timer = activeTimers.get(roundId);
     if (timer) clearTimeout(timer);
     activeTimers.delete(roundId);
+
+    // The status just changed (or another path changed it moments ago) — drop the cached
+    // round so the very next poll sees LOCKED. Unconditional: invalidation is a cheap
+    // Map.delete and GET /:roundId re-reads through this cache right after auto-locking.
+    invalidateRoundCache(roundId);
 
     // ACTIVE → LOCKED: leave contest priority mode + push the status so arenas flip to
     // the read-only/locked view without a reload. Only on a real transition (not a race
@@ -1286,6 +1263,8 @@ competitionRouter.patch('/:roundId/start', authMiddleware, requireRole('ADMIN'),
       // DRAFT — either way there's nothing for this request to start.
       return ApiResponse.badRequest(res, 'Only draft rounds can be started');
     }
+    // DRAFT → ACTIVE just landed: drop the cached round so contestants' next poll sees it.
+    invalidateRoundCache(round.id);
     const updated = await prisma.competitionRound.findUniqueOrThrow({ where: { id: round.id } });
 
     scheduleRoundLock(round.id, round.duration);
@@ -1371,6 +1350,7 @@ competitionRouter.patch('/:roundId/judging', authMiddleware, requireRole('ADMIN'
       where: { id: round.id },
       data: { status: 'JUDGING' },
     });
+    invalidateRoundCache(round.id);
     emitRoundStatus(round.id, 'JUDGING');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_JUDGING', 'CompetitionRound', round.id, {
@@ -1421,6 +1401,7 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
           data: { status: 'FINISHED' },
         });
       });
+      invalidateRoundCache(round.id);
       emitRoundStatus(round.id, 'FINISHED');
       await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
         title: round.title,
@@ -1464,6 +1445,7 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
         data: { status: 'FINISHED' },
       });
     });
+    invalidateRoundCache(round.id);
     emitRoundStatus(round.id, 'FINISHED');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
@@ -1502,7 +1484,8 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists an autosave — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     const isLockedFallback = round.status === 'LOCKED';
     if ((round.status !== 'ACTIVE' && !isLockedFallback) || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is not accepting saves right now.');
@@ -1648,7 +1631,8 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists the final submission — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     if (round.status !== 'ACTIVE' || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is no longer accepting submissions.');
     }
@@ -2467,6 +2451,9 @@ competitionRouter.post('/:roundId/publish-as-practice', authMiddleware, requireR
       where: { id: { in: round.problems.map((link) => link.problemId) } },
       data: { isPublished: true },
     });
+    // problem.isPublished rides inside the cached round's problems join — invalidate
+    // so the round view reflects the publish without waiting out the TTL.
+    invalidateRoundCache(round.id);
     await auditLog(admin.id, 'COMPETITION_DSA_PUBLISHED_AS_PRACTICE', 'CompetitionRound', round.id, {
       problemIds: round.problems.map((link) => link.problemId),
     });
@@ -2672,6 +2659,8 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
       }
       return saved;
     });
+    // The round row and/or its linked problems just changed — next poll re-reads fresh.
+    invalidateRoundCache(round.id);
 
     await auditLog(admin.id, 'COMPETITION_ROUND_UPDATED', 'CompetitionRound', updated.id, {
       eventId: updated.eventId,
@@ -2715,6 +2704,7 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
     // Deleting a live round leaves priority mode + drops its in-memory realtime state.
     if (round.status === 'ACTIVE') decActiveRounds();
     evictContestRoom(round.id);
+    invalidateRoundCache(round.id);
 
     await auditLog(admin.id, 'COMPETITION_ROUND_DELETED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -2925,6 +2915,9 @@ competitionRouter.patch('/:roundId/extend', authMiddleware, requireRole('ADMIN')
 
     const newDuration = round.duration + parsed.data.addMinutes * 60;
     await prisma.competitionRound.update({ where: { id: round.id }, data: { duration: newDuration } });
+    // Duration is part of the cached round row — drop it so the very next status
+    // poll returns the extended remainingSeconds (arenas poll every 15s).
+    invalidateRoundCache(round.id);
     const remaining = Math.max(1, computeRemainingSeconds({ duration: newDuration, startedAt: round.startedAt }, Date.now()) ?? 1);
     scheduleRoundLock(round.id, remaining);
     emitRoundUpdate(round.id);
@@ -2966,14 +2959,13 @@ competitionRouter.get('/:roundId/leaderboard', authMiddleware, async (req: Reque
   try {
     const user = getAuthUser(req)!;
     const isAdmin = hasPermission(user.role, 'ADMIN');
-    const gate = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { eventId: true } });
+    // Same gate as before (round exists + non-admin must be registered), but served from
+    // the shared round/registration caches — this endpoint is polled by every contestant.
+    const gate = await getCachedRound(req.params.roundId);
     if (!gate) return ApiResponse.notFound(res, 'Round not found');
     if (!isAdmin) {
-      const reg = await prisma.eventRegistration.findUnique({
-        where: { userId_eventId: { userId: user.id, eventId: gate.eventId } },
-        select: { id: true },
-      });
-      if (!reg) return ApiResponse.forbidden(res, 'Register for this event to view the leaderboard.');
+      const registered = await isRegisteredCached(user.id, gate.eventId);
+      if (!registered) return ApiResponse.forbidden(res, 'Register for this event to view the leaderboard.');
     }
     const lb = await computeContestLeaderboard(req.params.roundId, 100);
     if (!lb) return ApiResponse.notFound(res, 'Round not found');

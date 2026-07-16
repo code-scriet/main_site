@@ -801,7 +801,9 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     }
 
     if (key === 'codeExecutionProvider') {
-      const allowedProviders = ['wandbox', 'godbolt'];
+      // 'balanced' splits judge/playground traffic across BOTH upstreams per
+      // request (least-loaded, JS pinned to Wandbox) — utils/executionRouting.ts.
+      const allowedProviders = ['wandbox', 'godbolt', 'balanced'];
       if (typeof value !== 'string' || !allowedProviders.includes(value)) {
         return res.status(400).json({
           success: false,

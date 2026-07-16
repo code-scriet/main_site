@@ -96,6 +96,13 @@ function normalizeProvider(p) {
   return VALID_PROVIDERS.includes(p) ? p : 'wandbox';
 }
 
+// `provider: 'balanced'` — split requests across both upstreams. The API
+// normally resolves balanced to a concrete provider itself (so this also works
+// with older worker deploys); this worker-side split covers callers that
+// forward the setting raw. Per-isolate round-robin is fine: isolates are
+// recycled constantly and the goal is an approximate 50/50, not a fair queue.
+let balancedRr = 0;
+
 // Strip ANSI color escapes — godbolt forces `-fdiagnostics-color=always`, so its
 // compiler diagnostics arrive wrapped in escape codes; Wandbox returns plain text.
 function stripAnsi(text) {
@@ -162,9 +169,11 @@ function isInfraFailure(result, provider) {
 
 // Run on Wandbox. Returns the parsed (already Wandbox-shaped) JSON, or null on a
 // transport/HTTP error / timeout / abort so the chain can fall through.
-async function runViaWandbox(body, clientSignal) {
+// `env.WANDBOX_URL` / `env.GODBOLT_BASE` override the upstream endpoints —
+// used by the local stress harness (simulated upstreams) and usable for mirrors.
+async function runViaWandbox(body, clientSignal, env) {
   try {
-    const resp = await fetchUpstream(WANDBOX_URL, {
+    const resp = await fetchUpstream((env && env.WANDBOX_URL) || WANDBOX_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -186,7 +195,7 @@ async function runViaWandbox(body, clientSignal) {
 
 // Run the same program on godbolt (Compiler Explorer) and shape the response to
 // Wandbox field names. Returns null if godbolt can't run this language or errors.
-async function runViaGodbolt(body, clientSignal) {
+async function runViaGodbolt(body, clientSignal, env) {
   const gc = godboltCompiler(body.compiler);
   if (!gc) return null;
 
@@ -208,7 +217,7 @@ async function runViaGodbolt(body, clientSignal) {
   };
 
   try {
-    const resp = await fetchUpstream(`${GODBOLT_BASE}/${gc.id}/compile`, {
+    const resp = await fetchUpstream(`${(env && env.GODBOLT_BASE) || GODBOLT_BASE}/${gc.id}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload),
@@ -246,24 +255,52 @@ async function runViaGodbolt(body, clientSignal) {
 
 const PROVIDER_RUNNERS = { wandbox: runViaWandbox, godbolt: runViaGodbolt };
 
-// Try the admin-chosen provider first, then the other, skipping any provider that
+// Provider order for a request: the requested provider first, the other as
+// fallback. `balanced` alternates which one leads (approximate 50/50 split),
+// always constrained to providers that can run the language.
+function providerOrderFor(requested, compiler) {
+  if (requested === 'balanced') {
+    const candidates = VALID_PROVIDERS.filter((p) => providerCanRun(p, compiler));
+    if (candidates.length > 1) {
+      balancedRr ^= 1;
+      return balancedRr === 0 ? candidates : [...candidates].reverse();
+    }
+    if (candidates.length === 1) return candidates;
+  }
+  const primary = normalizeProvider(requested);
+  return primary === 'godbolt' ? ['godbolt', 'wandbox'] : ['wandbox', 'godbolt'];
+}
+
+// Try the resolved primary first, then the other, skipping any provider that
 // can't run the language. Returns the first NON-infra result (a real compile or
 // runtime error from the chosen provider is a valid answer — don't retry it on
 // the other host). If every provider infra-fails, return the last result so the
 // caller degrades gracefully (codeJudge surfaces a friendly "try again").
-async function runWithChain(body, clientSignal) {
-  const primary = normalizeProvider(body.provider);
-  const order = primary === 'godbolt' ? ['godbolt', 'wandbox'] : ['wandbox', 'godbolt'];
+// The returned result carries `judge_provider` (which upstream produced it) and
+// `judge_fallback` (true when the lead provider infra-failed and another host
+// answered) — the API's router uses these for health steering; they never reach
+// end users (both callers rebuild their own response objects).
+async function runWithChain(body, clientSignal, env) {
+  // Only providers that can actually run this language participate — so a
+  // capability skip (e.g. godbolt requested for JS) is never mistaken for an
+  // infra fallback in the judge_fallback flag below.
+  const order = providerOrderFor(body.provider, body.compiler)
+    .filter((provider) => providerCanRun(provider, body.compiler));
 
   let lastResult = null;
+  let lastProvider = null;
   for (const provider of order) {
-    if (!providerCanRun(provider, body.compiler)) continue;
     // If the caller already gave up, stop — there's no budget left for a fallback.
     if (clientSignal && clientSignal.aborted) break;
-    const result = await PROVIDER_RUNNERS[provider](body, clientSignal);
-    if (!result) continue;            // transport error / timeout / language unsupported
+    const result = await PROVIDER_RUNNERS[provider](body, clientSignal, env);
+    if (!result) continue;            // transport error / timeout / abort
     lastResult = result;
-    if (!isInfraFailure(result, provider)) return result;
+    lastProvider = provider;
+    if (!isInfraFailure(result, provider)) break;
+  }
+  if (lastResult && lastProvider) {
+    lastResult.judge_provider = lastProvider;
+    lastResult.judge_fallback = lastProvider !== order[0];
   }
   return lastResult;
 }
@@ -363,7 +400,7 @@ export default {
       // other on an infra failure). Cloudflare's rotating IP pool handles each
       // upstream request. `runWithChain` returns a Wandbox-shaped result, or null
       // only when every provider had a transport/HTTP error (total outage).
-      const result = await runWithChain(body, request.signal);
+      const result = await runWithChain(body, request.signal, env);
 
       if (!result) {
         return new Response(

@@ -1,9 +1,10 @@
-import { Server as SocketIOServer, type ServerOptions } from 'socket.io';
+import { Server as SocketIOServer, type ServerOptions, type Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { createRequire } from 'node:module';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
 import { getSocketClientIp } from './clientIp.js';
+import { resolveSocketConnectKey } from './socketConnectKey.js';
 import { getInternalApiSecret, getPlaygroundRelayBase } from './internalApi.js';
 
 let io: SocketIOServer | null = null;
@@ -87,7 +88,17 @@ function resolveWsEngine(): ServerOptions['wsEngine'] {
 }
 
 const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
+// Allowance PER BUCKET KEY. The key is now NAT-safe (resolveSocketConnectKey):
+// a verified session gets a `u:<userId>` bucket, anonymous/invalid handshakes
+// share the `ip:<ip>` bucket. 30/60s is the same budget the whole IP had
+// before — now it's PER PERSON for authenticated users (sockets legitimately
+// reconnect on tab refocus / network blips), while anonymous handshakes keep
+// 30/IP/60s as pure abuse protection (they're rejected by namespace auth
+// anyway). The 200-250 student campus-NAT contest hall is no longer capped at
+// 30 dashboard/notification sockets per minute campus-wide.
 const SOCKET_CONNECT_MAX_PER_WINDOW = 30;
+// Bounded: one entry per active bucket key in a 2×window span (~250 users ⇒
+// ~250 entries), swept below. Keyed by the resolveSocketConnectKey string.
 const socketConnectionRateMap = new Map<string, { count: number; windowStart: number }>();
 const SOCKET_PING_TIMEOUT_MS = Number(process.env.SOCKET_PING_TIMEOUT_MS || 30000);
 const SOCKET_PING_INTERVAL_MS = Number(process.env.SOCKET_PING_INTERVAL_MS || 10000);
@@ -95,26 +106,37 @@ const SOCKET_PING_INTERVAL_MS = Number(process.env.SOCKET_PING_INTERVAL_MS || 10
 // S2: IP resolution moved to utils/clientIp.ts. The old local version keyed
 // the limiter on the FIRST X-Forwarded-For entry — fully client-controlled,
 // so a direct-to-origin client could rotate XFF to defeat the 30-conn/min cap.
+// Campus-NAT fix: the limiter now keys on resolveSocketConnectKey (per-user for
+// verified sessions, per-IP otherwise) instead of the raw IP.
 
-function isConnectionAllowed(ip: string): boolean {
+function isConnectionAllowed(key: string): boolean {
   const now = Date.now();
-  const current = socketConnectionRateMap.get(ip);
+  const current = socketConnectionRateMap.get(key);
 
   if (!current || now - current.windowStart > SOCKET_CONNECT_WINDOW_MS) {
-    socketConnectionRateMap.set(ip, { count: 1, windowStart: now });
+    socketConnectionRateMap.set(key, { count: 1, windowStart: now });
     return true;
   }
 
   current.count += 1;
-  socketConnectionRateMap.set(ip, current);
+  socketConnectionRateMap.set(key, current);
   return current.count <= SOCKET_CONNECT_MAX_PER_WINDOW;
+}
+
+/** Resolve the NAT-safe bucket key for a handshake (per-user or per-IP). */
+function socketConnectKey(socket: Socket): string {
+  return resolveSocketConnectKey({
+    ip: getSocketClientIp(socket),
+    auth: socket.handshake.auth,
+    headers: socket.handshake.headers,
+  });
 }
 
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, entry] of socketConnectionRateMap.entries()) {
+  for (const [key, entry] of socketConnectionRateMap.entries()) {
     if (now - entry.windowStart > SOCKET_CONNECT_WINDOW_MS * 2) {
-      socketConnectionRateMap.delete(ip);
+      socketConnectionRateMap.delete(key);
     }
   }
 }, SOCKET_CONNECT_WINDOW_MS).unref();
@@ -180,9 +202,9 @@ export function initializeSocket(httpServer: HTTPServer) {
   });
 
   io.use((socket, next) => {
-    const ip = getSocketClientIp(socket);
-    if (!isConnectionAllowed(ip)) {
-      logger.warn('Socket connection rate limit exceeded', { ip });
+    const connectKey = socketConnectKey(socket);
+    if (!isConnectionAllowed(connectKey)) {
+      logger.warn('Socket connection rate limit exceeded', { key: connectKey });
       next(new Error('RATE_LIMITED'));
       return;
     }
@@ -211,8 +233,9 @@ export function initializeSocket(httpServer: HTTPServer) {
   // just one socket connection per active client, events fan out to room only.
   const notificationsNs = io.of('/notifications');
   notificationsNs.use((socket, next) => {
-    const ip = getSocketClientIp(socket);
-    if (!isConnectionAllowed(ip)) {
+    const connectKey = socketConnectKey(socket);
+    if (!isConnectionAllowed(connectKey)) {
+      logger.warn('Socket connection rate limit exceeded', { key: connectKey, ns: '/notifications' });
       next(new Error('RATE_LIMITED'));
       return;
     }

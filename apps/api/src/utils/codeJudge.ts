@@ -1,6 +1,10 @@
 import { ProblemLanguage, SubmissionVerdict } from '@prisma/client';
 import { logger } from './logger.js';
-import { getCachedSettings } from './settingsCache.js';
+import {
+  executionRouter,
+  getConfiguredProviderSetting,
+  type ExecutionProvider,
+} from './executionRouting.js';
 import { buildHarness as buildPythonHarness } from './judgeHarnesses/python.js';
 import { buildHarness as buildJavaScriptHarness } from './judgeHarnesses/javascript.js';
 import { buildHarness as buildCppHarness } from './judgeHarnesses/cpp.js';
@@ -38,13 +42,15 @@ interface CompilerConfig {
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
 const EXECUTOR_ORIGIN_HEADER = process.env.EXECUTOR_ORIGIN_HEADER
   || (process.env.NODE_ENV === 'development' ? 'http://localhost:5002' : 'https://code.codescriet.dev');
+// Shared secret for the CF Worker (M1). Optional — the worker only enforces it
+// once EXECUTOR_SECRET is set in ITS environment; sending it unconditionally
+// when configured here makes the judge ready for that flip.
+const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
 const EXECUTION_TIMEOUT_MS = 15_000;
 // Compiled languages (Java, C++) need extra headroom for compilation + the
 // per-test fork/ClassLoader isolation overhead. Interpreted languages stay
 // at the baseline.
 const COMPILED_EXECUTION_TIMEOUT_MS = 30_000;
-const SUBMIT_CONCURRENCY = 5;
-const TESTRUN_CONCURRENCY = 10;
 const ACTUAL_OUTPUT_LIMIT = 5 * 1024;
 const COMPILER_OUTPUT_LIMIT = 10 * 1024;
 
@@ -58,32 +64,6 @@ const COMPILERS: Record<ProblemLanguage, CompilerConfig> = {
   CPP: { compiler: 'gcc-13.2.0', options: 'warning,c++17', compilerOptionRaw: '-DONLINE_JUDGE' },
   JAVA: { compiler: 'openjdk-jdk-22+36' },
 };
-
-class Semaphore {
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-
-  constructor(private readonly limit: number) {}
-
-  async acquire(): Promise<() => void> {
-    if (this.active >= this.limit) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-
-    this.active += 1;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.active -= 1;
-      const next = this.waiters.shift();
-      if (next) next();
-    };
-  }
-}
-
-const submitSemaphore = new Semaphore(SUBMIT_CONCURRENCY);
-const testRunSemaphore = new Semaphore(TESTRUN_CONCURRENCY);
 
 // Wandbox runs every execution in a throwaway container. When its host is out of
 // capacity the upstream returns messages like
@@ -236,7 +216,15 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
 }
 
 export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
-  const release = await (req.mode === 'submit' ? submitSemaphore : testRunSemaphore).acquire();
+  // Admin-selected execution provider setting (wandbox | godbolt | balanced),
+  // read from the 5-min settings cache so this stays a no-op DB-wise on the hot
+  // judge path. The router resolves it to ONE concrete provider per request
+  // (balanced = least-loaded split, JS pinned to Wandbox, unhealthy providers
+  // deprioritized); the CF Worker still falls back to the other host on an
+  // infra failure as the last-resort net.
+  const setting = await getConfiguredProviderSetting();
+  const provider = executionRouter.chooseProvider(setting, req.language, req.mode);
+  const release = await executionRouter.acquire(provider, req.mode);
   const totalStartedAt = Date.now();
 
   try {
@@ -248,10 +236,6 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       req.timeLimitMs,
     );
     const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })));
-    // Admin-selected execution provider (wandbox | godbolt), read from the 5-min
-    // settings cache so this stays a no-op DB-wise on the hot judge path. The CF
-    // Worker tries it first and falls back to the other on an infra failure.
-    const provider = (await getCachedSettings())?.codeExecutionProvider || 'wandbox';
     const controller = new AbortController();
     const isCompiled = req.language === 'CPP' || req.language === 'JAVA';
     const ceiling = isCompiled ? COMPILED_EXECUTION_TIMEOUT_MS : EXECUTION_TIMEOUT_MS;
@@ -264,6 +248,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         headers: {
           'Content-Type': 'application/json',
           Origin: EXECUTOR_ORIGIN_HEADER,
+          ...(EXECUTOR_SECRET ? { 'X-Executor-Secret': EXECUTOR_SECRET } : {}),
         },
         body: JSON.stringify({
           compiler: compiler.compiler,
@@ -278,6 +263,8 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
 
       if (!response.ok) {
         logger.warn('Judge worker returned non-OK response', { status: response.status });
+        // 5xx from the worker = every reachable upstream failed for this request.
+        if (response.status >= 500) executionRouter.reportInfraFailure(provider);
         return {
           verdict: 'JUDGE_ERROR',
           perTestVerdicts: [],
@@ -316,6 +303,18 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       };
     }
 
+    // Health accounting for the router. A redeployed worker reports which
+    // provider actually served (`judge_provider`) and whether the requested one
+    // infra-failed en route (`judge_fallback`); with an older deployed worker
+    // those fields are absent and accounting degrades to requested-provider-only.
+    const servedProvider: ExecutionProvider | null =
+      workerResult.judge_provider === 'wandbox' || workerResult.judge_provider === 'godbolt'
+        ? workerResult.judge_provider
+        : null;
+    if (workerResult.judge_fallback === true) {
+      executionRouter.reportInfraFailure(provider);
+    }
+
     const stdout = cleanWorkerText(workerResult.program_output);
     const stderr = cleanWorkerText(workerResult.program_error);
     const compilerError = cleanWorkerText(workerResult.compiler_error);
@@ -328,6 +327,10 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     // retryable judge outage, not a code-compilation failure.
     if (!stdout.includes('__JUDGE:') && (isInfraFailure(compilerError) || isInfraFailure(stderr))) {
       logger.warn('Judge upstream resource failure', { snippet: (compilerError || stderr).slice(0, 200) });
+      // An infra result surviving the worker's chain means every provider that
+      // could run this language failed — cool down both we know about.
+      executionRouter.reportInfraFailure(provider);
+      if (servedProvider && servedProvider !== provider) executionRouter.reportInfraFailure(servedProvider);
       return {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
@@ -335,6 +338,10 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         compilerOutput: 'Execution service is temporarily unavailable. Please try again in a moment.',
       };
     }
+
+    // Any non-infra result (accepted / wrong answer / compile error / TLE) came
+    // from a healthy host.
+    executionRouter.reportSuccess(servedProvider ?? provider);
 
     if (compilerError && !stdout.includes('__JUDGE:')) {
       return {
