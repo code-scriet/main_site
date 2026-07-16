@@ -6,6 +6,7 @@ import { emailService } from './email.js';
 import { logger } from './logger.js';
 import { broadcastQotdLive, broadcastNotification } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
+import { invalidateQotdTodayCache } from './qotdTodayCache.js';
 import { updateEventStatuses } from './eventStatus.js';
 import { isContestPriorityActive } from '../competition/contestMode.js';
 
@@ -380,6 +381,7 @@ async function publishDueQotd(id: string): Promise<void> {
     if (flipped.count === 0) return;
 
     invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
+    invalidateQotdTodayCache(); // an auto-published QOTD enters today's row / the published set
     qotdLeaderboardInvalidator?.(id); // window membership changed → drop the weekly/daily/total board caches
     recomputeStreaksForQOTDSafe(id); // credit anyone who solved while it was scheduled
     broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);

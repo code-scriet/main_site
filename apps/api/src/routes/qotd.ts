@@ -14,6 +14,7 @@ import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
+import { getCachedTodayQotd, getCachedPublishedQotdSummary, invalidateQotdTodayCache } from '../utils/qotdTodayCache.js';
 import { broadcastQotdLive, broadcastNotification } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer, setQotdLeaderboardInvalidator } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
@@ -451,21 +452,27 @@ async function getQotdSolveStatus(
 
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const { start, end } = qotdDateRange();
     const authUser = getAuthUser(req);
     const includeUnpublished = req.query.includeUnpublished === 'true' && isAdminAuth(authUser);
-    const qotd = await prisma.qOTD.findFirst({
-      where: {
-        date: { gte: start, lt: end },
-        ...(includeUnpublished ? {} : { isPublished: true }),
-      },
-      include: { problem: true },
-    });
+    // The public "today's PUBLISHED QOTD row" is per-request-identical → served
+    // from the IST-date-keyed 60s single-flight cache. The staff drafts-included
+    // view (includeUnpublished) MUST NOT read the public cache — query it live.
+    let qotd: (QotdWithProblem) | null;
+    if (includeUnpublished) {
+      const { start, end } = qotdDateRange();
+      qotd = await prisma.qOTD.findFirst({
+        where: { date: { gte: start, lt: end } },
+        include: { problem: true },
+      });
+    } else {
+      qotd = await getCachedTodayQotd();
+    }
 
     if (!qotd) {
       return ApiResponse.success(res, null, 'No QOTD for today');
     }
 
+    // Per-user hasSubmitted/hasSolved stays a live query inside serializeQotd.
     return ApiResponse.success(res, await serializeQotd(qotd, authUser?.id));
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD');
@@ -552,12 +559,11 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
 // byte-identical to the per-row hasSubmitted there.
 qotdRouter.get('/history/summary', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const { end } = qotdDateRange();
     const authUser = getAuthUser(req);
-    const qotds = await prisma.qOTD.findMany({
-      where: { date: { lt: end }, isPublished: true },
-      select: { id: true, problemId: true },
-    });
+    // Shared published-QOTD {id, problemId} list (up to end-of-today IST) is
+    // per-request-identical → served from the IST-date-keyed 60s cache. The
+    // per-user solved count stays a live query in getQotdSolveStatus below.
+    const qotds = await getCachedPublishedQotdSummary();
     const totalPublished = qotds.length;
     // "Solved" here means actually solved (ACCEPTED), so solved/left are truthful.
     const solved = (await getQotdSolveStatus(qotds, authUser?.id)).solved.size;
@@ -830,6 +836,7 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
 
     if (qotd.isPublished) {
       invalidatePublishedQotdCache();
+      invalidateQotdTodayCache(); // a newly-published QOTD changes today's row / the published set
       // Fire the bell notification when a QOTD goes live on creation. Scheduled
       // QOTDs get theirs later from the auto-publish scheduler instead.
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
@@ -859,6 +866,7 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     cancelQotdPublishTimer(qotd.id); // manual publish supersedes any armed auto-publish timer
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; new day shifts streaks
+    invalidateQotdTodayCache(); // today's row / published-summary now includes this QOTD
     // Materialized streaks for every submitter on this day must reflect the flip.
     recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
@@ -901,6 +909,7 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     cancelQotdPublishTimer(qotd.id); // a held QOTD must not auto-publish
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; held days shift streaks
+    invalidateQotdTodayCache(); // a held QOTD drops out of today's row / the published set
     // Held QOTD becomes "transparent" — every submitter's materialized streak
     // must be recomputed so we don't credit a day that's no longer published.
     recomputeStreaksForQOTDSafe(qotd.id);
@@ -1096,6 +1105,7 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
       cancelQotdPublishTimer(qotd.id);
       invalidateQotdLeaderboardCaches(qotd.id);
       invalidatePublishedQotdCache();
+      invalidateQotdTodayCache(); // edit just published this QOTD (today's row / summary changed)
       recomputeStreaksForQOTDSafe(qotd.id);
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
     } else if (reArm) {
@@ -1119,6 +1129,7 @@ qotdRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
     if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
     await prisma.qOTD.delete({ where: { id: req.params.id } });
     cancelQotdPublishTimer(req.params.id); // drop any armed auto-publish timer
+    if (qotd.isPublished) invalidateQotdTodayCache(); // a deleted published QOTD must leave today's row / the summary
     await auditLog(authUser.id, 'DELETE', 'qotd', req.params.id);
     // Notify the proposer when their unpublished draft is rejected.
     if (!qotd.isPublished && qotd.createdById && qotd.createdById !== authUser.id) {
