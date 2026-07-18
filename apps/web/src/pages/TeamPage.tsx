@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
@@ -34,27 +35,16 @@ function buildTeamParticles(count: number): TeamParticle[] {
 
 export default function TeamPage() {
   const [activeTeam, setActiveTeam] = useState('All');
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { isMobile, prefersReducedMotion, shouldReduceMotion } = useMotionConfig();
   const heroParticles = useMemo(() => buildTeamParticles(isMobile ? 10 : 20), [isMobile]);
 
-  useEffect(() => {
-    const fetchTeam = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await api.getTeam(undefined, { compact: true });
-        setTeamMembers(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load team');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTeam();
-  }, []);
+  // React Query so the public team list rides the app's 5-min cache (repeat
+  // visits / back-navigation don't re-hit the free-tier API).
+  const { data: teamMembers = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['team', 'compact'],
+    queryFn: () => api.getTeam(undefined, { compact: true }),
+  });
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load team') : null;
 
   // Get unique teams from data
   const teams = ['All', ...new Set(teamMembers.map(m => m.team))];
