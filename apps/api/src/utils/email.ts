@@ -183,9 +183,16 @@ export const emailTemplateTestUtils = {
 };
 
 export function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, '')
+  let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  // Defense-in-depth: strip tags repeatedly until stable so nested/broken tags
+  // (e.g. "<<b>script>") can't survive a single pass. Input is pre-sanitized
+  // upstream; normal input exits after one iteration (behavior unchanged).
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<[^>]+>/g, '');
+  } while (text !== before);
+  return text
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')

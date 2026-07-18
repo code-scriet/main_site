@@ -73,7 +73,6 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
   const limit = parsed.data.limit ?? 5;
   const tier = ROLE_TIERS[auth.role] ?? 0;
   const isAdmin = tier >= 4;
-  const isCore = tier >= 3;
 
   try {
     const [events, problems, polls, people, announcements] = await Promise.all([

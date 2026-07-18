@@ -147,7 +147,7 @@ const authMiddlewareImpl = async (
     const { isDeleted: _isd, ...authUser } = user;
     (req as AuthRequest).authUser = authUser as AuthUser;
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
 };

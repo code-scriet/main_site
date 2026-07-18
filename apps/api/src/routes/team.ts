@@ -8,7 +8,6 @@ import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
-import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { requireUuid } from '../utils/idParams.js';
 import { setSharedPublicCache } from '../utils/response.js';
@@ -240,7 +239,7 @@ teamRouter.get('/', async (req: Request, res: Response) => {
     // Public team directory — no per-user fields, identical for everyone.
     setSharedPublicCache(req, res, 60);
     res.json({ success: true, data: teamMembers.map((member) => mergeWithUserData(member, !isCompact)) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
   }
 });
@@ -292,7 +291,7 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
       success: true,
       data: teams.map((t) => ({ team: t.team, count: t._count.id })),
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch teams' } });
   }
 });
@@ -307,7 +306,7 @@ teamRouter.get('/:id', async (req: Request, res: Response) => {
     }
 
     res.json({ success: true, data: mergeWithUserData(teamMember) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team member' } });
   }
 });
@@ -634,7 +633,7 @@ teamRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req: R
 
     await auditLog(authUser.id, 'UPDATE', 'team_member', 'batch', { action: 'reorder' });
     res.json({ success: true, message: 'Team members reordered successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to reorder team members' } });
   }
 });
@@ -649,7 +648,7 @@ teamRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
     await prisma.teamMember.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'team_member', req.params.id);
     res.json({ success: true, message: 'Team member removed successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete team member' } });
   }
 });

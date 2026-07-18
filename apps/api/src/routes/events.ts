@@ -277,7 +277,9 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       where,
       orderBy: { startDate: 'desc' },
       select: eventListSelect,
-      ...(limitValue ? { take: limitValue, skip: offsetValue } : {}),
+      // No explicit limit → default cap of 100 rows so the list can't grow
+      // unbounded with event history. Explicit-limit behavior unchanged.
+      ...(limitValue ? { take: limitValue, skip: offsetValue } : { take: 100 }),
     };
 
     const events = await prisma.event.findMany(queryOptions);
@@ -317,7 +319,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       data: eventsWithRegistration,
       pagination: { total, limit: limitValue ?? total, offset: limitValue ? offsetValue : 0 },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch events' } });
   }
 });
@@ -340,7 +342,7 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
     // No per-user fields on this endpoint — always edge-cacheable.
     setSharedPublicCache(_req, res, 60);
     res.json({ success: true, data: events });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch upcoming events' } });
   }
 });
@@ -507,7 +509,7 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
           : null,
       },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch event' } });
   }
 });
@@ -1029,7 +1031,7 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
       void dispatchEventRegistrantNotice(userIds, emails, event.title, event.slug, 'cancelled', 'This event has been cancelled. Apologies for the inconvenience.');
     }
     res.json({ success: true, message: 'Event deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete event' } });
   }
 });
@@ -1052,7 +1054,7 @@ eventsRouter.get('/:id/registrations/stats', authMiddleware, requireRole('CORE_M
       }),
     ]);
     res.json({ success: true, data: { total, participants, guests, attended } });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registration stats' } });
   }
 });
@@ -1100,7 +1102,7 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
       take: REGISTRATIONS_LIST_CAP,
     });
     res.json({ success: true, data: registrations });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
@@ -1499,7 +1501,7 @@ eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, r
     
     await prisma.eventRegistration.delete({ where: { id: registrationId } });
     res.json({ success: true, message: 'Registration deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
@@ -1973,35 +1975,3 @@ async function notifyEventRegistrants(
   }
 }
 
-// Helper function to send event registration confirmation email
-async function sendEventRegistrationEmailAsync(
-  userEmail: string,
-  userName: string,
-  event: {
-    title: string;
-    startDate: Date;
-    slug: string;
-    location?: string | null;
-    imageUrl?: string | null;
-  }
-) {
-  try {
-    logger.info(`📧 Sending event registration email to ${userEmail}...`);
-
-    await emailService.sendEventRegistration(
-      userEmail,
-      userName,
-      event.title,
-      event.startDate,
-      event.slug,
-      event.location || undefined,
-      event.imageUrl || undefined
-    );
-
-    logger.info(`✅ Event registration email sent to ${userEmail}`);
-  } catch (error) {
-    logger.error('Failed to send event registration email', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-}

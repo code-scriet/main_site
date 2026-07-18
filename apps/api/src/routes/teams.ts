@@ -29,15 +29,22 @@ function generateInviteCode(): string {
 }
 
 // Validation schemas
+// The web modals send customFieldResponses as { [fieldId]: string } (see
+// TeamCreateModal/TeamJoinModal); accept primitive values + string arrays,
+// matching what normalizeCustomFieldResponses/eventRegistrationFields consume.
+const customFieldResponsesSchema = z
+  .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+  .optional();
+
 const createTeamSchema = z.object({
   eventId: z.string().uuid(),
   teamName: z.string().min(1, 'Team name is required').max(100, 'Team name must be 100 characters or less'),
-  customFieldResponses: z.unknown().optional(),
+  customFieldResponses: customFieldResponsesSchema,
 });
 
 const joinTeamSchema = z.object({
   inviteCode: z.string().length(8, 'Invite code must be 8 characters'),
-  customFieldResponses: z.unknown().optional(),
+  customFieldResponses: customFieldResponsesSchema,
 });
 
 const transferLeadershipSchema = z.object({

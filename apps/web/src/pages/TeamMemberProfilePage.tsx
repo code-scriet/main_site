@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema, ProfilePageSchema } from '@/components/ui/schema';
-import { RichContent } from '@/components/ui/markdown';
+import { RichContent } from '@/components/ui/markdown-rich';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';

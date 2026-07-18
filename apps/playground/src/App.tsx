@@ -1,16 +1,33 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
 import { PlaygroundProvider } from './context/PlaygroundContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthGate } from './components/auth/AuthGate';
 import { CommandPalette } from './components/playground/CommandPalette';
+// PlaygroundPage is the `/` route — keep it eager so the primary view has no extra fetch.
 import PlaygroundPage from './pages/PlaygroundPage';
-import SnippetsPage from './pages/SnippetsPage';
-import SnippetViewPage from './pages/SnippetViewPage';
-import CompetitionPage from './pages/CompetitionPage';
-import ContestArenaPage from './pages/ContestArenaPage';
+// Non-default routes are code-split so the arena/competition/snippets code lands in
+// separate chunks instead of bloating the initial bundle.
+const SnippetsPage = lazy(() => import('./pages/SnippetsPage'));
+const SnippetViewPage = lazy(() => import('./pages/SnippetViewPage'));
+const CompetitionPage = lazy(() => import('./pages/CompetitionPage'));
+const ContestArenaPage = lazy(() => import('./pages/ContestArenaPage'));
 import { endExecutionSession } from './utils/snippetsApi';
+
+// Minimal centered fallback while a lazy route chunk loads — mirrors AuthGate's loader.
+function RouteFallback() {
+  return (
+    <div className="h-screen flex items-center justify-center bg-background">
+      <Loader2 className="h-9 w-9 animate-spin text-amber-500" />
+    </div>
+  );
+}
+
+function RouteBoundary({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
 
 // Wrap children with AuthGate only if not on a public route
 function ConditionalAuthGate({ children }: { children: React.ReactNode }) {
@@ -84,15 +101,18 @@ function App() {
         <ConditionalAuthGate>
           <PlaygroundProvider>
             <CommandPaletteController />
-            <Routes>
-              <Route path="/" element={<PlaygroundPage />} />
-              <Route path="/competition/:roundId" element={<CompetitionPage />} />
-              <Route path="/contest/:roundId" element={<ContestArenaPage />} />
-              <Route path="/snippets" element={<SnippetsPage />} />
-              <Route path="/snippet/:id" element={<SnippetViewPage />} />
-              <Route path="/s/:shareToken" element={<SnippetViewPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            {/* RouteBoundary provides the Suspense fallback the lazy routes require. */}
+            <RouteBoundary>
+              <Routes>
+                <Route path="/" element={<PlaygroundPage />} />
+                <Route path="/competition/:roundId" element={<CompetitionPage />} />
+                <Route path="/contest/:roundId" element={<ContestArenaPage />} />
+                <Route path="/snippets" element={<SnippetsPage />} />
+                <Route path="/snippet/:id" element={<SnippetViewPage />} />
+                <Route path="/s/:shareToken" element={<SnippetViewPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </RouteBoundary>
           </PlaygroundProvider>
         </ConditionalAuthGate>
       </AuthProvider>

@@ -6,10 +6,15 @@
 // A byte-identical JS mirror runs on the playground server (CPU offload); keep the two in
 // sync — this TS copy is the unit-tested source of truth.
 
+// Hard cap on the input a single normalize pass will scan — bounds the backtrack
+// exposure of the comment/string regexes on pathological input. 100 KB is past any
+// legitimate submission (the judge caps code at 100 KB). Keep in sync with the JS mirror.
+const MAX_NORMALIZE_CHARS = 100_000;
+
 // Strip comments + string/char literals, lowercase, and remove ALL whitespace so the
 // fingerprint is insensitive to reformatting/indentation (a common plagiarism edit).
 export function normalizeCode(code: string): string {
-  return code
+  return (code.length > MAX_NORMALIZE_CHARS ? code.slice(0, MAX_NORMALIZE_CHARS) : code)
     .replace(/\/\*[\s\S]*?\*\//g, ' ')          // block comments
     .replace(/\/\/.*$/gm, ' ')                   // // line comments
     .replace(/#.*$/gm, ' ')                       // # line comments (py/sh)

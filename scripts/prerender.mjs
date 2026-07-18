@@ -52,7 +52,7 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({
 
 const stripHtml = (s) => String(s ?? '')
   .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-  .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
   .replace(/<[^>]+>/g, ' ')
   .replace(/&nbsp;/g, ' ')
   .replace(/\s+/g, ' ')

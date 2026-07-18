@@ -1537,8 +1537,6 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       ],
     });
 
-    const workbook = new ExcelJS.Workbook();
-
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
@@ -1572,6 +1570,26 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
         columns.push({ header: 'Days Attended', key: 'daysAttended', width: 14 });
       }
     }
+
+    const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+    const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
+
+    // Streaming export (mirrors GET /api/quiz/:quizId/export): the buffered
+    // Workbook held the full cell graph + serialized buffer in RAM at once —
+    // at the 10k-registration cap × multi-day columns that's a large transient
+    // against the 400 MB heap. The WorkbookWriter writes each committed row
+    // straight to `res`, so peak memory is bounded by the raw DB rows already
+    // loaded above plus one row + zip buffers. Headers must be set before the
+    // writer is constructed (it starts writing immediately); from here on,
+    // failures can only truncate the download, not return a JSON error.
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}${daySuffix}.xlsx"`);
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
 
     const buildWorksheet = (
       sheetName: string,
@@ -1618,26 +1636,27 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
           }
         }
 
-        worksheet.addRow(row);
+        worksheet.addRow(row).commit();
       }
+
+      worksheet.commit();
     };
 
     buildWorksheet('Participants', registrations.filter(isParticipant));
     buildWorksheet('Guests', registrations.filter(isGuest));
 
-    const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
-    const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}${daySuffix}.xlsx"`);
-
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('Failed to export attendance', { error: error instanceof Error ? error.message : String(error) });
-    if (!res.headersSent) {
-      return ApiResponse.internal(res, 'Failed to export attendance');
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
     }
+    return ApiResponse.internal(res, 'Failed to export attendance');
   }
 });
 

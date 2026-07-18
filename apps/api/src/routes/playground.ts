@@ -324,7 +324,7 @@ router.get('/snippets/:id', async (req: Request, res: Response) => {
     if (snippet.userId !== user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
 
     return res.json({ success: true, data: snippet });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, error: 'Failed to fetch snippet' });
   }
 });

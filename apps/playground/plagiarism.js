@@ -3,8 +3,15 @@
 // offloaded from the main API during/after a contest. Keep byte-for-byte in sync with
 // the TS version's algorithm.
 
+// Hard cap on the input a single normalize pass will scan. The comment/string
+// regexes below are near-linear in practice but backtrack-capable on pathological
+// input; bounding length keeps a hostile submission from causing quadratic blowup
+// on the shared box. 100 KB is well past any legitimate contest submission (the
+// judge itself caps code at 100 KB).
+const MAX_NORMALIZE_CHARS = 100_000;
+
 export function normalizeCode(code) {
-  return code
+  return (code.length > MAX_NORMALIZE_CHARS ? code.slice(0, MAX_NORMALIZE_CHARS) : code)
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/.*$/gm, ' ')
     .replace(/#.*$/gm, ' ')
