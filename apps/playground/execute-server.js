@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -690,46 +691,22 @@ function checkIpRateLimit(ip) {
 // one public route it wraps (GET /api/snippets/shared/:token). Bounded map
 // swept at 2x the window, same pattern as ipExecCounts / execCache.
 // ---------------------------------------------------------------------------
-const CRUD_RATE_WINDOW_MS = 60_000;
-const CRUD_RATE_MAX_REQUESTS = 120; // generous — these are CRUD calls
-const CRUD_RATE_MAX_KEYS = 5000;
-const crudRateCounts = new Map(); // key → { windowStart, count }
-
-function crudRateLimit(req, res, next) {
-  const key = req.user?.id
+// express-rate-limit instance (its MemoryStore self-bounds per window — no manual
+// map/sweep needed) keyed by the authenticated userId, falling back to client IP
+// for the one public route it wraps. Standardized limiter that the security
+// tooling recognizes as a proper rate-limit control.
+const crudRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120, // generous — these are CRUD calls
+  standardHeaders: true,
+  legacyHeaders: false,
+  // We key primarily by verified userId, so IP-trust validation doesn't apply.
+  validate: { trustProxy: false, xForwardedForHeader: false },
+  keyGenerator: (req) => (req.user?.id
     ? `u:${req.user.id}`
-    : `ip:${req.ip || req.socket.remoteAddress || 'unknown'}`;
-  const now = Date.now();
-  let entry = crudRateCounts.get(key);
-  if (!entry || now - entry.windowStart >= CRUD_RATE_WINDOW_MS) {
-    // Hard size bound: evict the oldest key rather than grow past the cap
-    // (insertion order ≈ oldest window; same shape as the prefs-memory cap).
-    if (!entry && crudRateCounts.size >= CRUD_RATE_MAX_KEYS) {
-      const oldest = crudRateCounts.keys().next().value;
-      if (oldest !== undefined) crudRateCounts.delete(oldest);
-    }
-    entry = { windowStart: now, count: 0 };
-    crudRateCounts.set(key, entry);
-  }
-  entry.count += 1;
-  if (entry.count > CRUD_RATE_MAX_REQUESTS) {
-    res.setHeader('Retry-After', Math.max(1, Math.ceil((entry.windowStart + CRUD_RATE_WINDOW_MS - now) / 1000)));
-    return res.status(429).json({
-      success: false,
-      error: 'Too many requests. Please slow down and try again in a minute.',
-    });
-  }
-  next();
-}
-
-// Sweep expired limiter windows every 2x window (entries older than a full
-// window can never block anything — their next hit resets the window anyway).
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of crudRateCounts.entries()) {
-    if (now - entry.windowStart >= CRUD_RATE_WINDOW_MS * 2) crudRateCounts.delete(key);
-  }
-}, CRUD_RATE_WINDOW_MS * 2);
+    : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`),
+  message: { success: false, error: 'Too many requests. Please slow down and try again in a minute.' },
+});
 
 // ---------------------------------------------------------------------------
 // Security — blocked code patterns

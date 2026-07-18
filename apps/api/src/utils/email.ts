@@ -183,7 +183,9 @@ export const emailTemplateTestUtils = {
 };
 
 export function htmlToPlainText(html: string): string {
-  let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  // Strip <style> blocks incl. an unterminated one (…to end-of-string) so orphan
+  // CSS text never leaks into the plaintext body.
+  let text = html.replace(/<style[^>]*>[\s\S]*?(?:<\/style\s*>|$)/gi, '');
   // Defense-in-depth: strip tags repeatedly until stable so nested/broken tags
   // (e.g. "<<b>script>") can't survive a single pass. Input is pre-sanitized
   // upstream; normal input exits after one iteration (behavior unchanged).
@@ -192,11 +194,13 @@ export function htmlToPlainText(html: string): string {
     before = text;
     text = text.replace(/<[^>]+>/g, '');
   } while (text !== before);
+  // Entity un-escaping: &amp; MUST be last so a value like "&amp;lt;" decodes to
+  // the literal text "&lt;" (not double-unescaped into "<") — order matters.
   return text
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
 }

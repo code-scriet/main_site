@@ -51,8 +51,10 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({
 }[c]));
 
 const stripHtml = (s) => String(s ?? '')
-  .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-  .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+  // Closing tags use [^>]* (not \s*) so malformed closers like `</style x>` /
+  // `</script\n bar>` are still matched; the `|$` handles an unterminated block.
+  .replace(/<style\b[^>]*>[\s\S]*?(?:<\/style[^>]*>|$)/gi, ' ')
+  .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script[^>]*>|$)/gi, ' ')
   .replace(/<[^>]+>/g, ' ')
   .replace(/&nbsp;/g, ' ')
   .replace(/\s+/g, ' ')
