@@ -5,6 +5,7 @@ import {
   pruneOldRecords,
   computePruneCutoffs,
   isQuizAnswerPruningEnabled,
+  getAuditLogRetentionDays,
   EXECUTION_RETENTION_DAYS,
   NOTIFICATION_FEED_RETENTION_DAYS,
   COMPETITION_AUTOSAVE_RETENTION_DAYS,
@@ -22,6 +23,8 @@ interface Captured {
   autosaveWhere?: any;
   quizAnswerFindCalls: number;
   quizAnswerWhere?: any;
+  auditFindCalls: number;
+  auditWhere?: any;
 }
 
 function installMock(counts: {
@@ -30,8 +33,9 @@ function installMock(counts: {
   notification: number;
   autosave: number;
   quizAnswers: number;
+  auditLogs?: number;
 }) {
-  const captured: Captured = { quizAnswerFindCalls: 0 };
+  const captured: Captured = { quizAnswerFindCalls: 0, auditFindCalls: 0 };
   const originals: Array<[Record<string, unknown>, string, unknown]> = [];
   const set = (delegateName: string, fn: string, impl: unknown) => {
     const delegate = (prisma as unknown as Record<string, Record<string, unknown>>)[delegateName];
@@ -72,6 +76,16 @@ function installMock(counts: {
   });
   set('quizAnswer', 'deleteMany', async () => ({ count: counts.quizAnswers }));
 
+  let auditDrained = false;
+  set('auditLog', 'findMany', async (args: { where: unknown }) => {
+    captured.auditFindCalls += 1;
+    captured.auditWhere = args.where;
+    if (auditDrained) return [];
+    auditDrained = true;
+    return Array.from({ length: counts.auditLogs ?? 0 }, (_, i) => ({ id: `al-${i}` }));
+  });
+  set('auditLog', 'deleteMany', async () => ({ count: counts.auditLogs ?? 0 }));
+
   return {
     captured,
     restore() {
@@ -102,15 +116,17 @@ test('pruneOldRecords deletes the right tables with correct filters; quiz answer
 
   const result = await pruneOldRecords();
 
-  // Counts aggregated correctly; quiz answers skipped (env off).
+  // Counts aggregated correctly; quiz answers + audit logs skipped (both env off).
   assert.deepEqual(result, {
     executions: 12,
     dailyUsage: 3,
     notificationFeed: 7,
     competitionAutoSaves: 4,
     quizAnswers: 0,
+    auditLogs: 0,
   });
   assert.equal(mock.captured.quizAnswerFindCalls, 0, 'quizAnswer must not be touched when disabled');
+  assert.equal(mock.captured.auditFindCalls, 0, 'auditLog must not be touched when retention unset');
 
   // Cutoffs.
   approxDaysAgo(mock.captured.executionWhere.executedAt.lt, EXECUTION_RETENTION_DAYS);
@@ -141,17 +157,40 @@ test('pruneOldRecords prunes quiz answers (365d) when PRUNE_QUIZ_ANSWERS=true', 
   approxDaysAgo(mock.captured.quizAnswerWhere.submittedAt.lt, QUIZ_ANSWER_RETENTION_DAYS);
 });
 
-test('AuditLog is never touched by pruneOldRecords', async (t) => {
+test('AuditLog is NOT auto-pruned by default (retention unset)', async (t) => {
   delete process.env.PRUNE_QUIZ_ANSWERS;
-  const auditDelegate = prisma.auditLog as unknown as Record<string, unknown>;
-  const origDelete = auditDelegate.deleteMany;
-  let auditDeleted = false;
-  auditDelegate.deleteMany = async () => { auditDeleted = true; return { count: 0 }; };
-  t.after(() => { auditDelegate.deleteMany = origDelete; });
+  delete process.env.AUDIT_LOG_RETENTION_DAYS;
+  assert.equal(getAuditLogRetentionDays(), null);
 
-  const mock = installMock({ executions: 0, dailyUsage: 0, notification: 0, autosave: 0, quizAnswers: 0 });
+  const mock = installMock({ executions: 0, dailyUsage: 0, notification: 0, autosave: 0, quizAnswers: 0, auditLogs: 500 });
   t.after(mock.restore);
 
-  await pruneOldRecords();
-  assert.equal(auditDeleted, false, 'audit log is the compliance trail — never auto-pruned');
+  const result = await pruneOldRecords();
+  assert.equal(mock.captured.auditFindCalls, 0, 'audit log is the compliance trail — untouched unless opted in');
+  assert.equal(result.auditLogs, 0);
+});
+
+test('AuditLog IS pruned when AUDIT_LOG_RETENTION_DAYS is set', async (t) => {
+  delete process.env.PRUNE_QUIZ_ANSWERS;
+  process.env.AUDIT_LOG_RETENTION_DAYS = '365';
+  t.after(() => { delete process.env.AUDIT_LOG_RETENTION_DAYS; });
+  assert.equal(getAuditLogRetentionDays(), 365);
+
+  const mock = installMock({ executions: 0, dailyUsage: 0, notification: 0, autosave: 0, quizAnswers: 0, auditLogs: 250 });
+  t.after(mock.restore);
+
+  const result = await pruneOldRecords();
+  assert.equal(result.auditLogs, 250);
+  assert.ok(mock.captured.auditFindCalls >= 1, 'auditLog pruned when opted in');
+  approxDaysAgo(mock.captured.auditWhere.timestamp.lt, 365);
+});
+
+test('AUDIT_LOG_RETENTION_DAYS below the 30-day floor (or junk) disables pruning', () => {
+  for (const bad of ['0', '10', '29', '-5', 'abc', '']) {
+    process.env.AUDIT_LOG_RETENTION_DAYS = bad;
+    assert.equal(getAuditLogRetentionDays(), null, `"${bad}" must disable`);
+  }
+  process.env.AUDIT_LOG_RETENTION_DAYS = '30';
+  assert.equal(getAuditLogRetentionDays(), 30, '30 (the floor) is allowed');
+  delete process.env.AUDIT_LOG_RETENTION_DAYS;
 });

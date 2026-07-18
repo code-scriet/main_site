@@ -754,8 +754,10 @@ export function stopRegistrationOpenScheduler(): void {
 //                                QuizParticipant aggregates (the leaderboard
 //                                history) are NEVER pruned
 //
-// AuditLog is deliberately NOT pruned here — it is the compliance trail and
-// keeps its explicit, owner-driven retention via DELETE /api/audit-logs/retention.
+// AuditLog is the compliance trail, so automatic pruning is OPT-IN: it runs only
+// when AUDIT_LOG_RETENTION_DAYS is set to a positive integer (≥30, matching the
+// manual DELETE /api/audit-logs/retention floor). Unset ⇒ kept forever (the prior
+// behavior). The manual endpoint remains for one-off cleanups.
 export const EXECUTION_RETENTION_DAYS = 90;
 export const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
 export const NOTIFICATION_FEED_RETENTION_DAYS = 90;
@@ -769,6 +771,20 @@ const PRUNE_BATCH_SIZE = 5000;
 /** QuizAnswer pruning is policy-gated (default off) so the owner opts in explicitly. */
 export function isQuizAnswerPruningEnabled(): boolean {
   return process.env.PRUNE_QUIZ_ANSWERS === 'true';
+}
+
+/**
+ * AuditLog retention window in days, or null when disabled. Owner opts in via
+ * AUDIT_LOG_RETENTION_DAYS; values below the 30-day floor (or non-numeric) are
+ * treated as "disabled" so a typo can't silently start deleting compliance data
+ * with an aggressive window.
+ */
+export function getAuditLogRetentionDays(): number | null {
+  const raw = process.env.AUDIT_LOG_RETENTION_DAYS;
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 30) return null;
+  return parsed;
 }
 
 export function computePruneCutoffs(now: number = Date.now()) {
@@ -806,6 +822,7 @@ export interface PruneResult {
   notificationFeed: number;
   competitionAutoSaves: number;
   quizAnswers: number;
+  auditLogs: number;
 }
 
 export async function pruneOldRecords(): Promise<PruneResult> {
@@ -846,12 +863,27 @@ export async function pruneOldRecords(): Promise<PruneResult> {
     );
   }
 
+  // AuditLog: opt-in retention (AUDIT_LOG_RETENTION_DAYS). Batched by id — the
+  // table can be large and is never otherwise trimmed, so the first pruned run
+  // must not hold a pooled Neon connection on one giant DELETE. Covered by the
+  // existing [timestamp] indexes.
+  let auditLogs = 0;
+  const auditRetentionDays = getAuditLogRetentionDays();
+  if (auditRetentionDays !== null) {
+    const auditCutoff = new Date(Date.now() - auditRetentionDays * 24 * 60 * 60 * 1000);
+    auditLogs = await deleteInBatches(
+      (take) => prisma.auditLog.findMany({ where: { timestamp: { lt: auditCutoff } }, select: { id: true }, take }),
+      (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }),
+    );
+  }
+
   const result: PruneResult = {
     executions,
     dailyUsage: dailyUsage.count,
     notificationFeed: notificationFeed.count,
     competitionAutoSaves: competitionAutoSaves.count,
     quizAnswers,
+    auditLogs,
   };
 
   if (Object.values(result).some((n) => n > 0)) {
