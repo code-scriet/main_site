@@ -50,6 +50,8 @@ function uploadToCloudinary(certId: string, pdfBuffer: Buffer, overwrite: boolea
         tags: ['certificate'],
         overwrite,
         invalidate: overwrite,
+        // Cap the upload so a stalled Cloudinary connection can't hang the issuance flow.
+        timeout: 30000,
       },
       (error, result) => {
         if (error) {

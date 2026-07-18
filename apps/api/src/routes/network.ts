@@ -18,6 +18,10 @@ import { isCuid, requireCuid, requireUuid } from '../utils/idParams.js';
 
 export const networkRouter = Router();
 
+// Mirrors attendance.ts's ATTENDANCE_EXPORT_LIMIT: bound the admin XLSX export
+// so an unbounded findMany can't buffer an arbitrarily large workbook in memory.
+const NETWORK_EXPORT_LIMIT = 5000;
+
 // Rich content fields that support HTML/Markdown
 const RICH_CONTENT_FIELDS = ['bio', 'connectionNote', 'achievements', 'adminNotes', 'vision', 'story', 'expertise'];
 
@@ -767,9 +771,20 @@ networkRouter.get('/admin/export', authMiddleware, requireRole('ADMIN'), async (
 
     const shouldIncludePendingUsers = includePendingUsers !== 'false';
 
+    const totalProfiles = await prisma.networkProfile.count({ where });
+    if (totalProfiles > NETWORK_EXPORT_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: `Network export is limited to ${NETWORK_EXPORT_LIMIT} profiles per request. Narrow the filters and try again.`,
+        },
+      });
+    }
+
     const [profiles, pendingUsers] = await Promise.all([
       prisma.networkProfile.findMany({
         where,
+        take: NETWORK_EXPORT_LIMIT,
         orderBy: [{ status: 'asc' }, { displayOrder: 'asc' }, { createdAt: 'desc' }],
         select: {
           id: true,

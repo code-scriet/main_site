@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -71,44 +72,45 @@ function CardSkeleton() {
 
 export default function EventsPage() {
   const [activeTab, setActiveTab] = useState<FilterKey>('ALL');
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
-  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
 
   const { user, token } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const loadEvents = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // React Query so the public events list + the user's registrations ride the
+  // app's 5-min cache (back-navigation doesn't re-hit the free-tier API). The
+  // two fetches stay parallel; registrations are auth-gated.
+  const { data: events = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['events'],
+    queryFn: () => api.getEvents(),
+  });
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load events') : null;
 
-      const eventsData = await api.getEvents();
-      setEvents(eventsData);
+  const registrationsQuery = useQuery({
+    queryKey: ['my-registrations', token],
+    queryFn: () => api.getMyRegistrations(token!),
+    enabled: !!token,
+  });
+  const registeredEventIds = useMemo(
+    () => new Set((registrationsQuery.data ?? []).map((r) => r.eventId)),
+    [registrationsQuery.data],
+  );
 
-      if (token) {
-        try {
-          const registrations = await api.getMyRegistrations(token);
-          setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
-        } catch {
-          toast.error('Could not load your event registrations');
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load events';
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
+  // Preserve the original toast-on-failure behavior (RQ v5 has no onError option).
   useEffect(() => {
-    void loadEvents();
-  }, [loadEvents]);
+    if (queryError) toast.error(queryError instanceof Error ? queryError.message : 'Failed to load events');
+  }, [queryError]);
+  useEffect(() => {
+    if (registrationsQuery.error) toast.error('Could not load your event registrations');
+  }, [registrationsQuery.error]);
+
+  // Called after a successful registration + by the retry button — refetch both.
+  const loadEvents = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['events'] });
+    if (token) await queryClient.invalidateQueries({ queryKey: ['my-registrations'] });
+  }, [queryClient, token]);
 
   const handleRegister = async (event: Event) => {
     const regStatus = getRegistrationStatus(event);

@@ -18,6 +18,11 @@ import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const announcementsRouter = Router();
 
+// Max body chars shipped in the LIST response (the detail route returns the full
+// body). Sized to comfortably cover the clamped one-line/short previews the list
+// consumers render, without shipping up to 20,000-char markdown per card.
+const BODY_PREVIEW_CHARS = 300;
+
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
 const announcementLinkSchema = z.object({
@@ -132,14 +137,24 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
     const shouldCount = !(offset === 0 && announcements.length < limit);
     const total = shouldCount ? await prisma.announcement.count({ where }) : announcements.length;
 
+    // `body` can be up to 20,000 chars; the two list consumers only render it as
+    // a clamped one-line preview fallback (AnnouncementsPage / DashboardOverview),
+    // so ship a truncated preview instead of the full markdown — the detail route
+    // (GET /:slug) still returns the complete body. Cuts up to ~20KB/row off this
+    // hot, cached public endpoint while preserving the preview fallback exactly.
+    const list = announcements.map((a) => ({
+      ...a,
+      body: a.body && a.body.length > BODY_PREVIEW_CHARS ? `${a.body.slice(0, BODY_PREVIEW_CHARS)}…` : a.body,
+    }));
+
     // Public list — no per-user fields, identical for every visitor.
     setSharedPublicCache(req, res, 60);
     res.json({
       success: true,
-      data: announcements,
+      data: list,
       pagination: { total, limit, offset },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });
   }
 });
@@ -183,9 +198,14 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
       },
     });
 
+    const list = announcements.map((a) => ({
+      ...a,
+      body: a.body && a.body.length > BODY_PREVIEW_CHARS ? `${a.body.slice(0, BODY_PREVIEW_CHARS)}…` : a.body,
+    }));
+
     setSharedPublicCache(req, res, 60);
-    res.json({ success: true, data: announcements });
-  } catch (error) {
+    res.json({ success: true, data: list });
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });
   }
 });
@@ -208,7 +228,7 @@ announcementsRouter.get('/:id', async (req: Request, res: Response) => {
     }
 
     res.json({ success: true, data: announcement });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcement' } });
   }
 });
@@ -386,7 +406,7 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
     if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
 
     res.json({ success: true, data: announcement, message: 'Announcement updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update announcement' } });
   }
 });
@@ -401,7 +421,7 @@ announcementsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (
     await prisma.announcement.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'announcement', req.params.id);
     res.json({ success: true, message: 'Announcement deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete announcement' } });
   }
 });

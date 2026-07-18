@@ -122,7 +122,7 @@ achievementsRouter.get('/', async (req: Request, res: Response) => {
       data: achievements,
       pagination: { total, limit, offset },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch achievements' } });
   }
 });
@@ -159,7 +159,7 @@ achievementsRouter.get('/latest', async (req: Request, res: Response) => {
 
     setSharedPublicCache(req, res, 60);
     res.json({ success: true, data: achievements });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch achievements' } });
   }
 });
@@ -197,7 +197,7 @@ achievementsRouter.get('/featured', async (req: Request, res: Response) => {
 
     setSharedPublicCache(req, res, 60);
     res.json({ success: true, data: achievements });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch featured achievements' } });
   }
 });
@@ -218,7 +218,7 @@ achievementsRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
     }
 
     res.json({ success: true, data: achievement });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch achievement' } });
   }
 });
@@ -353,7 +353,7 @@ achievementsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (r
     await prisma.achievement.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'achievement', req.params.id);
     res.json({ success: true, message: 'Achievement deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete achievement' } });
   }
 });

@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -682,6 +683,32 @@ function checkIpRateLimit(ip) {
 }
 
 // ---------------------------------------------------------------------------
+// Windowed request limiter for the authed CRUD routes (snippets / prefs /
+// session / history / admin). /api/execute keeps its own daily-quota metering
+// — this only caps the routes that previously had no per-window limit at all.
+// Keyed by the authenticated userId (optionalAuth runs globally, so req.user
+// is populated before route middlewares); falls back to the client IP for the
+// one public route it wraps (GET /api/snippets/shared/:token). Bounded map
+// swept at 2x the window, same pattern as ipExecCounts / execCache.
+// ---------------------------------------------------------------------------
+// express-rate-limit instance (its MemoryStore self-bounds per window — no manual
+// map/sweep needed) keyed by the authenticated userId, falling back to client IP
+// for the one public route it wraps. Standardized limiter that the security
+// tooling recognizes as a proper rate-limit control.
+const crudRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120, // generous — these are CRUD calls
+  standardHeaders: true,
+  legacyHeaders: false,
+  // We key primarily by verified userId, so IP-trust validation doesn't apply.
+  validate: { trustProxy: false, xForwardedForHeader: false },
+  keyGenerator: (req) => (req.user?.id
+    ? `u:${req.user.id}`
+    : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`),
+  message: { success: false, error: 'Too many requests. Please slow down and try again in a minute.' },
+});
+
+// ---------------------------------------------------------------------------
 // Security — blocked code patterns
 // ---------------------------------------------------------------------------
 const BLOCKED_PATTERNS = [
@@ -740,6 +767,10 @@ const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
 const EXECUTION_TIMEOUT = 15_000; // 15 seconds
 const MAX_OUTPUT_SIZE = 50_000; // 50 KB
 const MAX_STDIN_SIZE = 10 * 1024; // 10 KB
+// Hard cap on submitted code size, enforced BEFORE any regex scan so a large
+// body (express.json allows up to 1mb) can't burn security-pattern CPU. Far
+// beyond any legitimate playground program.
+const MAX_CODE_SIZE = 100_000; // 100 KB
 const COMPILER_OPTIONS_REGEX = /^[a-zA-Z0-9,+\-_. ]{0,120}$/;
 
 // ---------------------------------------------------------------------------
@@ -1124,19 +1155,21 @@ app.post('/api/execute', async (req, res) => {
       return res.status(400).json({ success: false, error: 'stdin is too large (max 10KB)' });
     }
 
+    // O(1) admission checks run BEFORE anything that scans the code (security
+    // regexes, hashing): a hard size cap first, then auth/quota/IP metering, so
+    // an anonymous flood of large bodies can't burn regex CPU.
+    if (typeof code !== 'string') {
+      return res.status(400).json({ success: false, error: 'code must be a string' });
+    }
+
+    if (code.length > MAX_CODE_SIZE) {
+      return res.status(400).json({ success: false, error: 'Code is too large (max 100KB)' });
+    }
+
     if (!COMPILERS[language]) {
       return res.status(400).json({
         success: false,
         error: `Language '${language}' not supported for cloud execution. Supported: ${SUPPORTED_LANGUAGES.join(', ')}`,
-      });
-    }
-
-    // Security check
-    const security = checkSecurityPatterns(code);
-    if (!security.safe) {
-      return res.status(400).json({
-        success: false,
-        error: 'This code contains patterns that are not allowed for security reasons.',
       });
     }
 
@@ -1227,6 +1260,16 @@ app.post('/api/execute', async (req, res) => {
       }
     }
 
+    // Security check — deliberately AFTER admission/metering (see above): only
+    // requests that passed the size cap and rate limits pay the regex scan.
+    const security = checkSecurityPatterns(code);
+    if (!security.safe) {
+      return res.status(400).json({
+        success: false,
+        error: 'This code contains patterns that are not allowed for security reasons.',
+      });
+    }
+
     const startMs = Date.now();
     const cacheScope = req.user?.id ? `user:${req.user.id}` : `ip:${requestIp}`;
 
@@ -1294,7 +1337,7 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // Auth profile endpoint used by playground UI fallback when main API auth check is unstable.
-app.get('/api/auth/me', requireAuth, async (req, res) => {
+app.get('/api/auth/me', requireAuth, crudRateLimit, async (req, res) => {
   try {
     if (!pool || !dbReady) {
       return res.status(503).json({ success: false, error: 'Database unavailable' });
@@ -1333,7 +1376,7 @@ function generateShareToken() {
   return crypto.randomBytes(8).toString('base64url');
 }
 
-app.post('/api/snippets', requireAuth, async (req, res) => {
+app.post('/api/snippets', requireAuth, crudRateLimit, async (req, res) => {
   const { title, language, code, isPublic = false } = req.body;
   if (!title || !language || !code) {
     return res.status(400).json({ success: false, error: 'title, language, and code are required' });
@@ -1357,7 +1400,7 @@ app.post('/api/snippets', requireAuth, async (req, res) => {
   return res.status(201).json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.get('/api/snippets', requireAuth, async (req, res) => {
+app.get('/api/snippets', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(
     `SELECT * FROM snippets WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 100`,
     [req.user.id]
@@ -1374,14 +1417,14 @@ app.get('/api/snippets/shared/:token', async (req, res) => {
   return res.json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.get('/api/snippets/:id', requireAuth, async (req, res) => {
+app.get('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
   return res.json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.put('/api/snippets/:id', requireAuth, async (req, res) => {
+app.put('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
@@ -1407,7 +1450,7 @@ app.put('/api/snippets/:id', requireAuth, async (req, res) => {
   return res.json({ success: true, data: mapSnippetRow(updated[0] || rows[0]) });
 });
 
-app.delete('/api/snippets/:id', requireAuth, async (req, res) => {
+app.delete('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT user_id FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
@@ -1434,7 +1477,7 @@ function mapSnippetRow(row) {
 // Execution History — last 15 per user (with code), all-time stats (no code)
 // ---------------------------------------------------------------------------
 
-app.get('/api/executions/history', requireAuth, async (req, res) => {
+app.get('/api/executions/history', requireAuth, crudRateLimit, async (req, res) => {
   if (pool) {
     const session = await getUserSession(req.user.id);
     return res.json({ success: true, data: session.history });
@@ -1458,7 +1501,7 @@ app.get('/api/executions/history', requireAuth, async (req, res) => {
   })) });
 });
 
-app.get('/api/executions/stats', requireAuth, async (req, res) => {
+app.get('/api/executions/stats', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     const session = await getUserSession(req.user.id);
@@ -1503,7 +1546,7 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
 });
 
 // Session bootstrap: one DB read on session start for both limit + history
-app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
+app.get('/api/session/bootstrap', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   // On tab reload / fresh login, force DB rehydrate so admin resets are reflected immediately.
   const session = await refreshUserSessionFromDatabase(req.user.id, 'session-bootstrap');
@@ -1531,7 +1574,7 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
 });
 
 // Preflight: check current session limit before execution starts
-app.get('/api/session/preflight', requireAuth, async (req, res) => {
+app.get('/api/session/preflight', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const session = await getUserSession(req.user.id);
   if (session.todayCount >= dailyLimit) {
@@ -1554,7 +1597,7 @@ app.get('/api/session/preflight', requireAuth, async (req, res) => {
 });
 
 // Record client-side execution into in-memory session cache
-app.post('/api/session/record', requireAuth, async (req, res) => {
+app.post('/api/session/record', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const { language, code = '', output = '', durationMs = 0, status = 'SUCCESS', executedAt } = req.body || {};
   if (!language) {
@@ -1610,7 +1653,7 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
 });
 
 // Session end: flush in-memory usage/history to DB once
-app.post('/api/session/end', requireAuth, async (req, res) => {
+app.post('/api/session/end', requireAuth, crudRateLimit, async (req, res) => {
   await flushUserSession(req.user.id, 'session-end');
   return res.json({ success: true, message: 'Session flushed' });
 });
@@ -1628,7 +1671,7 @@ function requireAdmin(req, res, next) {
 }
 
 /** Reset a specific user's daily execution limit */
-app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const { userId } = req.params;
   const { note = '' } = req.body;
 
@@ -1669,7 +1712,7 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
 });
 
 /** Get today's execution counts for all users (admin dashboard) */
-app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/execution-counts', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const rows = await dbQuery(
     `SELECT
@@ -1706,7 +1749,7 @@ app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, re
 });
 
 /** Debug a specific user's session usage: in-memory vs persisted DB */
-app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const { userId } = req.params;
   const dailyLimit = await getDailyExecutionLimit({ forceRefresh: true });
   const session = userSessions.get(userId) || null;
@@ -1756,7 +1799,7 @@ app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, async (re
 // ---------------------------------------------------------------------------
 const userPrefsMemory = new Map();
 
-app.get('/api/prefs', requireAuth, async (req, res) => {
+app.get('/api/prefs', requireAuth, crudRateLimit, async (req, res) => {
   const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
   // Try DB first
   const rows = await dbQuery(
@@ -1776,7 +1819,7 @@ app.get('/api/prefs', requireAuth, async (req, res) => {
   return res.json({ success: true, data: prefs });
 });
 
-app.put('/api/prefs', requireAuth, async (req, res) => {
+app.put('/api/prefs', requireAuth, crudRateLimit, async (req, res) => {
   const { theme, fontSize, keybinding, lastLanguage } = req.body;
   const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
   const existing = userPrefsMemory.get(req.user.id) || defaultPrefs;

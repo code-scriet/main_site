@@ -177,7 +177,7 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
         hasPassword: !!password,
       }
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch profile' } });
   }
 });
@@ -246,7 +246,7 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     invalidateCachedAuthUser(authUser.id);
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update profile' } });
   }
 });
@@ -322,7 +322,7 @@ usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: R
 
     await auditLog(authUser.id, 'CREATE', 'user', authUser.id, { action: 'password_added' });
     res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.', token: freshToken });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to add password' } });
   }
 });
@@ -360,7 +360,7 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { action: 'password_change' });
     res.json({ success: true, message: 'Password changed successfully', token: freshToken });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to change password' } });
   }
 });
@@ -385,7 +385,7 @@ usersRouter.get('/me/registrations', authMiddleware, async (req: Request, res: R
     });
 
     res.json({ success: true, data: registrations });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
@@ -433,7 +433,7 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
     });
 
     res.json({ success: true, data: users });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to search users' } });
   }
 });
@@ -442,7 +442,23 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
 usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
     const ExcelJS = await import('exceljs');
-    const workbook = new ExcelJS.default.Workbook();
+
+    // Streaming export (mirrors GET /api/quiz/:quizId/export): the buffered
+    // Workbook held the full-table cell graph AND the serialized buffer in RAM
+    // simultaneously — the queries below are cursor-batched, but the workbook
+    // itself still accumulated every row. The WorkbookWriter writes each
+    // committed row straight to `res`, so peak memory is bounded by one
+    // 500-row batch plus zip buffers. Headers must be set before the writer is
+    // constructed (it starts writing immediately); from here on, failures can
+    // only truncate the download, not return a JSON error.
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx"`);
+
+    const workbook = new ExcelJS.default.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
@@ -467,15 +483,27 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
       { header: 'Joined', key: 'joined', width: 22 },
     ];
 
-    // Style header row
-    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    worksheet.getRow(1).fill = {
+    // Streaming mode: committed rows are gone, so styles must be applied at
+    // add time (the old post-hoc `eachRow` border/fill pass doesn't exist here).
+    const thinBorder = {
+      top: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      bottom: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      left: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      right: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+    };
+
+    // Style header row (the old eachRow pass bordered row 1 too)
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFD97706' }, // Amber color
     };
-    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
-    worksheet.getRow(1).height = 25;
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    headerRow.height = 25;
+    headerRow.border = thinBorder;
+    headerRow.commit();
 
     // C1: the old single query exported only the 100 newest accounts while the
     // UI labels this "Export all users" — silent data loss in the artifact
@@ -523,7 +551,7 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
         else if (user.role === 'USER') roleCounts.USER += 1;
         if (user.profileCompleted) profilesCompleted += 1;
 
-        worksheet.addRow({
+        const row = worksheet.addRow({
           sno: serial,
           name: user.name,
           email: user.email,
@@ -540,49 +568,53 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
           linkedin: user.linkedinUrl || '',
           joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         });
+        // Alternating row colors (same parity as the old eachRow pass)
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+        };
+        row.border = thinBorder;
+        row.commit();
       }
 
       if (users.length < EXPORT_BATCH_SIZE) break;
     }
+    worksheet.commit();
 
-    // Add alternating row colors
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 1) {
-        row.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
-        };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
-
-    // Add summary sheet
+    // Add summary sheet — no header row; set widths directly (before any
+    // commit). Column-level font doesn't reach committed rows in streaming
+    // mode, so bold is applied per-cell instead.
     const summarySheet = workbook.addWorksheet('Summary');
-    summarySheet.addRow(['Total Users', serial]);
-    summarySheet.addRow(['Admins', roleCounts.ADMIN]);
-    summarySheet.addRow(['Core Members', roleCounts.CORE_MEMBER]);
-    summarySheet.addRow(['Members', roleCounts.USER]);
-    summarySheet.addRow(['Profiles Completed', profilesCompleted]);
-    summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
-
     summarySheet.getColumn(1).width = 20;
-    summarySheet.getColumn(1).font = { bold: true };
     summarySheet.getColumn(2).width = 30;
 
-    // Send Excel file
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx"`);
+    const summaryData: [string, string | number][] = [
+      ['Total Users', serial],
+      ['Admins', roleCounts.ADMIN],
+      ['Core Members', roleCounts.CORE_MEMBER],
+      ['Members', roleCounts.USER],
+      ['Profiles Completed', profilesCompleted],
+      ['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
+    ];
+    for (const [label, value] of summaryData) {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+      row.commit();
+    }
+    summarySheet.commit();
 
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('User export error:', { error: error instanceof Error ? error.message : String(error) });
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to export users' } });
   }
 });
@@ -865,7 +897,7 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     res.json({ success: true, data: targetUser });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch user' } });
   }
 });
@@ -985,7 +1017,7 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     socketEvents.userUpdated(user.id);
 
     res.json({ success: true, data: user, message: 'User profile updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update user profile' } });
   }
 });

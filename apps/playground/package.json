@@ -26,6 +26,7 @@
     "dotenv": "^17.3.1",
     "emmet-monaco-es": "^5.7.0",
     "express": "^5.2.1",
+    "express-rate-limit": "^7.1.5",
     "framer-motion": "^12.23.26",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",

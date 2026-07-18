@@ -333,6 +333,9 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
       expiresAt: p.expiresAt ? new Date(p.expiresAt) : undefined,
       createdById: auth.id,
     });
+    if (!created) {
+      return ApiResponse.internal(res, 'Failed to send notification');
+    }
     await auditLog(auth.id, 'NOTIFICATION_BROADCAST', 'notification', created.id, {
       audience: p.audience,
       audienceUserIds: p.audienceUserIds?.length ?? 0,

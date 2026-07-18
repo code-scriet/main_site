@@ -25,6 +25,7 @@ import { prisma } from '../apps/api/src/lib/prisma.js';
 import {
   computePruneCutoffs,
   isQuizAnswerPruningEnabled,
+  getAuditLogRetentionDays,
   pruneOldRecords,
   EXECUTION_RETENTION_DAYS,
   PLAYGROUND_USAGE_RETENTION_DAYS,
@@ -38,16 +39,20 @@ const DRY_RUN = process.argv.includes('--dry-run');
 async function main(): Promise<void> {
   const cutoffs = computePruneCutoffs();
   const quizEnabled = isQuizAnswerPruningEnabled();
+  const auditRetentionDays = getAuditLogRetentionDays();
+  const auditCutoff = auditRetentionDays !== null
+    ? new Date(Date.now() - auditRetentionDays * 24 * 60 * 60 * 1000)
+    : null;
 
   console.log(`Execution            cutoff: ${cutoffs.execution.toISOString()} (${EXECUTION_RETENTION_DAYS}d)`);
   console.log(`PlaygroundDailyUsage cutoff: ${cutoffs.playgroundUsage.toISOString()} (${PLAYGROUND_USAGE_RETENTION_DAYS}d)`);
   console.log(`NotificationFeed     cutoff: ${cutoffs.notificationFeed.toISOString()} (${NOTIFICATION_FEED_RETENTION_DAYS}d, or expired)`);
   console.log(`CompetitionAutoSave  cutoff: ${cutoffs.competitionAutoSave.toISOString()} (round FINISHED >${COMPETITION_AUTOSAVE_RETENTION_DAYS}d)`);
   console.log(`QuizAnswer           cutoff: ${cutoffs.quizAnswer.toISOString()} (${QUIZ_ANSWER_RETENTION_DAYS}d) — ${quizEnabled ? 'ENABLED' : 'disabled (set PRUNE_QUIZ_ANSWERS=true)'}`);
-  console.log('AuditLog: NOT pruned (manual /api/audit-logs/retention only).');
+  console.log(`AuditLog             cutoff: ${auditCutoff ? `${auditCutoff.toISOString()} (${auditRetentionDays}d) — ENABLED` : 'disabled (set AUDIT_LOG_RETENTION_DAYS>=30); manual /api/audit-logs/retention still available'}`);
 
   if (DRY_RUN) {
-    const [executions, dailyUsage, notificationFeed, competitionAutoSaves, quizAnswers] = await Promise.all([
+    const [executions, dailyUsage, notificationFeed, competitionAutoSaves, quizAnswers, auditLogs] = await Promise.all([
       prisma.execution.count({ where: { executedAt: { lt: cutoffs.execution } } }),
       prisma.playgroundDailyUsage.count({ where: { usageDate: { lt: cutoffs.playgroundUsage } } }),
       prisma.notificationFeed.count({
@@ -64,10 +69,13 @@ async function main(): Promise<void> {
       quizEnabled
         ? prisma.quizAnswer.count({ where: { submittedAt: { lt: cutoffs.quizAnswer } } })
         : Promise.resolve(0),
+      auditCutoff
+        ? prisma.auditLog.count({ where: { timestamp: { lt: auditCutoff } } })
+        : Promise.resolve(0),
     ]);
     console.log(
       `[dry-run] would delete: ${executions} execution(s), ${dailyUsage} daily-usage, ` +
-      `${notificationFeed} notification(s), ${competitionAutoSaves} autosave(s), ${quizAnswers} quiz-answer(s)`,
+      `${notificationFeed} notification(s), ${competitionAutoSaves} autosave(s), ${quizAnswers} quiz-answer(s), ${auditLogs} audit-log(s)`,
     );
     return;
   }
@@ -75,7 +83,7 @@ async function main(): Promise<void> {
   const result = await pruneOldRecords();
   console.log(
     `Deleted: ${result.executions} execution(s), ${result.dailyUsage} daily-usage, ` +
-    `${result.notificationFeed} notification(s), ${result.competitionAutoSaves} autosave(s), ${result.quizAnswers} quiz-answer(s)`,
+    `${result.notificationFeed} notification(s), ${result.competitionAutoSaves} autosave(s), ${result.quizAnswers} quiz-answer(s), ${result.auditLogs} audit-log(s)`,
   );
 }
 

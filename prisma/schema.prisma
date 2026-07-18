@@ -811,6 +811,9 @@ model AuditLog {
   // Serves the default unfiltered admin browse (ORDER BY timestamp DESC LIMIT n)
   // and future retention pruning — the composite indexes above can't.
   @@index([timestamp(sort: Desc)], map: "audit_logs_timestamp_desc_idx")
+  // Serves the notification bell's per-user system-events read
+  // (routes/notifications.ts — entity + entityId filter ordered by timestamp).
+  @@index([entity, entityId, timestamp])
   @@map("audit_logs")
 }
 
@@ -1370,6 +1373,9 @@ model ProblemSubmission {
   @@index([contextType, contextKey])
   @@index([userId, submittedAt])
   @@index([needsReview, updatedAt])
+  // Serves the admin dashboard's AC-rate · 7d groupBy (routes/stats.ts — a bare
+  // submittedAt range scan the composite indexes above can't satisfy).
+  @@index([submittedAt])
   @@map("problem_submissions")
 }
 

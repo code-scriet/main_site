@@ -286,7 +286,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
     }
 
     res.json({ success: true, data: settings });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch settings' } });
   }
 });
@@ -311,7 +311,7 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     res.json({ success: true, data: sanitizeSettingsForResponse(settings) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch settings' } });
   }
 });
@@ -439,7 +439,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update settings' } });
   }
 });
@@ -852,7 +852,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: `Setting ${key} updated successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update setting' } });
   }
 });
@@ -894,7 +894,7 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
 
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { action: 'reset' });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings reset to defaults' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to reset settings' } });
   }
 });

@@ -118,7 +118,7 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
         actions: filterActions,
       },
     });
-  } catch (error) {
+  } catch {
     ApiResponse.internal(res, 'Failed to fetch audit logs');
   }
 });
@@ -144,7 +144,7 @@ auditRouter.delete('/retention', authMiddleware, requireRole('ADMIN'), async (re
     });
 
     ApiResponse.success(res, { deleted: deleted.count, olderThan: cutoff.toISOString() });
-  } catch (error) {
+  } catch {
     ApiResponse.internal(res, 'Failed to delete old audit logs');
   }
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -22,7 +23,7 @@ import {
   Trophy,
   Rocket,
 } from 'lucide-react';
-import { api, type AuthProviders, type NetworkProfile, type NetworkConnectionType } from '@/lib/api';
+import { api, type AuthProviders, type NetworkConnectionType } from '@/lib/api';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -86,11 +87,6 @@ export default function NetworkPage() {
   const prefersReducedMotion = useReducedMotion();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
 
-  const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
-  const [industries, setIndustries] = useState<string[]>([]);
-  const [connectionTypes, setConnectionTypes] = useState<NetworkConnectionType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [joiningNetwork, setJoiningNetwork] = useState(false);
   const [providers, setProviders] = useState<AuthProviders | null>(null);
 
@@ -170,26 +166,22 @@ export default function NetworkPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const fetchProfiles = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await api.getNetworkProfiles();
-        setProfiles(data.profiles);
-        setIndustries(data.filters.industries);
-        setConnectionTypes(data.filters.connectionTypes);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load network');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (settings?.showNetwork !== false) {
-      fetchProfiles();
-    }
-  }, [settings?.showNetwork]);
+  // React Query so the public network directory rides the app's 5-min cache.
+  // Gated on the network being enabled (mirrors the old `showNetwork !== false`
+  // guard); a disabled network redirects via the effect above.
+  const networkEnabled = settings?.showNetwork !== false;
+  const { data: networkData, isLoading, error: queryError } = useQuery({
+    queryKey: ['network-profiles'],
+    queryFn: () => api.getNetworkProfiles(),
+    enabled: networkEnabled,
+  });
+  // Memoized so the derived arrays keep a stable reference across renders (they
+  // feed the filtering useMemo below — a fresh array each render would defeat it).
+  const profiles = useMemo(() => networkData?.profiles ?? [], [networkData]);
+  const industries = useMemo(() => networkData?.filters.industries ?? [], [networkData]);
+  const connectionTypes = useMemo(() => networkData?.filters.connectionTypes ?? [], [networkData]);
+  const loading = networkEnabled && isLoading;
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load network') : null;
 
   const { visibleProfiles, featuredProfiles, industryProfessionals, alumni, counts } = useMemo(() => {
     const baseFiltered = profiles.filter((profile) => {
