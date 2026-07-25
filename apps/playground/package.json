@@ -33,7 +33,7 @@
     "monaco-editor": "^0.52.2",
     "pg": "^8.21.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^2.1.7",
     "react-router-dom": "^7.13.0",
