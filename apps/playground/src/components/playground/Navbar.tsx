@@ -17,6 +17,7 @@ import { useAuth, getLoginUrl } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/components/ui/button';
 import { MobileSheet } from '@/components/ui/mobile-sheet';
+import { safeImageSrc } from '@/lib/safeImageSrc';
 import { cn } from '@/lib/utils';
 
 const MAIN_SITE_URL =
@@ -28,6 +29,11 @@ export function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // `user.avatar` can originate from an UNVERIFIED JWT payload decoded out of
+  // the URL hash (AuthContext's optimistic user), so it is attacker-influenced
+  // input reaching a DOM URL sink. Allowlist the scheme before it hits `src`;
+  // a rejected URL falls through to the initials avatar.
+  const avatarSrc = safeImageSrc(user?.avatar);
 
   const openCommandPalette = () => {
     window.dispatchEvent(new Event('playground:command-palette'));
@@ -96,8 +102,8 @@ export function Navbar() {
               onClick={() => setMenuOpen((open) => !open)}
               className="flex h-8 items-center gap-2 rounded border border-zinc-200 px-1.5 pr-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-900"
             >
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.name} className="h-5 w-5 rounded-full" />
+              {avatarSrc ? (
+                <img src={avatarSrc} alt={user.name} className="h-5 w-5 rounded-full" />
               ) : (
                 <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-400 text-[10px] font-bold text-amber-950">
                   {user.name?.charAt(0).toUpperCase() || 'U'}
@@ -149,8 +155,8 @@ export function Navbar() {
         <div className="p-2">
           {isAuthenticated && user && (
             <div className="mb-1 flex items-center gap-3 px-3 py-3">
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.name} className="h-9 w-9 rounded-full" />
+              {avatarSrc ? (
+                <img src={avatarSrc} alt={user.name} className="h-9 w-9 rounded-full" />
               ) : (
                 <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-400 text-sm font-bold text-amber-950">
                   {user.name?.charAt(0).toUpperCase() || 'U'}

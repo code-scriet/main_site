@@ -6,7 +6,12 @@ import { cn } from '@/lib/utils';
 export interface MobileSheetProps {
   open: boolean;
   onClose: () => void;
-  title?: string;
+  /**
+   * Required: it is both the visible heading and the dialog's accessible name
+   * (`aria-label`). Optional would let a caller ship a dialog that announces
+   * nothing to a screen reader, and every call site has a natural title anyway.
+   */
+  title: string;
   children: React.ReactNode;
   /** Which edge it slides from. Defaults to the bottom (thumb-reachable). */
   side?: 'bottom' | 'left';
@@ -42,9 +47,14 @@ export function MobileSheet({ open, onClose, title, children, side = 'bottom', c
   return createPortal(
     <div
       className="fixed inset-0 z-[80] flex bg-zinc-950/50 backdrop-blur-[2px]"
-      // Only a press that both starts and ends on the scrim closes it, so a
-      // drag that began inside the sheet can't dismiss it on release.
-      onMouseDown={(event) => {
+      // Pointer events, not mouse events: touch browsers only synthesise
+      // mousedown as a compatibility event, and it is suppressed outright when
+      // something upstream has preventDefault'd the touch sequence — which
+      // would leave outside-tap-to-dismiss silently broken on exactly the
+      // devices this sheet exists for. `pointerdown` covers touch, pen and
+      // mouse uniformly, and still fires on press rather than release, so a
+      // drag that began inside the sheet can't dismiss it.
+      onPointerDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
       style={side === 'bottom' ? { alignItems: 'flex-end' } : { alignItems: 'stretch' }}
