@@ -90,17 +90,17 @@ export default function SnippetsPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-warmwhite text-zinc-950 dark:bg-inknight dark:text-zinc-50">
+    <div className="h-app flex flex-col bg-warmwhite text-zinc-950 dark:bg-inknight dark:text-zinc-50">
       <Navbar />
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mx-auto max-w-6xl px-3 py-6 pb-safe sm:px-4 sm:py-8">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex items-start gap-3">
               <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="h-8 w-8">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <div>
-                <h1 className="font-display text-3xl font-semibold tracking-tight">Snippets</h1>
+                <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Snippets</h1>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                   {snippets.length} saved snippet{snippets.length === 1 ? '' : 's'} across your playground sessions.
                 </p>
@@ -120,15 +120,15 @@ export default function SnippetsPage() {
                 placeholder="Search snippets..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="h-9 w-full rounded border border-zinc-200 bg-warmwhite pl-9 pr-20 text-sm outline-none focus:ring-2 focus:ring-amber-400/40 dark:border-zinc-800 dark:bg-inknight"
+                className="h-11 w-full rounded border border-zinc-200 bg-warmwhite pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-amber-400/40 sm:h-9 sm:pr-20 dark:border-zinc-800 dark:bg-inknight"
               />
-              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-800">⌘K</kbd>
+              <kbd className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 sm:block dark:border-zinc-800">⌘K</kbd>
             </div>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex gap-1 overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setFilterLang('all')}
-                className={`h-8 rounded px-3 text-xs font-medium ${filterLang === 'all' ? 'bg-amber-400 text-amber-950' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300'}`}
+                className={`h-10 shrink-0 rounded px-3 text-xs font-medium ${filterLang === 'all' ? 'bg-amber-400 text-amber-950' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300'}`}
               >
                 All {snippets.length}
               </button>
@@ -137,7 +137,7 @@ export default function SnippetsPage() {
                   key={language}
                   type="button"
                   onClick={() => setFilterLang(language)}
-                  className={`h-8 rounded px-3 text-xs font-medium ${filterLang === language ? 'bg-amber-400 text-amber-950' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300'}`}
+                  className={`h-10 shrink-0 rounded px-3 text-xs font-medium ${filterLang === language ? 'bg-amber-400 text-amber-950' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300'}`}
                 >
                   {LANG_ICONS[language] || '📄'} {language} {count}
                 </button>
@@ -146,7 +146,7 @@ export default function SnippetsPage() {
             <select
               value={sort}
               onChange={(event) => setSort(event.target.value as typeof sort)}
-              className="h-9 rounded border border-zinc-200 bg-warmwhite px-3 text-sm outline-none dark:border-zinc-800 dark:bg-inknight"
+              className="h-11 rounded border border-zinc-200 bg-warmwhite px-3 text-sm outline-none sm:h-9 dark:border-zinc-800 dark:bg-inknight"
             >
               <option value="updated">Recently updated</option>
               <option value="created">Recently created</option>
@@ -184,15 +184,15 @@ export default function SnippetsPage() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Open" onClick={() => handleLoadInEditor(snippet)}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9" title="Open" onClick={() => handleLoadInEditor(snippet)}>
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
                       {snippet.isPublic && snippet.shareToken && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy share link" onClick={() => handleCopyShareLink(snippet)}>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" title="Copy share link" onClick={() => handleCopyShareLink(snippet)}>
                           <Share2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" title="Delete" onClick={() => handleDelete(snippet.id, snippet.title)}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-red-500 hover:text-red-600" title="Delete" onClick={() => handleDelete(snippet.id, snippet.title)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>

@@ -627,6 +627,19 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 - Pre-flight `isUserBlocked(userId, 'QUIZ')` (and feature-equivalent) in `POST /api/execute`, fail-opens on pre-migration `42P01`.
 - Shares JWT secret with main API, reads `scriet_session` cookie.
 
+### Mobile / touch layouts (Aug 2026 — phone-complete)
+
+Every playground task (write code, Test Run, Submit, contest solve) is reachable from a phone. The rule is **one visible pane at a time + a sticky bottom action bar**; the desktop layouts are unchanged and still render at their old breakpoints.
+
+- **Breakpoints:** `useIsMobile()` = `md` (<768) · `useIsCompact()` = `lg` (<1024) · `useTouchEditor()` = narrow **or** `(pointer: coarse)` — all in [apps/playground/src/hooks/useMediaQuery.ts](apps/playground/src/hooks/useMediaQuery.ts) (`useSyncExternalStore`, so the correct layout renders on the first pass — no mount-effect flash). Layout branches **conditionally render** rather than CSS-hide, so a second Monaco instance is never mounted.
+- **Viewport height:** every full-screen shell uses **`.h-app`**, never `h-screen`. `100vh` on mobile is the *expanded* viewport (it ignores the URL bar) and pushes bottom bars off-screen; `.h-app` cascades `100vh → 100svh → 100dvh` (index.css, plus `.min-h-app` / `.max-h-sheet` / `.pb-safe` / `.no-scrollbar`). Bottom bars pad with `env(safe-area-inset-bottom)` via `.pb-safe`.
+- **iOS zoom-on-focus** is killed app-wide by a `@media (pointer: coarse)` rule forcing 16px on real form controls (`!important` — Tailwind's `text-sm` would otherwise win), with Monaco's hidden IME textarea explicitly excluded so cursor/composition metrics stay correct.
+- **Monaco touch profile:** `getEditorOptions({ touch, fontSize })` ([lib/monacoEditor.ts](apps/playground/src/lib/monacoEditor.ts)) layers `MOBILE_MONACO_OVERRIDES` on the base options — no folding/glyph margin/overview ruler (reclaims width), no hover/context-menu popups, grabbable scrollbars, `fontSize` floored at 16, and critically **`acceptSuggestionOnEnter: 'off'` + `tabCompletion: 'off'`** so Enter always makes a newline and Tab always indents.
+- **`MobileKeyBar`** ([components/playground/MobileKeyBar.tsx](apps/playground/src/components/playground/MobileKeyBar.tsx)) — the `{}()[]<>;:` row phone keyboards bury. Keys `preventDefault()` on **mousedown only** (the synthetic event a tap fires) so the editor keeps focus and the soft keyboard never closes; NOT on pointerdown/touchstart, which would cancel the rail's own horizontal scroll. Insertion goes through `editorHistory.insertText` → Monaco's core `type` handler (auto-close pairs + auto-indent), with an `executeEdits` fallback guarded on the **model version id** (a length check would double-insert when typing over a 1-char selection).
+- **Surfaces:** `QOTDSolverShell` below `lg` = compact header + meta sheet, a 5-chip pane rail (Code/Problem/Result/Tests/Solution), and a sticky **Test Run + Submit** bar visible from every pane. `PlaygroundPage` below `md` = Code/Output/Input panes + `MobileActionBar` (language `<select>` + Run + overflow sheet); the desktop `Toolbar` is not rendered there (nor in compact problem mode, where the solver header duplicates it). `ContestArenaPage` below `lg` = problem rail → picker sheet, clarifications → header button + sheet. `CompetitionPage` below `lg` = Editor/Preview tabs instead of the side-by-side `PanelGroup`.
+- **Shared action logic:** [hooks/usePlaygroundActions.ts](apps/playground/src/hooks/usePlaygroundActions.ts) owns run/save/copy/download/reset/fullscreen for BOTH the desktop `Toolbar` and `MobileActionBar`. It deliberately does **not** register keyboard shortcuts — `PlaygroundPage` registers them once (a second registration would double-fire Run) and withholds every editor-targeting shortcut in problem mode, where the free-playground editor is unmounted.
+- **iOS proctoring:** iPhone/iPad Safari has no `Element.requestFullscreen`. `isFullscreenSupported()` ([hooks/useProctor.ts](apps/playground/src/hooks/useProctor.ts)) gates the arena's fullscreen wall — without it a phone contestant was locked out of a proctored round behind a button that could never succeed. Tab-away detection, clipboard blocking and the server-side lock are unaffected.
+
 ---
 
 ## Critical Patterns (always relevant)
@@ -784,6 +797,11 @@ CORS subdomain wildcard removed (explicit allowlist) · URL sanitization XSS (st
 | Resource routers | [apps/api/src/routes/](apps/api/src/routes/) |
 | DB schema | [prisma/schema.prisma](prisma/schema.prisma) |
 | Playground executor | [apps/playground/execute-server.js](apps/playground/execute-server.js) |
+| Playground breakpoint hooks | [apps/playground/src/hooks/useMediaQuery.ts](apps/playground/src/hooks/useMediaQuery.ts) |
+| Playground toolbar actions (shared desktop/mobile) | [apps/playground/src/hooks/usePlaygroundActions.ts](apps/playground/src/hooks/usePlaygroundActions.ts) |
+| Mobile coding key bar | [apps/playground/src/components/playground/MobileKeyBar.tsx](apps/playground/src/components/playground/MobileKeyBar.tsx) |
+| Mobile bottom action bar | [apps/playground/src/components/playground/MobileActionBar.tsx](apps/playground/src/components/playground/MobileActionBar.tsx) |
+| Mobile sheet primitive | [apps/playground/src/components/ui/mobile-sheet.tsx](apps/playground/src/components/ui/mobile-sheet.tsx) |
 | CF Worker | [workers/executor.js](workers/executor.js) |
 | Frontend API client | [apps/web/src/lib/api.ts](apps/web/src/lib/api.ts) |
 | Frontend routes | [apps/web/src/App.tsx](apps/web/src/App.tsx) |

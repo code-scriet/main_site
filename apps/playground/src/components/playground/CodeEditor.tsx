@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useEditorHistoryContext } from '@/hooks/useEditorHistory';
-import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
+import { useTouchEditor } from '@/hooks/useMediaQuery';
+import { getEditorOptions, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { Loader2 } from 'lucide-react';
 
 const COACH_STORAGE_KEY = 'playground:coached';
@@ -12,6 +13,7 @@ export function CodeEditor() {
   const { code, setCode, language, fontSize } = usePlayground();
   const { editorTheme } = useTheme();
   const { handleMount } = useEditorHistoryContext();
+  const touchEditor = useTouchEditor();
   const [showCoach, setShowCoach] = useState(() => localStorage.getItem(COACH_STORAGE_KEY) !== '1');
 
   const dismissCoach = () => {
@@ -56,7 +58,7 @@ export function CodeEditor() {
         onMount={handleMount}
         beforeMount={registerMonacoEmmet}
         theme={editorTheme}
-        options={{ ...BASE_MONACO_EDITOR_OPTIONS, fontSize }}
+        options={getEditorOptions({ touch: touchEditor, fontSize })}
         loading={
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />

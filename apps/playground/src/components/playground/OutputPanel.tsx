@@ -22,10 +22,81 @@ import { CLIENT_SUPPORTED_LANGUAGES } from '@/engines/types';
 
 type Tab = 'output' | 'history' | 'tests';
 
-export function OutputPanel() {
+export interface OutputPanelProps {
+  /**
+   * Phone layout moves stdin to its own pane (a collapsible block inside an
+   * already-short output area is unusable on a 360px screen), so it is hidden
+   * here and rendered by `StdinPanel` instead.
+   */
+  showStdin?: boolean;
+}
+
+/**
+ * Standalone stdin editor. Shared by the desktop OutputPanel (collapsible) and
+ * the phone layout's dedicated "Input" pane.
+ */
+export function StdinPanel({ alwaysOpen = false }: { alwaysOpen?: boolean }) {
+  const { stdin, setStdin, language } = usePlayground();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
+  const [collapsed, setCollapsed] = useState(!alwaysOpen);
+
+  // Auto-expand when switching to a cloud-only language (C/C++/Java), where all
+  // input must be supplied upfront.
+  useEffect(() => {
+    if (isCloudOnly) setCollapsed(false);
+  }, [isCloudOnly]);
+
+  const open = alwaysOpen || !collapsed;
+
+  return (
+    <div
+      className={cn(
+        'transition-colors',
+        alwaysOpen ? 'flex h-full flex-col' : 'order-last border-t',
+        isDark ? 'bg-inknight' : 'bg-warmwhite',
+      )}
+    >
+      {!alwaysOpen && (
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex min-h-[2.75rem] w-full items-center justify-between px-4 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+        >
+          <span>
+            {collapsed ? '+ Add input (stdin)   ⌘I' : 'Input (stdin)'}
+            {isCloudOnly && <span className="ml-2 font-normal">required for {language.name} input</span>}
+          </span>
+          {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+        </button>
+      )}
+      {open && (
+        <div className={cn('px-4 pb-3', alwaysOpen && 'flex min-h-0 flex-1 flex-col pt-3')}>
+          {isCloudOnly && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {language.name} runs on a remote server — provide all input upfront (one value per line).
+            </p>
+          )}
+          <Textarea
+            value={stdin}
+            onChange={(e) => setStdin(e.target.value)}
+            placeholder={isCloudOnly
+              ? `Enter all input values, one per line (e.g. for scanf/cin)...`
+              : 'Enter input for your program...'}
+            className={cn(
+              'resize-none font-mono text-sm',
+              alwaysOpen ? 'min-h-0 flex-1' : 'min-h-[70px]',
+              isDark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white',
+            )}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
   const {
-    stdin,
-    setStdin,
     output,
     error,
     isRunning,
@@ -70,14 +141,7 @@ export function OutputPanel() {
   }, [hasRunOutput, isRunning, failed, executionTime]);
 
   const isWebLanguage = language.id === 'web';
-  const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
   const isDark = theme === 'dark';
-  const [stdinCollapsed, setStdinCollapsed] = useState(true);
-
-  // Auto-expand stdin when switching to a cloud-only language (C/C++/Java)
-  useEffect(() => {
-    if (isCloudOnly) setStdinCollapsed(false);
-  }, [isCloudOnly]);
   const [activeTab, setActiveTab] = useState<Tab>('output');
   const [interactiveInput, setInteractiveInput] = useState('');
   const inputFieldRef = useRef<HTMLInputElement>(null);
@@ -181,42 +245,7 @@ export function OutputPanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Input Section */}
-      {!isWebLanguage && (
-        <div className={cn(
-          'order-last border-t transition-colors',
-          isDark ? 'bg-inknight' : 'bg-warmwhite'
-        )}>
-          <button
-            onClick={() => setStdinCollapsed(!stdinCollapsed)}
-            className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-          >
-            <span>{stdinCollapsed ? '+ Add input (stdin)   ⌘I' : 'Input (stdin)'}{isCloudOnly && <span className="ml-2 font-normal">required for {language.name} input</span>}</span>
-            {stdinCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-          </button>
-          {!stdinCollapsed && (
-            <div className="px-4 pb-3">
-              {isCloudOnly && (
-                <p className="text-xs text-muted-foreground mb-2">
-                  {language.name} runs on a remote server — provide all input upfront (one value per line).
-                </p>
-              )}
-              <Textarea
-                value={stdin}
-                onChange={(e) => setStdin(e.target.value)}
-                placeholder={isCloudOnly
-                  ? `Enter all input values, one per line (e.g. for scanf/cin)...`
-                  : 'Enter input for your program...'}
-                className={cn(
-                  'min-h-[70px] font-mono text-sm resize-none',
-                  isDark
-                    ? 'bg-zinc-950 border-zinc-800'
-                    : 'bg-white border-zinc-200'
-                )}
-              />
-            </div>
-          )}
-        </div>
-      )}
+      {!isWebLanguage && showStdin && <StdinPanel />}
 
       {/* Output / History Section */}
       <div className="flex-1 flex flex-col min-h-0">
@@ -234,7 +263,7 @@ export function OutputPanel() {
                 <button
                   onClick={() => setActiveTab('output')}
                   className={cn(
-                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
+                    'relative flex min-h-[2.25rem] items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors',
                     activeTab === 'output'
                       ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
@@ -248,7 +277,7 @@ export function OutputPanel() {
                 <button
                   onClick={() => setActiveTab('history')}
                   className={cn(
-                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
+                    'relative flex min-h-[2.25rem] items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors',
                     activeTab === 'history'
                       ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
@@ -266,7 +295,7 @@ export function OutputPanel() {
                 <button
                   onClick={() => setActiveTab('tests')}
                   className={cn(
-                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
+                    'relative flex min-h-[2.25rem] items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors',
                     activeTab === 'tests'
                       ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'

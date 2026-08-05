@@ -6,9 +6,12 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { Loader2, Trophy, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
+import { MobileKeyBar } from '@/components/playground/MobileKeyBar';
+import { getEditorOptions, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { cn } from '@/lib/utils';
 import { getMainSiteOrigin, requestMainApiJson } from '@/lib/utils';
+import { useEditorHistory } from '@/hooks/useEditorHistory';
+import { useIsCompact, useTouchEditor } from '@/hooks/useMediaQuery';
 import { useProctor } from '@/hooks/useProctor';
 import { toast } from 'sonner';
 
@@ -122,6 +125,12 @@ export default function CompetitionPage() {
   const [pollTick, setPollTick] = useState(0);
   // Tick counter to re-render "Saved Xs ago" display every 10 seconds
   const [displayTick, setDisplayTick] = useState(0);
+  // Below `lg` a side-by-side editor + preview leaves ~180px per column — both
+  // useless. The build editor becomes one pane at a time with a tab switch.
+  const compact = useIsCompact();
+  const touchEditor = useTouchEditor();
+  const [compactPane, setCompactPane] = useState<'editor' | 'preview'>('editor');
+  const editorHistory = useEditorHistory();
 
   const lastSavedCodeRef = useRef(HTML_BOILERPLATE);
   const latestCodeRef = useRef(HTML_BOILERPLATE);
@@ -519,7 +528,7 @@ export default function CompetitionPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background px-4">
+      <div className="h-app flex items-center justify-center bg-background px-4">
         <div className="max-w-md w-full rounded-xl border border-border bg-card p-6 text-center space-y-3">
           <AlertCircle className="h-8 w-8 text-amber-500 mx-auto" />
           <h1 className="text-xl font-semibold">Sign in required</h1>
@@ -531,7 +540,7 @@ export default function CompetitionPage() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
+      <div className="h-app flex items-center justify-center bg-background">
         <Loader2 className="h-9 w-9 animate-spin text-primary" />
       </div>
     );
@@ -539,7 +548,7 @@ export default function CompetitionPage() {
 
   if (error || !round) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background px-4">
+      <div className="h-app flex items-center justify-center bg-background px-4">
         <div className="max-w-2xl w-full rounded-xl border border-red-300 bg-red-50 p-6 space-y-2">
           <h1 className="text-lg font-semibold text-red-700">{accessDenied ? 'Not authorized' : 'Unable to load round'}</h1>
           <p className="text-sm text-red-600">{error || 'Unknown error'}</p>
@@ -550,7 +559,7 @@ export default function CompetitionPage() {
 
   if (round.status === 'DRAFT') {
     return (
-      <div className="h-screen bg-background flex items-center justify-center p-4">
+      <div className="h-app bg-background flex items-center justify-center p-4">
         <div className="max-w-3xl w-full rounded-xl border border-border bg-card p-6 space-y-4 text-center">
           <h1 className="text-2xl font-bold flex items-center justify-center gap-2">
             <Trophy className="h-6 w-6 text-primary" />
@@ -580,8 +589,42 @@ export default function CompetitionPage() {
       : 'Results are published.';
   const submissionMethod = submission?.isAutoSubmit ? 'Auto-submitted at expiry' : 'Manual submit';
 
+  // Defined once and placed by whichever layout branch renders, so switching
+  // panes/breakpoints never mounts a second Monaco instance or iframe.
+  const buildEditor = (
+    <Editor
+      height="100%"
+      language="html"
+      value={code}
+      beforeMount={registerMonacoEmmet}
+      onMount={editorHistory.handleMount}
+      onChange={(value) => {
+        if (isReadOnly) return;
+        const nextCode = value ?? '';
+        latestCodeRef.current = nextCode;
+        setCode(nextCode);
+        if (nextCode !== lastSavedCodeRef.current) {
+          setIsDirty(true);
+        }
+      }}
+      options={getEditorOptions({ touch: touchEditor, fontSize: 14, readOnly: isReadOnly || proctorLocked })}
+      theme={editorTheme}
+    />
+  );
+
+  // sandbox without allow-scripts: renders HTML/CSS safely, blocks JS execution
+  // (prevents infinite loops, alert bombs, parent-frame access in user code).
+  const previewFrame = (
+    <iframe
+      title="competition-preview"
+      sandbox=""
+      srcDoc={code}
+      className="w-full h-full border-0"
+    />
+  );
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-warmwhite dark:bg-inknight">
+    <div className="h-app flex flex-col overflow-hidden bg-warmwhite dark:bg-inknight">
       <div className="h-14 border-b border-zinc-200 px-3 sm:px-4 flex items-center justify-between gap-3 bg-warmwhite dark:border-zinc-800 dark:bg-inknight">
         <div className="min-w-0">
           <p className="text-sm font-semibold truncate text-zinc-950 dark:text-zinc-50">{round.title}</p>
@@ -670,47 +713,63 @@ export default function CompetitionPage() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <PanelGroup direction="horizontal" className="h-full">
-          <Panel defaultSize={50} minSize={25}>
-            <div className="h-full border-r border-border">
-              <Editor
-                height="100%"
-                language="html"
-                value={code}
-                beforeMount={registerMonacoEmmet}
-                onChange={(value) => {
-                  if (isReadOnly) return;
-                  const nextCode = value ?? '';
-                  latestCodeRef.current = nextCode;
-                  setCode(nextCode);
-                  if (nextCode !== lastSavedCodeRef.current) {
-                    setIsDirty(true);
-                  }
-                }}
-                options={{ ...BASE_MONACO_EDITOR_OPTIONS, readOnly: isReadOnly || proctorLocked, fontSize: 14 }}
-                theme={editorTheme}
-              />
-            </div>
-          </Panel>
-          <PanelResizeHandle className="w-1 bg-border hover:bg-primary/60 transition-colors cursor-col-resize" />
-          <Panel defaultSize={50} minSize={25}>
-            <div className="h-full bg-white">
-              {/* sandbox without allow-scripts: renders HTML/CSS safely, blocks JS execution
-                 (prevents infinite loops, alert bombs, parent-frame access in user code) */}
-              <iframe
-                title="competition-preview"
-                sandbox=""
-                srcDoc={code}
-                className="w-full h-full border-0"
-              />
-            </div>
-          </Panel>
-        </PanelGroup>
-      </div>
+      {compact && (
+        <div
+          role="tablist"
+          aria-label="Build panes"
+          className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5"
+        >
+          {(['editor', 'preview'] as const).map((pane) => (
+            <button
+              key={pane}
+              type="button"
+              role="tab"
+              aria-selected={compactPane === pane}
+              onClick={() => setCompactPane(pane)}
+              className={cn(
+                'h-9 flex-1 rounded-full px-3 text-[12.5px] font-semibold capitalize transition',
+                compactPane === pane
+                  ? 'bg-amber-400 text-amber-950'
+                  : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800',
+              )}
+            >
+              {pane}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="lg:hidden border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-        Tip: rotate to landscape for side-by-side editor and preview.
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {compact ? (
+          compactPane === 'editor' ? (
+            <div className="flex h-full flex-col">
+              <div className="min-h-0 flex-1">{buildEditor}</div>
+              {!isReadOnly && !proctorLocked && (
+                <MobileKeyBar
+                  onInsert={editorHistory.insertText}
+                  onIndent={editorHistory.indent}
+                  onOutdent={editorHistory.outdent}
+                  onUndo={editorHistory.undo}
+                  onRedo={editorHistory.redo}
+                  canUndo={editorHistory.canUndo}
+                  canRedo={editorHistory.canRedo}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="h-full bg-white">{previewFrame}</div>
+          )
+        ) : (
+          <PanelGroup direction="horizontal" className="h-full">
+            <Panel defaultSize={50} minSize={25}>
+              <div className="h-full border-r border-border">{buildEditor}</div>
+            </Panel>
+            <PanelResizeHandle className="w-1 bg-border hover:bg-primary/60 transition-colors cursor-col-resize" />
+            <Panel defaultSize={50} minSize={25}>
+              <div className="h-full bg-white">{previewFrame}</div>
+            </Panel>
+          </PanelGroup>
+        )}
       </div>
 
       <div className="hidden lg:flex h-8 border-t border-border px-3 sm:px-4 items-center justify-between text-xs text-muted-foreground">

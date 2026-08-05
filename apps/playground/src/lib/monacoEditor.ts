@@ -40,6 +40,64 @@ export const BASE_MONACO_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOpt
   },
 };
 
+/**
+ * Touch/phone overrides layered on top of `BASE_MONACO_EDITOR_OPTIONS`.
+ *
+ * The goal is a usable editor on a ~360px viewport with a soft keyboard:
+ *   - reclaim horizontal space (no folding gutter, no glyph margin, narrow
+ *     line-number column, no overview ruler)
+ *   - stop the soft keyboard fighting the editor: Enter must always insert a
+ *     newline (never accept a suggestion) and Tab must always indent
+ *   - remove hover/context-menu popups, which a long-press triggers constantly
+ *   - grabbable scrollbars
+ */
+export const MOBILE_MONACO_OVERRIDES: editor.IStandaloneEditorConstructionOptions = {
+  folding: false,
+  glyphMargin: false,
+  lineNumbersMinChars: 2,
+  lineDecorationsWidth: 2,
+  renderLineHighlight: 'none',
+  overviewRulerLanes: 0,
+  overviewRulerBorder: false,
+  hideCursorInOverviewRuler: true,
+  stickyScroll: { enabled: false },
+  contextmenu: false,
+  hover: { enabled: false },
+  parameterHints: { enabled: false },
+  // Enter = newline, Tab = indent. Both are otherwise hijacked by the
+  // suggestion widget, which is the single biggest phone-typing frustration.
+  acceptSuggestionOnEnter: 'off',
+  tabCompletion: 'off',
+  scrollbar: {
+    verticalScrollbarSize: 12,
+    horizontalScrollbarSize: 12,
+    useShadows: false,
+  },
+  padding: { top: 6, bottom: 24 },
+  // A phone can't hover a scrollbar, so leave it always visible.
+  scrollBeyondLastColumn: 2,
+};
+
+/**
+ * The single place both editors resolve their options. Passing `touch` swaps in
+ * the phone profile; desktop behaviour is byte-for-byte what it was before.
+ */
+export function getEditorOptions(opts: {
+  touch: boolean;
+  fontSize: number;
+  readOnly?: boolean;
+}): editor.IStandaloneEditorConstructionOptions {
+  const { touch, fontSize, readOnly } = opts;
+  return {
+    ...BASE_MONACO_EDITOR_OPTIONS,
+    ...(touch ? MOBILE_MONACO_OVERRIDES : {}),
+    // 16px keeps iOS from zooming when the hidden input takes focus, and is
+    // simply readable on a phone. Never shrink the user's chosen size.
+    fontSize: touch ? Math.max(fontSize, 16) : fontSize,
+    ...(readOnly === undefined ? {} : { readOnly }),
+  };
+}
+
 type SnippetTemplate = {
   label: string;
   detail: string;

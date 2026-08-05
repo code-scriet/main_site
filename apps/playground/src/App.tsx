@@ -19,7 +19,7 @@ import { endExecutionSession } from './utils/snippetsApi';
 // Minimal centered fallback while a lazy route chunk loads — mirrors AuthGate's loader.
 function RouteFallback() {
   return (
-    <div className="h-screen flex items-center justify-center bg-background">
+    <div className="h-app flex items-center justify-center bg-background">
       <Loader2 className="h-9 w-9 animate-spin text-amber-500" />
     </div>
   );

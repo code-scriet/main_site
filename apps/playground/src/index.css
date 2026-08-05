@@ -70,8 +70,95 @@
   * {
     @apply border-border;
   }
+  html {
+    /* Stop mobile Safari/Chrome inflating text after an orientation change. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground font-sans;
+    /* The app shell never scrolls the document — kill pull-to-refresh and the
+       rubber-band bounce so a swipe inside the editor/output can't yank the page. */
+    overscroll-behavior: none;
+  }
+}
+
+/* ─── Mobile / touch foundation ───────────────────────────────────────────────
+   Every full-screen surface uses `.h-app` instead of `h-screen`: on mobile
+   browsers `100vh` is the *expanded* viewport (it ignores the URL bar), which
+   pushes bottom action bars off-screen. The declarations cascade, so a browser
+   without `svh`/`dvh` support keeps the `100vh` fallback.                      */
+.h-app {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+}
+
+.min-h-app {
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+}
+
+/* Bottom sheets: never taller than the visible viewport (same cascade trick). */
+.max-h-sheet {
+  max-height: 85vh;
+  max-height: 85svh;
+  max-height: 85dvh;
+}
+
+/* Bottom action bars sit above the iPhone home indicator. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Horizontal chip/key rails: scrollable, but without a scrollbar eating height. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* Remove the 300ms tap delay + double-tap zoom on controls. */
+  button,
+  a,
+  select,
+  summary,
+  [role='button'],
+  [role='tab'] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(251, 191, 36, 0.18);
+  }
+
+  /* iOS zooms the whole page when a focused control's text is under 16px.
+     That zoom is what makes coding on a phone unusable (the layout jumps and
+     never zooms back), so force 16px on real form controls. `!important` is
+     deliberate: Tailwind's `text-sm` utilities would otherwise win. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  /* …except Monaco's hidden IME textarea, whose metrics must track the editor
+     font or composition/cursor placement drifts. */
+  .monaco-editor textarea,
+  .monaco-editor input {
+    font-size: inherit !important;
+  }
+
+  /* Fatter Monaco scrollbars so they can actually be grabbed with a thumb. */
+  .monaco-editor .scrollbar > .slider {
+    border-radius: 6px;
   }
 }
 
