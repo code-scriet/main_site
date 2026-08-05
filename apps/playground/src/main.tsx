@@ -10,6 +10,12 @@ import './index.css';
 // Preload JS/TS engines eagerly (lightweight workers, no large downloads)
 import { preloadTypeScript } from './engines/tsEngine';
 import { preloadJavaScript } from './engines/jsEngine';
+import { installStaleChunkRecovery } from './lib/chunkReload';
+
+// Recover from a redeploy invalidating this tab's lazy-chunk filenames (the
+// arena / snippets routes are code-split). Rate-limited, storage-safe, and
+// suppressed while a proctored round is running — see lib/chunkReload.ts.
+installStaleChunkRecovery();
 
 try { preloadJavaScript(); } catch { /* non-fatal */ }
 try { preloadTypeScript(); } catch { /* non-fatal */ }

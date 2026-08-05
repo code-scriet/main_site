@@ -52,7 +52,7 @@ Full-stack monorepo for CCSU's coding club. Events (solo + team + guest invites)
 | Email | Brevo REST API (`BREVO_API_KEY`) |
 | Storage | Cloudinary (images + cert PDFs) |
 | PDF | `@react-pdf/renderer` server-side (this is why `react`/`react-dom` are `apps/api` deps — keep them) |
-| Img processing | `sharp` (signature cleanup) |
+| Img processing | `sharp` **0.35.x** (signature cleanup) — bumped from 0.34 Aug 2026 to clear 4 HIGH libvips CVEs; it parses user-uploaded signature images, so this path is genuinely reachable. Needs Node ≥20.9 (prod runs 20.20). |
 | Export | ExcelJS |
 | QR | `qrcode.react` (render) + `html5-qrcode` (scan) |
 | Animation | Framer Motion |
@@ -110,7 +110,7 @@ npm run db:seed / db:studio / db:reset
 npx prisma migrate dev --create-only --name <name>   # ALWAYS use --create-only
 npm run test:e2e / test:stability
 npm run stress:judge                         # judge capacity harness (simulated upstreams, real worker code; --quick for a fast pass)
-npm run lint --workspace=apps/{api,web}
+npm run lint --workspace=apps/{api,web,playground}
 ```
 
 ---
@@ -159,7 +159,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 ```
 
 - Super admin = `SUPER_ADMIN_EMAIL`. Settings writable by superAdmin + PRESIDENT only.
-- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. Known exception: `settings.ts` `PUT /api/settings` uses literal `requireRole('PRESIDENT')` (functionally identical to `'ADMIN'` — both level 4; the real gate is the inline `enforceSuperAdminOrPresident`); rename scheduled in the hygiene PR (audit D1).
+- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. **No exceptions remain** — the former `settings.ts` `PUT /api/settings` literal was converted (audit D1 closed); it now uses `requireRole('ADMIN')` with the inline `enforceSuperAdminOrPresident` as the real PRES/SA gate.
 - **Admin-deep-control:** Only superAdmin acts on PRESIDENT. PRESIDENT acts on ADMIN-and-below but cannot promote to ADMIN/PRESIDENT, cannot edit existing ADMIN/PRESIDENT. No actor edits self via `/api/users/*` (use `/dashboard/profile`). `PUT /api/users/:id/role` floor = PRESIDENT/superAdmin only.
 
 ---
@@ -656,6 +656,10 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Frontend Conventions
 
 - React Router v7. Pages lazy-loaded.
+- **Stale-chunk recovery (`apps/web/src/lib/chunkReload.ts` + `apps/playground/src/lib/chunkReload.ts`, installed from each app's `main.tsx`):** a `vite:preloadError` listener reloads once so an already-open tab can pick up the new content-hashed chunk map after a redeploy (otherwise navigating to a not-yet-loaded route 404s its chunk — for the playground that means a student stranded mid-contest). Three rules the pure core enforces (unit-tested — `apps/{web,playground}/tests/chunkReload.test.ts`):
+  1. The guard stores the last reload **instant** (`sessionStorage` `chunk-reload-at`, 30s cooldown), NOT a boolean: a boolean cleared on boot re-arms every reload (genuinely missing asset ⇒ infinite loop), and a boolean never cleared blocks recovery from the next deploy. Repeat failures inside the cooldown fall through to the ErrorBoundary (both apps' boundaries offer a manual **Reload**).
+  2. **Storage failures fail closed.** An unreadable/unwritable `sessionStorage` ⇒ no auto-reload, because an attempt that can't be recorded can't be rate-limited. The instant is written BEFORE `preventDefault()`, so a failed write surfaces the error instead of swallowing it.
+  3. **Never auto-reload during a proctored round.** `useProctor` calls `setAutoReloadBlocked(true)` for its lifetime (playground only): its `beforeunload` guard would turn the reload into a browser "Leave site?" prompt, and leaving the page drops fullscreen → a `FULLSCREEN_EXIT` trip, which is instant-lock with a budget of 1 — a self-inflicted reload would burn the contestant's only warning.
 - React Query: staleTime 5m, gcTime 30m.
 - Tailwind utility classes. `cn()` from `apps/web/src/lib/utils.ts`.
 - Auth/Settings/Theme via React Context (split for perf).
@@ -710,6 +714,8 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 ## Deployment (Render)
 
+**CI gate (`.github/workflows/ci.yml`)** on every PR + push to main: lint (api, web, playground) → build (api, web, playground) → `node --check` on the three uncompiled JS entry points (`execute-server.js`, `plagiarism.js`, `workers/executor.js`) → `npm run test:stability` → the security gate **[scripts/audit-gate.mjs](scripts/audit-gate.mjs)** (blocking). That gate replaced a bare `npm audit --omit=dev --audit-level=high`, which is all-or-nothing: one unfixable-but-inapplicable advisory forces either `|| true` (the gate silently stops protecting anything) or a risky dependency jump. It fails on **every** high/critical in prod deps EXCEPT GHSA ids listed in its `REVIEWED_EXCEPTIONS` map with a written, dated justification — currently one: `GHSA-qwww-vcr4-c8h2` (react-router **RSC-mode** CSRF; both apps are client-only SPAs with no server runtime/`createStaticHandler`, and the advisory has no 7.x fix — npm's suggested "fix" is a *downgrade* to 7.11.0). Adding an entry means proving the vulnerable path is unreachable here, not that upgrading is inconvenient. The playground steps were added July 2026 — before that a *deployed* service (playground-web + playground-api, incl. the contest relay) had **zero** CI coverage, so a typecheck error in its Vite app or a syntax error in `execute-server.js` only surfaced at deploy/boot. ⚠️ The `node --check` step needs **Node ≥ 20.19** (`setup-node` is pinned to 20): `workers/executor.js` and `plagiarism.js` are ESM under package.json files with no `"type": "module"`, so they only parse via Node's module-syntax auto-detection. e2e (Playwright) is smoke-only and NOT in CI (audit F-F4, accepted).
+
 4 services in `render.yaml`:
 1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm). `buildFilter` scopes deploys to `apps/api/**, prisma/**, package.json, package-lock.json` (G2 — web-only commits no longer restart the API and kill live quizzes).
 2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs` (prerenders route-specific HTML for crawlers/social cards).
@@ -727,7 +733,7 @@ CORS: explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` = codescriet.dev, www, api
 1. Automated coverage partial (stability + utility + Playwright), not full regression.
 2. Some routes use raw `res.json()` instead of `ApiResponse`.
 3. `AdminEventRegistrations` makes N+1 fetches (annotated, acceptable at current scale).
-4. Certificate email fire-and-forget — `emailSent` update could fail silently during restarts.
+4. Certificate `emailSent` bookkeeping: the post-send DB update is awaited inside a try/catch that **logs** on failure (no longer silent), but there's no reconcile sweep — a failed update leaves `emailSent:false` on a cert whose mail DID go out, so an admin resend would duplicate it. Low harm, accepted.
 5. Some Zod schemas use `z.unknown()` for JSON fields.
 
 Resolved (June 2026): OAuth JWT-in-URL-hash replaced by a 30s exchange code; attendance tokens carry a 90d expiry (`ATTENDANCE_TOKEN_EXPIRES_IN`). ID path-param validation swept across all routers — shared guards `requireUuid`/`requireCuid`/`isUuid`/`isCuid` in [apps/api/src/utils/idParams.ts](apps/api/src/utils/idParams.ts) reject malformed ids with a 400 before they reach Prisma (uuid PKs: most models; cuid PKs: NetworkProfile/Signatory/Certificate). `users.ts`/`quizRouter.ts`/`competition.ts`/`qotd.ts` use `router.param()` guards (shared `uuidParamGuard` factory); `attendance.ts`/`credits.ts` refactored onto the shared helper. Note: id columns are Postgres `TEXT` (no `@db.Uuid`), so malformed ids previously fell through to 404, not 500 — the guards harden input validation + response consistency and future-proof a native-uuid migration.

@@ -32,19 +32,42 @@ jobs:
       - name: Lint Web
         run: npm run lint --workspace=apps/web
 
+      # The playground is a DEPLOYED service (playground-web + playground-api) that
+      # previously had no CI coverage at all: a typecheck error in its Vite app, or a
+      # syntax error in execute-server.js (plain JS — never compiled, hosts the contest
+      # relay + judge proxy), would only surface at deploy/boot time in production.
+      # Grouped with the other lint steps so a lint failure fails fast, before builds.
+      - name: Lint Playground
+        run: npm run lint --workspace=apps/playground
+
       - name: Build API
         run: npm run build --workspace=apps/api
 
       - name: Build Web
         run: npm run build --workspace=apps/web
 
+      - name: Build Playground
+        run: npm run build --workspace=apps/playground
+
+      # `workers/executor.js` and `plagiarism.js` are ESM but sit under package.json
+      # files with no `"type": "module"` (the repo root), so `node --check` only parses
+      # them because Node >= 20.19 auto-detects module syntax. Keep `node-version` at
+      # 20 or newer above — an older runner would report a false syntax error here.
+      - name: Syntax-check playground server + CF worker
+        run: |
+          node --check apps/playground/execute-server.js
+          node --check apps/playground/plagiarism.js
+          node --check workers/executor.js
+
       # Fast, DB-free unit/stability tests (quiz scoring, auth/jwt, utils, web stores).
       - name: Stability tests
         run: npm run test:stability
 
-      # Gate on HIGH+ advisories in production dependencies. The transitive `ws`
-      # DoS (GHSA-96hv-2xvq-fx4p) that previously forced this non-blocking is now
-      # fixed by pinning ws@^8.21.0 across the socket.io tree (root overrides), so
-      # the gate is real again. Moderate findings are reported but do not fail.
+      # Gate on HIGH+ advisories in production dependencies. Still blocking, but via
+      # scripts/audit-gate.mjs instead of a bare `npm audit --audit-level=high`: a plain
+      # audit is all-or-nothing, so a single unfixable-but-inapplicable advisory forces
+      # either `|| true` (gate silently stops protecting anything) or a risky dependency
+      # jump. The gate fails on every high/critical EXCEPT GHSA ids explicitly reviewed
+      # and justified in that file. Moderate/low are reported only.
       - name: Security audit (production deps)
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
