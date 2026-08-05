@@ -110,7 +110,7 @@ npm run db:seed / db:studio / db:reset
 npx prisma migrate dev --create-only --name <name>   # ALWAYS use --create-only
 npm run test:e2e / test:stability
 npm run stress:judge                         # judge capacity harness (simulated upstreams, real worker code; --quick for a fast pass)
-npm run lint --workspace=apps/{api,web}
+npm run lint --workspace=apps/{api,web,playground}
 ```
 
 ---
@@ -159,7 +159,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 ```
 
 - Super admin = `SUPER_ADMIN_EMAIL`. Settings writable by superAdmin + PRESIDENT only.
-- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. Known exception: `settings.ts` `PUT /api/settings` uses literal `requireRole('PRESIDENT')` (functionally identical to `'ADMIN'` — both level 4; the real gate is the inline `enforceSuperAdminOrPresident`); rename scheduled in the hygiene PR (audit D1).
+- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. **No exceptions remain** — the former `settings.ts` `PUT /api/settings` literal was converted (audit D1 closed); it now uses `requireRole('ADMIN')` with the inline `enforceSuperAdminOrPresident` as the real PRES/SA gate.
 - **Admin-deep-control:** Only superAdmin acts on PRESIDENT. PRESIDENT acts on ADMIN-and-below but cannot promote to ADMIN/PRESIDENT, cannot edit existing ADMIN/PRESIDENT. No actor edits self via `/api/users/*` (use `/dashboard/profile`). `PUT /api/users/:id/role` floor = PRESIDENT/superAdmin only.
 
 ---
@@ -656,6 +656,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Frontend Conventions
 
 - React Router v7. Pages lazy-loaded.
+- **Stale-chunk recovery (both `apps/web` and `apps/playground` `main.tsx`):** a `vite:preloadError` listener reloads once so an already-open tab can pick up the new content-hashed chunk map after a redeploy (otherwise navigating to a not-yet-loaded route 404s its chunk — for the playground that means a student stranded mid-contest). The guard stores the last reload **instant** (`sessionStorage` `chunk-reload-at`, 30s cooldown), NOT a boolean: a boolean cleared on boot re-arms every reload (genuinely missing asset ⇒ infinite loop), and a boolean never cleared blocks recovery from the next deploy. Repeat failures inside the cooldown fall through to the ErrorBoundary.
 - React Query: staleTime 5m, gcTime 30m.
 - Tailwind utility classes. `cn()` from `apps/web/src/lib/utils.ts`.
 - Auth/Settings/Theme via React Context (split for perf).
@@ -710,6 +711,8 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 ## Deployment (Render)
 
+**CI gate (`.github/workflows/ci.yml`)** on every PR + push to main: lint + build for **api, web AND playground**, `node --check` on the three uncompiled JS entry points (`execute-server.js`, `plagiarism.js`, `workers/executor.js`), `npm run test:stability`, and `npm audit --omit=dev --audit-level=high` (blocking). The playground steps were added July 2026 — before that a *deployed* service (playground-web + playground-api, incl. the contest relay) had **zero** CI coverage, so a typecheck error in its Vite app or a syntax error in `execute-server.js` only surfaced at deploy/boot. e2e (Playwright) is smoke-only and NOT in CI (audit F-F4, accepted).
+
 4 services in `render.yaml`:
 1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm). `buildFilter` scopes deploys to `apps/api/**, prisma/**, package.json, package-lock.json` (G2 — web-only commits no longer restart the API and kill live quizzes).
 2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs` (prerenders route-specific HTML for crawlers/social cards).
@@ -727,7 +730,7 @@ CORS: explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` = codescriet.dev, www, api
 1. Automated coverage partial (stability + utility + Playwright), not full regression.
 2. Some routes use raw `res.json()` instead of `ApiResponse`.
 3. `AdminEventRegistrations` makes N+1 fetches (annotated, acceptable at current scale).
-4. Certificate email fire-and-forget — `emailSent` update could fail silently during restarts.
+4. Certificate `emailSent` bookkeeping: the post-send DB update is awaited inside a try/catch that **logs** on failure (no longer silent), but there's no reconcile sweep — a failed update leaves `emailSent:false` on a cert whose mail DID go out, so an admin resend would duplicate it. Low harm, accepted.
 5. Some Zod schemas use `z.unknown()` for JSON fields.
 
 Resolved (June 2026): OAuth JWT-in-URL-hash replaced by a 30s exchange code; attendance tokens carry a 90d expiry (`ATTENDANCE_TOKEN_EXPIRES_IN`). ID path-param validation swept across all routers — shared guards `requireUuid`/`requireCuid`/`isUuid`/`isCuid` in [apps/api/src/utils/idParams.ts](apps/api/src/utils/idParams.ts) reject malformed ids with a 400 before they reach Prisma (uuid PKs: most models; cuid PKs: NetworkProfile/Signatory/Certificate). `users.ts`/`quizRouter.ts`/`competition.ts`/`qotd.ts` use `router.param()` guards (shared `uuidParamGuard` factory); `attendance.ts`/`credits.ts` refactored onto the shared helper. Note: id columns are Postgres `TEXT` (no `@db.Uuid`), so malformed ids previously fell through to 404, not 500 — the guards harden input validation + response consistency and future-proof a native-uuid migration.

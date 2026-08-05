@@ -38,6 +38,22 @@ jobs:
       - name: Build Web
         run: npm run build --workspace=apps/web
 
+      # The playground is a DEPLOYED service (playground-web + playground-api) that
+      # previously had no CI coverage at all: a typecheck error in its Vite app, or a
+      # syntax error in execute-server.js (plain JS — never compiled, hosts the contest
+      # relay + judge proxy), would only surface at deploy/boot time in production.
+      - name: Lint Playground
+        run: npm run lint --workspace=apps/playground
+
+      - name: Build Playground
+        run: npm run build --workspace=apps/playground
+
+      - name: Syntax-check playground server + CF worker
+        run: |
+          node --check apps/playground/execute-server.js
+          node --check apps/playground/plagiarism.js
+          node --check workers/executor.js
+
       # Fast, DB-free unit/stability tests (quiz scoring, auth/jwt, utils, web stores).
       - name: Stability tests
         run: npm run test:stability

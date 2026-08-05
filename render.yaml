@@ -6,10 +6,15 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
-    # TODO(remove after 2026-08-01): this keeps one historical failed deploy
-    # unblocked while Render catches up; delete once every environment has moved
-    # past 20260220003000_harden_email_and_network_query_indexes.
-    startCommand: npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
+    # The historical `migrate resolve --rolled-back 20260220003000_…` prefix was
+    # retired 2026-07 (its TODO expiry). Verified against prod `_prisma_migrations`
+    # first: that migration has TWO rows — the Feb-2026 failure (rolled_back_at set,
+    # 0 steps) and a successful re-application (finished_at set, 1 step) — so Prisma
+    # already counts it applied and `migrate deploy` reports "No pending migrations".
+    # The resolve had therefore become a no-op re-marking the old failed row on every
+    # single deploy. NOTE: prod's start command is DASHBOARD-managed and overrides this
+    # blueprint — mirror this change there for it to take effect.
+    startCommand: npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
     healthCheckPath: /ping
     # G2: without a buildFilter, ANY commit (homepage copy tweaks included)
     # triggers an API deploy — and an API restart persists live quizzes as
