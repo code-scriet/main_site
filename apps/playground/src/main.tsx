@@ -10,28 +10,12 @@ import './index.css';
 // Preload JS/TS engines eagerly (lightweight workers, no large downloads)
 import { preloadTypeScript } from './engines/tsEngine';
 import { preloadJavaScript } from './engines/jsEngine';
+import { installStaleChunkRecovery } from './lib/chunkReload';
 
-// Stale-chunk recovery (mirrors apps/web/src/main.tsx). The routes here are
-// code-split, so after a redeploy an already-open tab that navigates to the
-// contest arena / snippets asks for a content-hashed chunk that no longer
-// exists — mid-contest that would strand a student on the error screen. One
-// reload picks up the new chunk map.
-//
-// The guard stores the last reload INSTANT rather than a boolean: a boolean
-// cleared on boot would re-arm every reload (so a genuinely missing asset loops
-// forever), while a never-cleared boolean would block recovery from a later
-// deploy. With a timestamp, a repeat failure inside the cooldown surfaces in the
-// ErrorBoundary, and a deploy hours later still recovers automatically.
-const RELOAD_GUARD_KEY = 'chunk-reload-at';
-const RELOAD_COOLDOWN_MS = 30_000;
-
-window.addEventListener('vite:preloadError', (event) => {
-  const last = Number(sessionStorage.getItem(RELOAD_GUARD_KEY) ?? 0);
-  if (Date.now() - last < RELOAD_COOLDOWN_MS) return; // just tried — let the error surface
-  event.preventDefault();
-  sessionStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()));
-  window.location.reload();
-});
+// Recover from a redeploy invalidating this tab's lazy-chunk filenames (the
+// arena / snippets routes are code-split). Rate-limited, storage-safe, and
+// suppressed while a proctored round is running — see lib/chunkReload.ts.
+installStaleChunkRecovery();
 
 try { preloadJavaScript(); } catch { /* non-fatal */ }
 try { preloadTypeScript(); } catch { /* non-fatal */ }

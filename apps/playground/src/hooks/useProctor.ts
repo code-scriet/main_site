@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { mainApi, type ProctorViolationKind } from '@/lib/mainApi';
+import { setAutoReloadBlocked } from '@/lib/chunkReload';
 
 const AWAY_LOCK_MS = 10_000;
 const HEARTBEAT_MS = 15_000;
@@ -171,6 +172,15 @@ export function useProctor(opts: {
     // Guard against an accidental refresh/close losing the buffer (not a violation).
     const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
 
+    // Suppress the stale-chunk auto-reload for as long as this round is proctored.
+    // The beforeUnload guard above would turn an automatic reload into a browser
+    // "Leave site?" prompt, and leaving the page drops fullscreen → a
+    // FULLSCREEN_EXIT trip, which is instant-lock with a budget of 1. A dynamic
+    // import that fails here (stale chunk after a redeploy, or just a flaky
+    // connection) must therefore reach the ErrorBoundary and its explicit Reload
+    // button rather than reloading under the contestant.
+    setAutoReloadBlocked(true);
+
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
@@ -196,6 +206,7 @@ export function useProctor(opts: {
       document.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('keydown', onKeyDown, true);
       clearAway();
+      setAutoReloadBlocked(false);
     };
   }, [enabled, startAway, clearAway, trip, reportOther, fullscreen, blockPaste]);
 
