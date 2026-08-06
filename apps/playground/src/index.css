@@ -94,12 +94,6 @@
   height: 100dvh;
 }
 
-.min-h-app {
-  min-height: 100vh;
-  min-height: 100svh;
-  min-height: 100dvh;
-}
-
 /* Bottom sheets: never taller than the visible viewport (same cascade trick). */
 .max-h-sheet {
   max-height: 85vh;
@@ -107,14 +101,15 @@
   max-height: 85dvh;
 }
 
-/* Bottom action bars sit above the iPhone home indicator. */
+/* Bottom action bars sit above the iPhone home indicator.
+   These are plain (unlayered) rules emitted AFTER `@tailwind utilities`, so at
+   equal specificity they BEAT Tailwind's `pb-*`/`py-*` utilities rather than
+   adding to them. Only put `.pb-safe` on an element that has no other bottom
+   padding — if you need both, use an arbitrary value that includes the inset:
+     pb-[calc(1.5rem+env(safe-area-inset-bottom))]
+   or give the element an inner wrapper that owns the spacing. */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-.px-safe {
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* Horizontal chip/key rails: scrollable, but without a scrollbar eating height. */

@@ -29,7 +29,7 @@ import {
   type ProblemSubmission,
   type TestRunResult,
 } from '@/lib/mainApi';
-import { getEditorOptions, registerMonacoEmmet } from '@/lib/monacoEditor';
+import { getEditorOptions, registerMonacoEmmet, TOUCH_MIN_FONT_SIZE } from '@/lib/monacoEditor';
 import { cn, getMainSiteOrigin } from '@/lib/utils';
 import { MarkdownView } from '@/components/playground/MarkdownView';
 import { EditorHistoryControls } from '@/components/playground/EditorHistoryControls';
@@ -360,6 +360,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   // to one visible pane at a time driven by a tab rail + a sticky action bar.
   const compact = useIsCompact();
   const touchEditor = useTouchEditor();
+  const minFontSize = touchEditor ? TOUCH_MIN_FONT_SIZE : 12;
   const [compactPane, setCompactPane] = useState<CompactPane>('panel');
   const [metaOpen, setMetaOpen] = useState(false);
   const [ioHintOpen, setIoHintOpen] = useState(false);
@@ -402,7 +403,14 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     // Undoable replacement via Monaco's edit stack (never setValue). The change
     // flows through onChange → setCode → the draft auto-save, so the persisted
     // draft stays in sync.
-    resetEditor(starterCode);
+    //
+    // A compact layout can have the editor hidden (or between mounts after a
+    // breakpoint flip) when the Ctrl/Cmd+Shift+R shortcut fires — `resetEditor`
+    // reports that, so the toast never claims a reset that didn't happen.
+    if (!resetEditor(starterCode)) {
+      toast.error('Open the Code pane to reset your code');
+      return;
+    }
     toast.success('Reset to starter code');
   }, [atStarter, resetEditor, starterCode]);
 
@@ -814,6 +822,10 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       language={meta.monaco}
       theme={editorTheme}
       value={code}
+      // The undo stack lives on the MODEL, so keeping it alive means a genuine
+      // unmount (a breakpoint flip between the compact and desktop layouts)
+      // no longer throws away the contestant's history.
+      keepCurrentModel
       beforeMount={registerMonacoEmmet}
       onMount={editorHistory.handleMount}
       options={getEditorOptions({ touch: touchEditor, fontSize })}
@@ -946,9 +958,20 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
           })}
         </div>
 
-        {/* Single visible pane */}
-        {compactPane === 'code' ? (
-          <div className="flex min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
+        {/* Single visible pane.
+            The code pane is HIDDEN, never unmounted: a Test Run / Submit flips
+            to the results pane automatically, and unmounting Monaco there would
+            dispose its model — taking the undo stack, caret and scroll position
+            with it. Losing your undo history on every test run, mid-contest, is
+            not an acceptable cost for a tab switch. `automaticLayout` re-measures
+            when the pane becomes visible again. */}
+        <div
+          hidden={compactPane !== 'code'}
+          className={cn(
+            'min-h-0 flex-1 flex-col bg-zinc-50 dark:bg-zinc-950',
+            compactPane === 'code' ? 'flex' : 'hidden',
+          )}
+        >
             <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
               <select
                 value={language}
@@ -960,8 +983,11 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                   <option key={item} value={item}>{LANGUAGE_META[item].label}</option>
                 ))}
               </select>
-              <button type="button" aria-label="Decrease font size" onClick={() => setFontSize((value) => Math.max(12, value - 1))} className="grid h-9 w-9 shrink-0 place-items-center rounded border border-zinc-200 bg-white text-base font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">−</button>
-              <button type="button" aria-label="Increase font size" onClick={() => setFontSize((value) => Math.min(24, value + 1))} className="grid h-9 w-9 shrink-0 place-items-center rounded border border-zinc-200 bg-white text-base font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">+</button>
+              {/* Clamped to the touch floor the editor actually enforces —
+                  otherwise the first taps of "−" change state that
+                  getEditorOptions floors right back, and the button looks dead. */}
+              <button type="button" aria-label="Decrease font size" disabled={fontSize <= minFontSize} onClick={() => setFontSize((value) => Math.max(minFontSize, value - 1))} className="grid h-9 w-9 shrink-0 place-items-center rounded border border-zinc-200 bg-white text-base font-semibold text-zinc-600 disabled:opacity-40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">−</button>
+              <button type="button" aria-label="Increase font size" disabled={fontSize >= 24} onClick={() => setFontSize((value) => Math.min(24, value + 1))} className="grid h-9 w-9 shrink-0 place-items-center rounded border border-zinc-200 bg-white text-base font-semibold text-zinc-600 disabled:opacity-40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">+</button>
               <button type="button" aria-label="Copy code" onClick={() => navigator.clipboard?.writeText(code)} className="grid h-9 w-9 shrink-0 place-items-center rounded border border-zinc-200 bg-white text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"><Copy className="h-4 w-4" /></button>
               <button
                 type="button"
@@ -992,6 +1018,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
             <div className="min-h-0 flex-1">{monacoEditor}</div>
 
             <MobileKeyBar
+              disabled={!editorHistory.isReady}
               onInsert={editorHistory.insertText}
               onIndent={editorHistory.indent}
               onOutdent={editorHistory.outdent}
@@ -1000,8 +1027,8 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
               canUndo={editorHistory.canUndo}
               canRedo={editorHistory.canRedo}
             />
-          </div>
-        ) : (
+        </div>
+        {compactPane !== 'code' && (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{renderPanelBody()}</div>
         )}
 

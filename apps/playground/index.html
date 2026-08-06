@@ -15,7 +15,11 @@
     />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Deliberately NOT black-translucent: that draws the page underneath the
+         iOS status bar, and nothing in this app pads for safe-area-inset-top,
+         so the navbar's logo and menu button would sit under the clock and
+         battery. `default` keeps the status bar in its own reserved strip. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fefdf9" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b" />
     <meta name="description" content="Code Scriet Playground - An interactive coding environment supporting JavaScript, Python, C++, Java, and more" />

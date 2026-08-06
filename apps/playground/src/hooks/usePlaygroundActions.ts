@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useCodeExecution } from '@/hooks/useCodeExecution';
 import { useDailyQuota } from '@/hooks/useDailyQuota';
 import { useEditorHistoryContext } from '@/hooks/useEditorHistory';
+import { isFullscreenSupported } from '@/hooks/useProctor';
 import { createSnippet } from '@/utils/snippetsApi';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -97,15 +98,24 @@ export function usePlaygroundActions(): PlaygroundActions {
     if (!confirm('Reset your code to the starter template? You can undo this with Ctrl/Cmd+Z.')) return;
     // Undoable reset via Monaco's edit stack (not setValue), so Ctrl/Cmd+Z
     // restores the user's code immediately afterwards.
-    reset(language.boilerplate);
+    //
+    // `reset` reports whether it reached a live editor: if the editor is
+    // unmounted (the overflow sheet is reachable from every phone pane, not
+    // just the Code one) it does nothing, and claiming "Code reset" while the
+    // buffer is untouched is worse than saying nothing.
+    if (!reset(language.boilerplate)) {
+      toast.error('Open the Code pane to reset your code');
+      return;
+    }
     clearOutput();
     toast.success('Code reset');
   }, [clearOutput, code, language.boilerplate, reset]);
 
   const toggleFullscreen = useCallback(() => {
     // iOS Safari has no Element.requestFullscreen — fail with a hint instead of
-    // throwing on an undefined method.
-    if (typeof document.documentElement.requestFullscreen !== 'function') {
+    // throwing on an undefined method. Shares one detection helper with the
+    // proctor engine so the two can't disagree about what this browser can do.
+    if (!isFullscreenSupported()) {
       toast.error('Fullscreen is not supported by this browser');
       return;
     }

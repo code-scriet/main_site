@@ -16,28 +16,36 @@ export interface EditorHistory {
   handleMount: (instance: editor.IStandaloneCodeEditor) => void;
   canUndo: boolean;
   canRedo: boolean;
-  undo: () => void;
-  redo: () => void;
+  /**
+   * Every command returns whether it reached a live editor. `false` means the
+   * editor was unmounted or disposed and NOTHING happened — callers that show
+   * success feedback must check it rather than assume.
+   */
+  undo: () => boolean;
+  redo: () => boolean;
   /**
    * Replace the whole document with `starter` through an undoable edit, so the
    * user can press Ctrl/Cmd+Z immediately afterwards to get their code back.
    * Never uses `setValue()` (which would wipe the undo stack).
    */
-  reset: (starter: string) => void;
+  reset: (starter: string) => boolean;
   /**
    * Type `text` at the cursor as if it came from the keyboard — used by the
    * mobile key bar for characters a phone keyboard buries behind two taps.
    * Goes through Monaco's `type` command so auto-closing pairs, undo grouping
-   * and multi-cursor all behave exactly as they do for real typing.
+   * and multi-cursor all behave exactly as they do for real typing. A read-only
+   * editor is never written to.
    */
-  insertText: (text: string) => void;
+  insertText: (text: string) => boolean;
   /** Run Monaco's Tab (indent) command — indents the selection, not just a tab char. */
-  indent: () => void;
+  indent: () => boolean;
   /** Run Monaco's Shift+Tab (outdent) command. */
-  outdent: () => void;
-  /** Focus the editor (re-opens the soft keyboard on mobile). */
-  focus: () => void;
-  /** True once an editor instance has mounted — the key bar stays inert until then. */
+  outdent: () => boolean;
+  /**
+   * True while a live editor instance is mounted. Goes back to false when the
+   * editor is disposed, so controls bound to it can disable themselves instead
+   * of silently no-opping.
+   */
   isReady: boolean;
 }
 
@@ -83,6 +91,19 @@ export function useEditorHistory(): EditorHistory {
         instance.onDidChangeModelContent(refresh),
         instance.onDidChangeModel(refresh),
       );
+      // The editor disposing out from under us (a breakpoint flip unmounts it)
+      // must drop the ref — otherwise every command below silently targets a
+      // disposed instance while the buttons still render enabled.
+      disposablesRef.current.push(
+        instance.onDidDispose(() => {
+          if (editorRef.current === instance) {
+            editorRef.current = null;
+            setIsReady(false);
+            setCanUndo(false);
+            setCanRedo(false);
+          }
+        }),
+      );
     },
     [disposeListeners, refresh],
   );
@@ -90,90 +111,105 @@ export function useEditorHistory(): EditorHistory {
   // Dispose listeners when the hook unmounts so they never outlive the editor.
   useEffect(() => disposeListeners, [disposeListeners]);
 
-  const undo = useCallback(() => {
-    const instance = editorRef.current;
-    if (!instance) return;
-    instance.focus();
-    instance.trigger('editor-history', 'undo', null);
-    refresh();
-  }, [refresh]);
-
-  const redo = useCallback(() => {
-    const instance = editorRef.current;
-    if (!instance) return;
-    instance.focus();
-    instance.trigger('editor-history', 'redo', null);
-    refresh();
-  }, [refresh]);
-
-  const reset = useCallback(
-    (starter: string) => {
+  /**
+   * Every command below funnels through here. Returning a boolean lets callers
+   * distinguish "did the thing" from "there was no live editor" — without it a
+   * caller like `resetCode` cheerfully toasts "Code reset" after a no-op.
+   */
+  const withEditor = useCallback(
+    (fn: (instance: editor.IStandaloneCodeEditor, model: editor.ITextModel) => void): boolean => {
       const instance = editorRef.current;
       const model = instance?.getModel();
-      if (!instance || !model) return;
-      // pushUndoStop boundaries make the whole replacement a single undo step.
-      instance.pushUndoStop();
-      instance.executeEdits('editor-history-reset', [
-        { range: model.getFullModelRange(), text: starter },
-      ]);
-      instance.pushUndoStop();
-      instance.focus();
+      if (!instance || !model) return false;
+      fn(instance, model);
       refresh();
+      return true;
     },
     [refresh],
   );
 
-  const focus = useCallback(() => {
-    editorRef.current?.focus();
-  }, []);
+  const undo = useCallback(
+    () =>
+      withEditor((instance) => {
+        instance.focus();
+        instance.trigger('editor-history', 'undo', null);
+      }),
+    [withEditor],
+  );
+
+  const redo = useCallback(
+    () =>
+      withEditor((instance) => {
+        instance.focus();
+        instance.trigger('editor-history', 'redo', null);
+      }),
+    [withEditor],
+  );
+
+  const reset = useCallback(
+    (starter: string) =>
+      withEditor((instance, model) => {
+        // pushUndoStop boundaries make the whole replacement a single undo step.
+        instance.pushUndoStop();
+        instance.executeEdits('editor-history-reset', [
+          { range: model.getFullModelRange(), text: starter },
+        ]);
+        instance.pushUndoStop();
+        instance.focus();
+      }),
+    [withEditor],
+  );
 
   const insertText = useCallback(
-    (text: string) => {
-      const instance = editorRef.current;
-      const model = instance?.getModel();
-      if (!instance || !model) return;
-      // Focus first: the key bar suppresses the focus steal (mousedown default
-      // is prevented) so the editor normally still holds it, but a fresh mount
-      // or a tab switch can leave it blurred and `type` would be a no-op.
-      instance.focus();
+    (text: string) =>
+      withEditor((instance, model) => {
+        // Never edit through a read-only editor. The version-id fallback below
+        // cannot tell "the command was refused because the buffer is frozen"
+        // from "the command doesn't exist", and `executeEdits` ignores the
+        // readOnly option entirely — so without this guard the fallback would
+        // write to a buffer the caller declared immutable (e.g. a locked
+        // contest submission).
+        if (instance.getRawOptions().readOnly === true) return;
 
-      // Preferred path: Monaco's core `type` handler, so an inserted `{` gets the
-      // same auto-closing pair and auto-indent as a real keystroke.
-      //
-      // The change check uses the model VERSION id, not its length: typing over a
-      // one-character selection leaves the length identical, and a length check
-      // would then run the fallback too and insert the character twice.
-      const versionBefore = model.getVersionId();
-      try {
-        instance.trigger('mobile-keybar', 'type', { text });
-      } catch {
-        // fall through to the explicit edit below
-      }
+        // Focus first: the key bar suppresses the focus steal (mousedown default
+        // is prevented) so the editor normally still holds it, but a fresh mount
+        // or a tab switch can leave it blurred and `type` would be a no-op.
+        instance.focus();
 
-      // If the handler was unavailable or did nothing (a Monaco version that
-      // renames the core command, a read-only guard), insert explicitly so a key
-      // press is never silently swallowed.
-      if (model.getVersionId() === versionBefore) {
-        const selection = instance.getSelection();
-        if (!selection) return;
-        instance.pushUndoStop();
-        instance.executeEdits('mobile-keybar', [{ range: selection, text, forceMoveMarkers: true }]);
-        instance.pushUndoStop();
-      }
-      refresh();
-    },
-    [refresh],
+        // Preferred path: Monaco's core `type` handler, so an inserted `{` gets the
+        // same auto-closing pair and auto-indent as a real keystroke.
+        //
+        // The change check uses the model VERSION id, not its length: typing over a
+        // one-character selection leaves the length identical, and a length check
+        // would then run the fallback too and insert the character twice.
+        const versionBefore = model.getVersionId();
+        try {
+          instance.trigger('mobile-keybar', 'type', { text });
+        } catch {
+          // fall through to the explicit edit below
+        }
+
+        // If the handler was unavailable or did nothing (e.g. a Monaco version
+        // that renames the core command), insert explicitly so a key press is
+        // never silently swallowed.
+        if (model.getVersionId() === versionBefore) {
+          const selection = instance.getSelection();
+          if (!selection) return;
+          instance.pushUndoStop();
+          instance.executeEdits('mobile-keybar', [{ range: selection, text, forceMoveMarkers: true }]);
+          instance.pushUndoStop();
+        }
+      }),
+    [withEditor],
   );
 
   const runCommand = useCallback(
-    (command: string) => {
-      const instance = editorRef.current;
-      if (!instance) return;
-      instance.focus();
-      instance.trigger('mobile-keybar', command, null);
-      refresh();
-    },
-    [refresh],
+    (command: string) =>
+      withEditor((instance) => {
+        instance.focus();
+        instance.trigger('mobile-keybar', command, null);
+      }),
+    [withEditor],
   );
 
   const indent = useCallback(() => runCommand('tab'), [runCommand]);
@@ -183,8 +219,8 @@ export function useEditorHistory(): EditorHistory {
   // don't re-render — and dependents like QOTD's reset shortcut don't re-subscribe
   // — on every parent render. Only the canUndo/canRedo state flips the reference.
   return useMemo(
-    () => ({ handleMount, canUndo, canRedo, undo, redo, reset, insertText, indent, outdent, focus, isReady }),
-    [handleMount, canUndo, canRedo, undo, redo, reset, insertText, indent, outdent, focus, isReady],
+    () => ({ handleMount, canUndo, canRedo, undo, redo, reset, insertText, indent, outdent, isReady }),
+    [handleMount, canUndo, canRedo, undo, redo, reset, insertText, indent, outdent, isReady],
   );
 }
 

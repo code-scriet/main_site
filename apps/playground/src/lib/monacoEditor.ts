@@ -64,19 +64,37 @@ export const MOBILE_MONACO_OVERRIDES: editor.IStandaloneEditorConstructionOption
   contextmenu: false,
   hover: { enabled: false },
   parameterHints: { enabled: false },
-  // Enter = newline, Tab = indent. Both are otherwise hijacked by the
-  // suggestion widget, which is the single biggest phone-typing frustration.
+  // Enter = newline, Tab = indent — the two guarantees that make a soft
+  // keyboard usable. `acceptSuggestionOnEnter`/`tabCompletion` are not enough
+  // on their own: while the suggest widget is OPEN, Monaco's SuggestController
+  // binds Tab to accept-selected-suggestion regardless of those options. So the
+  // widget itself is switched off on touch — it also covers a third of a 360px
+  // screen and is triggered constantly by ordinary identifier typing.
   acceptSuggestionOnEnter: 'off',
   tabCompletion: 'off',
+  quickSuggestions: false,
+  suggestOnTriggerCharacters: false,
+  wordBasedSuggestions: 'off',
+  inlineSuggest: { enabled: false },
   scrollbar: {
     verticalScrollbarSize: 12,
     horizontalScrollbarSize: 12,
     useShadows: false,
+    // A phone can't hover to reveal an auto-hiding scrollbar, and the moment
+    // the thumb appears mid-scroll is exactly when it's too late to grab it.
+    vertical: 'visible',
+    horizontal: 'visible',
   },
   padding: { top: 6, bottom: 24 },
-  // A phone can't hover a scrollbar, so leave it always visible.
   scrollBeyondLastColumn: 2,
 };
+
+/**
+ * Smallest editor font on a touch device. Below this iOS starts zooming on
+ * focus and the text stops being readable at arm's length, so the +/- controls
+ * clamp to it rather than letting the user pick a size that silently won't apply.
+ */
+export const TOUCH_MIN_FONT_SIZE = 16;
 
 /**
  * The single place both editors resolve their options. Passing `touch` swaps in
@@ -91,9 +109,10 @@ export function getEditorOptions(opts: {
   return {
     ...BASE_MONACO_EDITOR_OPTIONS,
     ...(touch ? MOBILE_MONACO_OVERRIDES : {}),
-    // 16px keeps iOS from zooming when the hidden input takes focus, and is
-    // simply readable on a phone. Never shrink the user's chosen size.
-    fontSize: touch ? Math.max(fontSize, 16) : fontSize,
+    // Floor, not a preference override: the UI clamps its own controls to
+    // TOUCH_MIN_FONT_SIZE so "−" disables at the floor instead of appearing
+    // broken for three taps. This stays as a backstop for any other caller.
+    fontSize: touch ? Math.max(fontSize, TOUCH_MIN_FONT_SIZE) : fontSize,
     ...(readOnly === undefined ? {} : { readOnly }),
   };
 }

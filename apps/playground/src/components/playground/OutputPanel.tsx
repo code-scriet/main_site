@@ -35,12 +35,62 @@ export interface OutputPanelProps {
  * Standalone stdin editor. Shared by the desktop OutputPanel (collapsible) and
  * the phone layout's dedicated "Input" pane.
  */
-export function StdinPanel({ alwaysOpen = false }: { alwaysOpen?: boolean }) {
+function StdinBody({ fill }: { fill: boolean }) {
   const { stdin, setStdin, language } = usePlayground();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
-  const [collapsed, setCollapsed] = useState(!alwaysOpen);
+
+  return (
+    <div className={cn('px-4 pb-3', fill && 'flex min-h-0 flex-1 flex-col pt-3')}>
+      {isCloudOnly && (
+        <p className="mb-2 text-xs text-muted-foreground">
+          {language.name} runs on a remote server — provide all input upfront (one value per line).
+        </p>
+      )}
+      <Textarea
+        value={stdin}
+        onChange={(e) => setStdin(e.target.value)}
+        placeholder={isCloudOnly
+          ? `Enter all input values, one per line (e.g. for scanf/cin)...`
+          : 'Enter input for your program...'}
+        className={cn(
+          'resize-none font-mono text-sm',
+          fill ? 'min-h-0 flex-1' : 'min-h-[70px]',
+          isDark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white',
+        )}
+      />
+    </div>
+  );
+}
+
+/**
+ * The phone layout's dedicated "Input" pane: stdin filling the pane, no
+ * collapsible chrome (the pane rail already owns show/hide).
+ */
+export function StdinPanel() {
+  const { theme } = useTheme();
+  return (
+    <div className={cn('flex h-full flex-col transition-colors', theme === 'dark' ? 'bg-inknight' : 'bg-warmwhite')}>
+      <StdinBody fill />
+    </div>
+  );
+}
+
+/**
+ * Desktop: a collapsible stdin block docked under the output.
+ *
+ * Kept separate from `StdinPanel` rather than sharing an `alwaysOpen` flag —
+ * the flag made the collapse state and its auto-expand effect dead weight that
+ * still re-rendered on every language change, and forked the classNames in
+ * three places for two layouts that share only the textarea.
+ */
+function CollapsibleStdin() {
+  const { language } = usePlayground();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Auto-expand when switching to a cloud-only language (C/C++/Java), where all
   // input must be supplied upfront.
@@ -48,49 +98,19 @@ export function StdinPanel({ alwaysOpen = false }: { alwaysOpen?: boolean }) {
     if (isCloudOnly) setCollapsed(false);
   }, [isCloudOnly]);
 
-  const open = alwaysOpen || !collapsed;
-
   return (
-    <div
-      className={cn(
-        'transition-colors',
-        alwaysOpen ? 'flex h-full flex-col' : 'order-last border-t',
-        isDark ? 'bg-inknight' : 'bg-warmwhite',
-      )}
-    >
-      {!alwaysOpen && (
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex min-h-[2.75rem] w-full items-center justify-between px-4 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-        >
-          <span>
-            {collapsed ? '+ Add input (stdin)   ⌘I' : 'Input (stdin)'}
-            {isCloudOnly && <span className="ml-2 font-normal">required for {language.name} input</span>}
-          </span>
-          {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-        </button>
-      )}
-      {open && (
-        <div className={cn('px-4 pb-3', alwaysOpen && 'flex min-h-0 flex-1 flex-col pt-3')}>
-          {isCloudOnly && (
-            <p className="mb-2 text-xs text-muted-foreground">
-              {language.name} runs on a remote server — provide all input upfront (one value per line).
-            </p>
-          )}
-          <Textarea
-            value={stdin}
-            onChange={(e) => setStdin(e.target.value)}
-            placeholder={isCloudOnly
-              ? `Enter all input values, one per line (e.g. for scanf/cin)...`
-              : 'Enter input for your program...'}
-            className={cn(
-              'resize-none font-mono text-sm',
-              alwaysOpen ? 'min-h-0 flex-1' : 'min-h-[70px]',
-              isDark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white',
-            )}
-          />
-        </div>
-      )}
+    <div className={cn('order-last border-t transition-colors', isDark ? 'bg-inknight' : 'bg-warmwhite')}>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex min-h-[2.75rem] w-full items-center justify-between px-4 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+      >
+        <span>
+          {collapsed ? '+ Add input (stdin)   ⌘I' : 'Input (stdin)'}
+          {isCloudOnly && <span className="ml-2 font-normal">required for {language.name} input</span>}
+        </span>
+        {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+      </button>
+      {!collapsed && <StdinBody fill={false} />}
     </div>
   );
 }
@@ -245,7 +265,7 @@ export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
   return (
     <div className="flex flex-col h-full">
       {/* Input Section */}
-      {!isWebLanguage && showStdin && <StdinPanel />}
+      {!isWebLanguage && showStdin && <CollapsibleStdin />}
 
       {/* Output / History Section */}
       <div className="flex-1 flex flex-col min-h-0">

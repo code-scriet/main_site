@@ -17,7 +17,7 @@ import { AlertCircle, ChevronLeft, ChevronsUpDown, Clock, Loader2, Megaphone, Tr
 import { useAuth } from '@/context/AuthContext';
 import { mainApi, type ContestRoundProblem } from '@/lib/mainApi';
 import { QOTDSolverShell, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
-import { useProctor, isFullscreenSupported } from '@/hooks/useProctor';
+import { useProctor } from '@/hooks/useProctor';
 import { useContestSocket } from '@/hooks/useContestSocket';
 import { useIsCompact } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
@@ -132,18 +132,12 @@ export default function ContestArenaPage() {
   const clarifications = clarificationsQuery.data?.clarifications ?? [];
   const clarificationCount = clarifications.length;
 
-  // iPhone/iPad Safari has no Fullscreen API. Requiring fullscreen there would
-  // wall every phone contestant out of a proctored round with a button that can
-  // never succeed, so the fullscreen half of the lockdown is simply skipped
-  // (tab-away detection, clipboard blocking and the server lock all still apply).
-  const fullscreenAvailable = isFullscreenSupported();
-
-  const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush } = useProctor({
+  const { locked: proctorLocked, awayMsLeft, inFullscreen, fullscreenSupported, enterFullscreen, applyProctorPush } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
     // DSA proctor is lock-only (no auto-submit — see file header) but enforces the
     // fullscreen + copy-paste lockdown on a proctored round.
-    fullscreen: Boolean(round?.proctored) && isActive && fullscreenAvailable,
+    fullscreen: Boolean(round?.proctored) && isActive,
     blockPaste: Boolean(round?.proctored) && isActive,
     // Instant violations (copy/cut/paste, fullscreen-exit) get a 1-warning budget server-side
     // before locking. Blocked-but-logged actions (dev-tools, right-click, print…) arrive as
@@ -163,8 +157,14 @@ export default function ContestArenaPage() {
       );
     },
   });
+  // iPhone/iPad Safari has no Fullscreen API. Requiring fullscreen there would
+  // wall every phone contestant out of a proctored round behind a button that
+  // can never succeed, so the fullscreen gate is skipped when it is unavailable
+  // (tab-away detection, clipboard blocking and the server lock all still apply).
+  // `fullscreenSupported` comes from the proctor hook so the capability check
+  // has exactly one definition — the hook's own `enterFullscreen` obeys it too.
   const needsFullscreen =
-    Boolean(round?.proctored) && isActive && fullscreenAvailable && !inFullscreen && !proctorLocked;
+    Boolean(round?.proctored) && isActive && fullscreenSupported && !inFullscreen && !proctorLocked;
 
   // Live push (no reloads): leaderboard/clarifications update their query caches in place,
   // first-solves pop a balloon toast, and a status change re-syncs the round (lobby →

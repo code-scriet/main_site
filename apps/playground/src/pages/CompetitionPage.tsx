@@ -596,6 +596,8 @@ export default function CompetitionPage() {
       height="100%"
       language="html"
       value={code}
+      // Undo history lives on the model — survive an unmount (breakpoint flip).
+      keepCurrentModel
       beforeMount={registerMonacoEmmet}
       onMount={editorHistory.handleMount}
       onChange={(value) => {
@@ -741,11 +743,18 @@ export default function CompetitionPage() {
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {compact ? (
-          compactPane === 'editor' ? (
-            <div className="flex h-full flex-col">
+          <>
+            {/* Hidden, not unmounted. A build round is a tight edit→preview→edit
+                loop, so unmounting Monaco here would dispose its model — and the
+                contestant's undo stack with it — dozens of times per round. */}
+            <div
+              hidden={compactPane !== 'editor'}
+              className={cn('h-full flex-col', compactPane === 'editor' ? 'flex' : 'hidden')}
+            >
               <div className="min-h-0 flex-1">{buildEditor}</div>
               {!isReadOnly && !proctorLocked && (
                 <MobileKeyBar
+                  disabled={!editorHistory.isReady}
                   onInsert={editorHistory.insertText}
                   onIndent={editorHistory.indent}
                   onOutdent={editorHistory.outdent}
@@ -756,9 +765,8 @@ export default function CompetitionPage() {
                 />
               )}
             </div>
-          ) : (
-            <div className="h-full bg-white">{previewFrame}</div>
-          )
+            {compactPane === 'preview' && <div className="h-full bg-white">{previewFrame}</div>}
+          </>
         ) : (
           <PanelGroup direction="horizontal" className="h-full">
             <Panel defaultSize={50} minSize={25}>

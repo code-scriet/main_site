@@ -93,7 +93,11 @@ export default function SnippetsPage() {
     <div className="h-app flex flex-col bg-warmwhite text-zinc-950 dark:bg-inknight dark:text-zinc-50">
       <Navbar />
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-6xl px-3 py-6 pb-safe sm:px-4 sm:py-8">
+        {/* The bottom padding has to ADD the safe-area inset to the normal
+            spacing — a bare `pb-safe` here would override `py-6`/`sm:py-8` and
+            leave the last card flush against the viewport on every device
+            where the inset is 0 (all desktops, most Android phones). */}
+        <div className="mx-auto max-w-6xl px-3 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:px-4 sm:py-8 sm:pb-[calc(2rem+env(safe-area-inset-bottom,0px))]">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex items-start gap-3">
               <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="h-8 w-8">

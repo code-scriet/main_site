@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { PlaygroundActions } from '@/hooks/usePlaygroundActions';
+import { TOUCH_MIN_FONT_SIZE } from '@/lib/monacoEditor';
 import { getAllLanguages } from '@/utils/languageConfig';
 import { MobileSheet } from '@/components/ui/mobile-sheet';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ export function MobileActionBar({ actions, onOpenPractice }: MobileActionBarProp
   const {
     language,
     setLanguage,
+    fontSize,
     increaseFontSize,
     decreaseFontSize,
     pythonMode,
@@ -120,11 +122,14 @@ export function MobileActionBar({ actions, onOpenPractice }: MobileActionBarProp
           <div className="mb-1 flex items-center gap-2 px-3 py-2">
             <Type className="h-4 w-4 text-zinc-500" />
             <span className="flex-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">Editor font size</span>
+            {/* Disabled at the touch floor the editor enforces, so it can't
+                look broken while state changes with no visible effect. */}
             <button
               type="button"
               onClick={decreaseFontSize}
+              disabled={fontSize <= TOUCH_MIN_FONT_SIZE}
               aria-label="Decrease font size"
-              className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 text-lg font-semibold text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+              className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 text-lg font-semibold text-zinc-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
             >
               −
             </button>

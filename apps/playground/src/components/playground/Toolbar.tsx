@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import {
   ArrowLeft,
   BookOpenCheck,
@@ -6,7 +5,6 @@ import {
   Cpu,
   Download,
   Maximize,
-  Menu,
   Minus,
   Moon,
   Play,
@@ -16,7 +14,6 @@ import {
   Sun,
   X,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import { getShortcutKey } from '@/hooks/useKeyboardShortcuts';
@@ -41,11 +38,9 @@ export function Toolbar({ actions, problemMode = false, onExitProblem, onOpenPra
     setLanguage,
     increaseFontSize,
     decreaseFontSize,
-    toggleProblemPanel,
     pythonMode,
     pyodideProgress,
     pyodideLabel,
-    pyodideError,
     startLocalPython,
     revertToCloudPython,
   } = usePlayground();
@@ -54,11 +49,8 @@ export function Toolbar({ actions, problemMode = false, onExitProblem, onOpenPra
 
   const languages = getAllLanguages();
 
-  useEffect(() => {
-    if (pyodideError) {
-      toast.error(`Python local runtime failed: ${pyodideError}`, { duration: 6000 });
-    }
-  }, [pyodideError]);
+  // NOTE: the Pyodide failure toast lives in PlaygroundPage, not here — this
+  // toolbar isn't rendered on phones, and the error must surface there too.
 
   if (problemMode) {
     return (
@@ -191,9 +183,6 @@ export function Toolbar({ actions, problemMode = false, onExitProblem, onOpenPra
         </Button>
         <Button onClick={actions.toggleFullscreen} variant="ghost" size="icon" title="Fullscreen" className="hidden h-8 w-8 md:inline-flex">
           <Maximize className="h-3.5 w-3.5" />
-        </Button>
-        <Button onClick={toggleProblemPanel} variant="ghost" size="icon" title="Toggle problem panel" className="h-8 w-8 md:hidden">
-          <Menu className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>

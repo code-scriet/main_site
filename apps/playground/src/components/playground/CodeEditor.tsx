@@ -54,6 +54,9 @@ export function CodeEditor() {
         path={`playground/main${language.fileExtension}`}
         language={language.monacoId}
         value={code}
+        // The undo stack lives on the model — keep it across an unmount so a
+        // layout/breakpoint change doesn't wipe the user's history.
+        keepCurrentModel
         onChange={handleEditorChange}
         onMount={handleMount}
         beforeMount={registerMonacoEmmet}

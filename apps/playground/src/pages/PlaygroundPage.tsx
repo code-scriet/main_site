@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Toolbar } from '@/components/playground/Toolbar';
 import { CodeEditor } from '@/components/playground/CodeEditor';
@@ -56,7 +57,7 @@ export default function PlaygroundPage() {
  * editor-history context) run *inside* the provider.
  */
 function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }) {
-  const { showProblemPanel, language } = usePlayground();
+  const { showProblemPanel, language, pyodideError } = usePlayground();
   const { toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -294,6 +295,29 @@ function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }
     onToggleTheme: toggleTheme,
   });
 
+  // Phone only: Run has to reveal the Output pane. Without this the result —
+  // and, for a program that blocks on input, the interactive stdin prompt —
+  // renders on a pane the user isn't looking at, so the run appears to hang.
+  const mobileActions = useMemo(
+    () => ({
+      ...actions,
+      runCode: async () => {
+        setMobilePane('output');
+        await actions.runCode();
+      },
+    }),
+    [actions],
+  );
+
+  // The Pyodide failure toast used to live in Toolbar, which the phone layout
+  // doesn't render — so "Run Python locally" could fail silently while the
+  // sheet showed a progress bar forever. Owning it here covers both layouts.
+  useEffect(() => {
+    if (pyodideError) {
+      toast.error(`Python local runtime failed: ${pyodideError}`, { duration: 6000 });
+    }
+  }, [pyodideError]);
+
   const freeEditorStack = (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1">
@@ -388,33 +412,40 @@ function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }
                 {language.id !== 'web' && paneTab('input', 'Input')}
               </div>
 
-              {effectivePane === 'code' ? (
-                <>
-                  <div className="min-h-0 flex-1">
-                    <CodeEditor />
-                  </div>
-                  <MobileKeyBar
-                    onInsert={editorHistory.insertText}
-                    onIndent={editorHistory.indent}
-                    onOutdent={editorHistory.outdent}
-                    onUndo={editorHistory.undo}
-                    onRedo={editorHistory.redo}
-                    canUndo={editorHistory.canUndo}
-                    canRedo={editorHistory.canRedo}
-                  />
-                </>
-              ) : effectivePane === 'output' ? (
+              {/* The code pane is hidden rather than unmounted: Run switches to
+                  Output automatically, and unmounting Monaco would dispose its
+                  model along with the undo stack, caret and scroll position. */}
+              <div
+                hidden={effectivePane !== 'code'}
+                className={cn('min-h-0 flex-1 flex-col', effectivePane === 'code' ? 'flex' : 'hidden')}
+              >
+                <div className="min-h-0 flex-1">
+                  <CodeEditor />
+                </div>
+                <MobileKeyBar
+                  disabled={!editorHistory.isReady}
+                  onInsert={editorHistory.insertText}
+                  onIndent={editorHistory.indent}
+                  onOutdent={editorHistory.outdent}
+                  onUndo={editorHistory.undo}
+                  onRedo={editorHistory.redo}
+                  canUndo={editorHistory.canUndo}
+                  canRedo={editorHistory.canRedo}
+                />
+              </div>
+              {effectivePane === 'output' && (
                 <div className="min-h-0 flex-1">
                   <OutputPanel showStdin={false} />
                 </div>
-              ) : (
+              )}
+              {effectivePane === 'input' && (
                 <div className="min-h-0 flex-1">
-                  <StdinPanel alwaysOpen />
+                  <StdinPanel />
                 </div>
               )}
 
               <StatusStrip />
-              <MobileActionBar actions={actions} onOpenPractice={enterPracticeBrowser} />
+              <MobileActionBar actions={mobileActions} onOpenPractice={enterPracticeBrowser} />
             </div>
           ) : (
             <div className="h-full">
@@ -443,11 +474,6 @@ function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }
         </div>
       </div>
 
-      {showProblemPanel && !inProblemMode && (
-        <div className={cn('md:hidden fixed inset-0 z-50 bg-background', 'flex flex-col')}>
-          <ProblemPanel />
-        </div>
-      )}
     </div>
   );
 }

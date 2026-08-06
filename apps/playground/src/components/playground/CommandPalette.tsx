@@ -1,6 +1,6 @@
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Moon, Search, Sun } from 'lucide-react';
+import { LogOut, Moon, Search, Sun, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -39,6 +39,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             className="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-500"
           />
           <kbd className="hidden rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 sm:inline dark:border-zinc-800">Esc</kbd>
+          {/* A phone has no Escape key, and the autofocused input opens the
+              keyboard over most of the scrim — without this button the only way
+              out is a tap on a thin strip of backdrop. */}
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 sm:hidden dark:hover:bg-zinc-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
         {/* Capped against the *visible* viewport so the soft keyboard can't push
             the list off-screen on a phone. */}

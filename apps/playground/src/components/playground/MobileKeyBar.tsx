@@ -11,6 +11,11 @@ export interface MobileKeyBarProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /**
+   * No live editor to type into (Monaco still loading, or disposed). The keys
+   * grey out instead of silently swallowing taps.
+   */
+  disabled?: boolean;
   className?: string;
 }
 
@@ -36,6 +41,7 @@ export function MobileKeyBar({
   onRedo,
   canUndo,
   canRedo,
+  disabled = false,
   className,
 }: MobileKeyBarProps) {
   const [expanded, setExpanded] = useState(false);
@@ -54,10 +60,10 @@ export function MobileKeyBar({
       // A tap here must never blur the editor (see component doc).
       onMouseDown={keep}
     >
-      <button type="button" tabIndex={-1} onMouseDown={keep} onClick={onOutdent} className={keyClass} aria-label="Outdent">
+      <button type="button" tabIndex={-1} onMouseDown={keep} onClick={onOutdent} disabled={disabled} className={keyClass} aria-label="Outdent">
         <Outdent className="h-4 w-4" />
       </button>
-      <button type="button" tabIndex={-1} onMouseDown={keep} onClick={onIndent} className={keyClass} aria-label="Indent">
+      <button type="button" tabIndex={-1} onMouseDown={keep} onClick={onIndent} disabled={disabled} className={keyClass} aria-label="Indent">
         <Indent className="h-4 w-4" />
       </button>
       <button
@@ -65,6 +71,7 @@ export function MobileKeyBar({
         tabIndex={-1}
         onMouseDown={keep}
         onClick={() => onInsert('\n')}
+        disabled={disabled}
         className={keyClass}
         aria-label="New line"
       >
@@ -80,6 +87,7 @@ export function MobileKeyBar({
           tabIndex={-1}
           onMouseDown={keep}
           onClick={() => onInsert(key)}
+          disabled={disabled}
           className={keyClass}
           aria-label={`Insert ${key}`}
         >
@@ -106,7 +114,7 @@ export function MobileKeyBar({
         tabIndex={-1}
         onMouseDown={keep}
         onClick={onUndo}
-        disabled={!canUndo}
+        disabled={disabled || !canUndo}
         className={keyClass}
         aria-label="Undo"
       >
@@ -117,7 +125,7 @@ export function MobileKeyBar({
         tabIndex={-1}
         onMouseDown={keep}
         onClick={onRedo}
-        disabled={!canRedo}
+        disabled={disabled || !canRedo}
         className={keyClass}
         aria-label="Redo"
       >
