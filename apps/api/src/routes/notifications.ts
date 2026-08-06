@@ -259,13 +259,31 @@ const markReadSchema = z.object({
   at: z.string().datetime().optional(),
 });
 
+/**
+ * Resolve the notification read-cutoff, CLAMPED to now.
+ *
+ * `z.string().datetime()` validates SHAPE, not range. Without this clamp a client with a
+ * skewed system clock (or any caller passing its own timestamp) could park the cutoff in the
+ * future — and because every item's read state is computed as `timestamp < readCutoff`, that
+ * permanently marks all FUTURE notifications read as well, across invitations, certificates,
+ * quiz starts and admin broadcasts, with no UI to undo it.
+ *
+ * Exported pure so the rule is unit-tested rather than re-derived from the handler.
+ */
+export function resolveReadCutoff(at: string | undefined, now: Date = new Date()): Date {
+  if (!at) return now;
+  const requested = new Date(at);
+  if (Number.isNaN(requested.getTime())) return now;
+  return requested > now ? now : requested;
+}
+
 notificationsRouter.post('/mark-read', authMiddleware, async (req: Request, res: Response) => {
   const auth = getAuthUser(req)!;
   const parsed = markReadSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     return ApiResponse.validationError(res, parsed.error.errors.map(e => ({ field: e.path.join('.'), message: e.message })));
   }
-  const cutoff = parsed.data.at ? new Date(parsed.data.at) : new Date();
+  const cutoff = resolveReadCutoff(parsed.data.at);
   try {
     await prisma.user.update({
       where: { id: auth.id },

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { getAuthUser } from './auth.js';
 import { logger } from '../utils/logger.js';
 
-type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT';
+export type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT';
 
 // ISSUE-044: Role hierarchy documentation
 // Level 0: PUBLIC (unauthenticated users)
@@ -10,7 +10,11 @@ type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' |
 // Level 2: MEMBER (club members)
 // Level 3: CORE_MEMBER (core team)
 // Level 4: ADMIN/PRESIDENT (administrators)
-const roleHierarchy: Record<Role, number> = {
+//
+// Exported as the SINGLE source of truth — routes that need a numeric tier (e.g.
+// search.ts's role-aware result filtering) must import this rather than re-declaring
+// their own copy, so adding a role can't silently miss one of them.
+export const roleHierarchy: Record<Role, number> = {
   PUBLIC: 0,
   USER: 1,
   NETWORK: 1,
@@ -19,6 +23,10 @@ const roleHierarchy: Record<Role, number> = {
   ADMIN: 4,
   PRESIDENT: 4,
 };
+
+/** Numeric tier for an arbitrary role string; unknown roles fall back to PUBLIC (0). */
+export const roleTier = (role: string | undefined): number =>
+  roleHierarchy[role as Role] ?? 0;
 
 export const hasPermission = (userRole: string, requiredRole: Role): boolean => {
   const knownRole = roleHierarchy[userRole as Role];

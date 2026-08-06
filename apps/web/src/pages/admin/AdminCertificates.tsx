@@ -194,7 +194,9 @@ export default function AdminCertificates() {
     enabled: Boolean(token),
   });
 
-  const all = q.data?.certificates ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => q.data?.certificates ?? [], [q.data?.certificates]);
   const filtered = useMemo(() => {
     return all.filter((c) => {
       if (status === 'active' && c.isRevoked) return false;

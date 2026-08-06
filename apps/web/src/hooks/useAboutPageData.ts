@@ -47,7 +47,9 @@ export function useAboutPageData(): AboutPageData {
   const statsQuery = usePublicStats();
 
   const raw = statsQuery.data;
-  const teamCounts = raw?.teamCounts ?? {};
+  // useMemo, not a bare `?? {}`: a fresh object literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const teamCounts = useMemo(() => raw?.teamCounts ?? {}, [raw?.teamCounts]);
 
   // Resolve launch date: settings (admin) → constant (build-time fallback).
   const launchDate = settings?.siteLaunchDate ? new Date(settings.siteLaunchDate) : LAUNCH_DATE;

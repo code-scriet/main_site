@@ -2776,8 +2776,23 @@ competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req
       let lock = roundLockable;
       let remaining: number | null = null;
       if (roundLockable && instant) {
+        // Count only violations since the last admin unlock. CompetitionViolation is an
+        // append-only log, so counting the whole round made an admin Unlock useless: once a
+        // participant was past the budget the tally stayed past it forever, and the very next
+        // instant violation (copy/cut counts, not just paste) re-locked them immediately with
+        // no warning. Scoping to `unlockedAt` restores the intended warn-then-lock grace while
+        // keeping the full log intact for the monitor and post-hoc review.
+        const priorState = await tx.competitionParticipantState.findUnique({
+          where: { roundId_userId: { roundId: round.id, userId: user.id } },
+          select: { unlockedAt: true },
+        });
         const instantCount = await tx.competitionViolation.count({
-          where: { roundId: round.id, userId: user.id, kind: { in: [...INSTANT_VIOLATION_KINDS] } },
+          where: {
+            roundId: round.id,
+            userId: user.id,
+            kind: { in: [...INSTANT_VIOLATION_KINDS] },
+            ...(priorState?.unlockedAt ? { at: { gt: priorState.unlockedAt } } : {}),
+          },
         });
         lock = instantCount > INSTANT_VIOLATION_BUDGET;
         remaining = Math.max(0, INSTANT_VIOLATION_BUDGET + 1 - instantCount);

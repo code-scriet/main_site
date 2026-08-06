@@ -145,3 +145,26 @@ test('invalidateAllRoundCache clears both caches', async () => {
   assert.equal(calls.round, 2);
   assert.equal(calls.registration, 2);
 });
+
+// Audit F8: the pre-sweep only dropped EXPIRED entries, so polling more than
+// `roundMaxEntries` distinct rounds inside a single TTL window left nothing to evict and
+// the map grew past its documented bound (HC #1). The cap must hold regardless of TTL.
+test('round: cap holds even when nothing has expired yet', async () => {
+  const { cache } = harness({ roundMaxEntries: 4, roundTtlMs: 10_000 });
+  // 20 distinct rounds, all inside one TTL window (clock never advances).
+  for (let i = 0; i < 20; i++) await cache.getCachedRound(`r${i}`);
+  assert.ok(
+    cache.debugRoundCacheSize() <= 4,
+    `round cache grew past its cap: ${cache.debugRoundCacheSize()}`,
+  );
+});
+
+test('round: cap eviction is oldest-first, newest entries survive', async () => {
+  const { cache, calls } = harness({ roundMaxEntries: 3, roundTtlMs: 10_000 });
+  await cache.getCachedRound('r1');
+  await cache.getCachedRound('r2');
+  await cache.getCachedRound('r3'); // sweep+evict fires here, dropping the oldest
+  const before = calls.round;
+  await cache.getCachedRound('r3'); // most recent → still cached, no new query
+  assert.equal(calls.round, before, 'the newest entry must survive eviction');
+});

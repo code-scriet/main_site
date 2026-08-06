@@ -108,6 +108,8 @@ export interface RoundCache {
   invalidateAllRoundCache(): void;
   /** True iff the user is registered for the event — positive result cached 30s, misses always live. */
   isRegisteredCached(userId: string, eventId: string): Promise<boolean>;
+  /** Test seam: current round-cache entry count (used to assert the size cap holds). */
+  debugRoundCacheSize(): number;
 }
 
 const DEFAULT_ROUND_TTL_MS = 10_000;
@@ -148,6 +150,15 @@ export function createRoundCache(
     // sweep expired entries before inserting a fresh one.
     if (roundCache.size >= roundMaxEntries) {
       for (const [k, v] of roundCache) if (at - v.at >= roundTtlMs) roundCache.delete(k);
+      // The sweep only drops EXPIRED entries, so if more than `roundMaxEntries` distinct
+      // rounds are polled inside one TTL window nothing is expired and the map would grow
+      // past its documented bound (HC #1). Evict oldest-first until the cap actually holds —
+      // Map iteration is insertion-ordered, so the first key is the oldest.
+      while (roundCache.size >= roundMaxEntries) {
+        const oldest = roundCache.keys().next().value;
+        if (oldest === undefined) break;
+        roundCache.delete(oldest);
+      }
     }
 
     const promise = fetchRound(roundId);
@@ -193,7 +204,15 @@ export function createRoundCache(
     return registered;
   };
 
-  return { getCachedRound, invalidateRoundCache, invalidateAllRoundCache, isRegisteredCached };
+  const debugRoundCacheSize = (): number => roundCache.size;
+
+  return {
+    getCachedRound,
+    invalidateRoundCache,
+    invalidateAllRoundCache,
+    isRegisteredCached,
+    debugRoundCacheSize,
+  };
 }
 
 // ─── Process-wide singleton wired to Prisma (used by routes/competition.ts) ───

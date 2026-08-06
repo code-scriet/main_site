@@ -153,7 +153,9 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
     enabled: Boolean(token) && mode === 'pick',
   });
   const problems: Problem[] = useMemo(() => problemsQ.data?.problems ?? [], [problemsQ.data]);
-  const history = historyQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const history = useMemo(() => historyQ.data ?? [], [historyQ.data]);
 
   const filteredProblems = useMemo(() => {
     if (!problemSearch.trim()) return problems.slice(0, 20);
