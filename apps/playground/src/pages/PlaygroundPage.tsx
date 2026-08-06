@@ -1,20 +1,27 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Toolbar } from '@/components/playground/Toolbar';
 import { CodeEditor } from '@/components/playground/CodeEditor';
-import { OutputPanel } from '@/components/playground/OutputPanel';
+import { OutputPanel, StdinPanel } from '@/components/playground/OutputPanel';
 import { ProblemPanel } from '@/components/playground/ProblemPanel';
 import { LanguageSidebar } from '@/components/playground/LanguageSidebar';
 import { StatusStrip } from '@/components/playground/StatusStrip';
 import { Navbar } from '@/components/playground/Navbar';
+import { MobileActionBar } from '@/components/playground/MobileActionBar';
+import { MobileKeyBar } from '@/components/playground/MobileKeyBar';
 import { QOTDSolverShell, buildQOTDLeaderboardHref, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { PracticeProblemsBrowser } from '@/components/problems/PracticeProblemsBrowser';
 import { usePlayground } from '@/context/PlaygroundContext';
-import { useEditorHistory, EditorHistoryProvider } from '@/hooks/useEditorHistory';
+import { useEditorHistory, EditorHistoryProvider, type EditorHistory } from '@/hooks/useEditorHistory';
+import { useIsCompact, useIsMobile } from '@/hooks/useMediaQuery';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { usePlaygroundActions } from '@/hooks/usePlaygroundActions';
+import { useTheme } from '@/context/ThemeContext';
 import { mainApi, type ProblemDetail } from '@/lib/mainApi';
 import { cn } from '@/lib/utils';
 
@@ -27,15 +34,39 @@ type Mode =
   | { kind: 'practice-browser' }
   | { kind: 'solver'; problem: ProblemDetail; context: QOTDSolverContext };
 
+/** Phone layout: one pane at a time. */
+type MobilePane = 'code' | 'output' | 'input';
+
 function istTodayKey(): string {
   return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export default function PlaygroundPage() {
-  const { showProblemPanel } = usePlayground();
   // Shared between the sibling Toolbar (buttons) and CodeEditor (editor instance).
   const editorHistory = useEditorHistory();
+
+  return (
+    <EditorHistoryProvider value={editorHistory}>
+      <PlaygroundPageInner editorHistory={editorHistory} />
+    </EditorHistoryProvider>
+  );
+}
+
+/**
+ * Split from the exported component so the toolbar-action hooks (which read the
+ * editor-history context) run *inside* the provider.
+ */
+function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }) {
+  const { showProblemPanel, language, pyodideError } = usePlayground();
+  const { toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
+  // `lg` — matches the breakpoint QOTDSolverShell switches its own layout on.
+  const isCompact = useIsCompact();
+  const [mobilePane, setMobilePane] = useState<MobilePane>('code');
+  // `web` has no stdin — if the user was on the Input pane when switching to it,
+  // fall back to the preview instead of showing a dead pane.
+  const effectivePane: MobilePane = language.id === 'web' && mobilePane === 'input' ? 'output' : mobilePane;
 
   const qotdParam = searchParams.get('qotd');
   const problemParam = searchParams.get('problem');
@@ -249,21 +280,94 @@ export default function PlaygroundPage() {
     mode.kind === 'problem-error' ||
     mode.kind === 'practice-browser';
 
+  const actions = usePlaygroundActions();
+
+  // Registered once, here, rather than inside the toolbar — the mobile layout
+  // does not render the toolbar, and two registrations would double-fire Run.
+  // In problem mode the free-playground editor is unmounted, so every action
+  // that targets it is withheld (running would execute a stale buffer and burn
+  // a daily quota unit; resetting would edit a disposed Monaco model).
+  useKeyboardShortcuts({
+    onRun: inProblemMode ? undefined : () => { if (!actions.isRunning) void actions.runCode(); },
+    onSave: inProblemMode ? undefined : () => { void actions.saveSnippet(); },
+    onReset: inProblemMode ? undefined : actions.resetCode,
+    onCopy: inProblemMode ? undefined : () => { void actions.copyCode(); },
+    onToggleTheme: toggleTheme,
+  });
+
+  // Phone only: Run has to reveal the Output pane. Without this the result —
+  // and, for a program that blocks on input, the interactive stdin prompt —
+  // renders on a pane the user isn't looking at, so the run appears to hang.
+  const mobileActions = useMemo(
+    () => ({
+      ...actions,
+      runCode: async () => {
+        setMobilePane('output');
+        await actions.runCode();
+      },
+    }),
+    [actions],
+  );
+
+  // The Pyodide failure toast used to live in Toolbar, which the phone layout
+  // doesn't render — so "Run Python locally" could fail silently while the
+  // sheet showed a progress bar forever. Owning it here covers both layouts.
+  useEffect(() => {
+    if (pyodideError) {
+      toast.error(`Python local runtime failed: ${pyodideError}`, { duration: 6000 });
+    }
+  }, [pyodideError]);
+
+  const freeEditorStack = (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        <CodeEditor />
+      </div>
+      <StatusStrip />
+    </div>
+  );
+
+  const paneTab = (pane: MobilePane, label: string) => (
+    <button
+      key={pane}
+      type="button"
+      role="tab"
+      aria-selected={effectivePane === pane}
+      onClick={() => setMobilePane(pane)}
+      className={cn(
+        'h-9 flex-1 rounded-full px-3 text-[12.5px] font-semibold transition',
+        effectivePane === pane
+          ? 'bg-amber-400 text-amber-950'
+          : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800',
+      )}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <EditorHistoryProvider value={editorHistory}>
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
+    <div className="flex h-app flex-col overflow-hidden bg-background">
       <Navbar />
-      <Toolbar
-        problemMode={inProblemMode}
-        onExitProblem={clearMode}
-        onOpenPractice={enterPracticeBrowser}
-      />
-      <div className="flex-1 flex overflow-hidden">
+      {/* Hidden on a phone: its twelve controls collapse into an unreadable
+          overlapping row there, and every one of them is reachable from the
+          bottom action bar or the nav sheet. Also hidden in problem mode
+          below `lg` — the compact solver renders its own header with Back, so
+          this row would just be a duplicate stealing 44px from a landscape
+          phone, where vertical space is the scarcest thing on screen. */}
+      {!isMobile && !(isCompact && inProblemMode) && (
+        <Toolbar
+          actions={actions}
+          problemMode={inProblemMode}
+          onExitProblem={clearMode}
+          onOpenPractice={enterPracticeBrowser}
+        />
+      )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="hidden md:block">
           <LanguageSidebar onOpenPractice={enterPracticeBrowser} />
         </div>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {mode.kind === 'qotd-loading' || mode.kind === 'problem-loading' ? (
             <div className="grid h-full place-items-center text-gray-500">
               <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
@@ -295,60 +399,81 @@ export default function PlaygroundPage() {
             />
           ) : mode.kind === 'solver' ? (
             <QOTDSolverShell problem={mode.problem} context={mode.context} onExit={clearMode} />
-          ) : (
-            <>
-              <div className="flex h-full flex-col md:hidden">
-                <LanguageSidebar onOpenPractice={enterPracticeBrowser} mobile />
-                <div className="min-h-0 flex-[0_0_58%] border-b border-zinc-200 dark:border-zinc-800">
-                  <div className="flex h-full flex-col">
-                    <div className="min-h-0 flex-1">
-                      <CodeEditor />
-                    </div>
-                    <StatusStrip />
-                  </div>
-                </div>
+          ) : isMobile ? (
+            /* ── Phone: one pane at a time + a thumb-reachable action bar ── */
+            <div className="flex h-full min-h-0 flex-col">
+              <div
+                role="tablist"
+                aria-label="Playground panes"
+                className="flex shrink-0 items-center gap-1 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+              >
+                {paneTab('code', 'Code')}
+                {paneTab('output', language.id === 'web' ? 'Preview' : 'Output')}
+                {language.id !== 'web' && paneTab('input', 'Input')}
+              </div>
+
+              {/* The code pane is hidden rather than unmounted: Run switches to
+                  Output automatically, and unmounting Monaco would dispose its
+                  model along with the undo stack, caret and scroll position. */}
+              <div
+                hidden={effectivePane !== 'code'}
+                className={cn('min-h-0 flex-1 flex-col', effectivePane === 'code' ? 'flex' : 'hidden')}
+              >
                 <div className="min-h-0 flex-1">
-                  <OutputPanel />
+                  <CodeEditor />
                 </div>
+                <MobileKeyBar
+                  disabled={!editorHistory.isReady}
+                  onInsert={editorHistory.insertText}
+                  onIndent={editorHistory.indent}
+                  onOutdent={editorHistory.outdent}
+                  onUndo={editorHistory.undo}
+                  onRedo={editorHistory.redo}
+                  canUndo={editorHistory.canUndo}
+                  canRedo={editorHistory.canRedo}
+                />
               </div>
-              <div className="hidden h-full md:block">
-                <PanelGroup direction="horizontal" className="h-full">
-                  {showProblemPanel && (
-                    <>
-                      <Panel defaultSize={25} minSize={20} maxSize={40}>
-                        <ProblemPanel />
-                      </Panel>
-                      <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
-                    </>
-                  )}
+              {effectivePane === 'output' && (
+                <div className="min-h-0 flex-1">
+                  <OutputPanel showStdin={false} />
+                </div>
+              )}
+              {effectivePane === 'input' && (
+                <div className="min-h-0 flex-1">
+                  <StdinPanel />
+                </div>
+              )}
 
-                  <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
-                    <div className="flex h-full flex-col border-r border-zinc-200 dark:border-zinc-800">
-                      <div className="min-h-0 flex-1">
-                        <CodeEditor />
-                      </div>
-                      <StatusStrip />
-                    </div>
-                  </Panel>
+              <StatusStrip />
+              <MobileActionBar actions={mobileActions} onOpenPractice={enterPracticeBrowser} />
+            </div>
+          ) : (
+            <div className="h-full">
+              <PanelGroup direction="horizontal" className="h-full">
+                {showProblemPanel && (
+                  <>
+                    <Panel defaultSize={25} minSize={20} maxSize={40}>
+                      <ProblemPanel />
+                    </Panel>
+                    <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+                  </>
+                )}
 
-                  <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+                <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
+                  <div className="h-full border-r border-zinc-200 dark:border-zinc-800">{freeEditorStack}</div>
+                </Panel>
 
-                  <Panel defaultSize={30} minSize={25}>
-                    <OutputPanel />
-                  </Panel>
-                </PanelGroup>
-              </div>
-            </>
+                <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+
+                <Panel defaultSize={30} minSize={25}>
+                  <OutputPanel />
+                </Panel>
+              </PanelGroup>
+            </div>
           )}
         </div>
       </div>
 
-      {showProblemPanel && !inProblemMode && (
-        <div className={cn('md:hidden fixed inset-0 z-50 bg-background', 'flex flex-col')}>
-          <ProblemPanel />
-        </div>
-      )}
     </div>
-    </EditorHistoryProvider>
   );
 }

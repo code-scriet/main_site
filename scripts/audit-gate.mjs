@@ -52,11 +52,37 @@ try {
   process.exit(1);
 }
 
+// A gate that fails OPEN is worse than no gate. When `npm audit` cannot reach
+// the registry (offline runner, rate limit, EAUDITNOPJSON) it still exits with
+// valid JSON — but it is `{"error":{...}}`, with no `vulnerabilities` key. The
+// scan loop below would then iterate zero times, find nothing unreviewed, and
+// print PASS while a CRITICAL advisory sailed through. Refuse anything that
+// isn't a real audit report.
+if (report && typeof report === 'object' && report.error) {
+  const { code, summary, detail } = report.error;
+  console.error(`audit-gate: \`npm audit\` failed (${code ?? 'unknown'}): ${summary ?? detail ?? 'no detail'}`);
+  console.error('audit-gate: FAIL — refusing to pass without a completed audit.');
+  process.exit(1);
+}
+
+if (
+  !report
+  || typeof report !== 'object'
+  || typeof report.vulnerabilities !== 'object'
+  || report.vulnerabilities === null
+  || typeof report.metadata !== 'object'
+  || report.metadata === null
+) {
+  console.error('audit-gate: `npm audit --json` returned no vulnerability report (unrecognised shape).');
+  console.error('audit-gate: FAIL — refusing to pass without a completed audit.');
+  process.exit(1);
+}
+
 const BLOCKING = new Set(['high', 'critical']);
 const blocking = new Map(); // GHSA id → { id, title, severity, packages:Set }
 const counts = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 };
 
-for (const [pkg, vuln] of Object.entries(report.vulnerabilities ?? {})) {
+for (const [pkg, vuln] of Object.entries(report.vulnerabilities)) {
   counts[vuln.severity] = (counts[vuln.severity] ?? 0) + 1;
   for (const via of vuln.via ?? []) {
     // String `via` entries are transitive pointers to another package, not advisories.

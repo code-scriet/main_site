@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { safeImageSrc } from '../src/lib/safeImageSrc.ts';
+
+test('allows the https avatar URLs the OAuth providers and Cloudinary actually return', () => {
+  const google = 'https://lh3.googleusercontent.com/a/ACg8ocK=s96-c';
+  const github = 'https://avatars.githubusercontent.com/u/12345?v=4';
+  const cloudinary = 'https://res.cloudinary.com/demo/image/upload/v1/avatars/u1.png';
+  assert.equal(safeImageSrc(google), google);
+  assert.equal(safeImageSrc(github), github);
+  assert.equal(safeImageSrc(cloudinary), cloudinary);
+});
+
+test('allows plain http (dev/self-hosted avatars)', () => {
+  assert.equal(safeImageSrc('http://localhost:5001/uploads/a.png'), 'http://localhost:5001/uploads/a.png');
+});
+
+test('resolves relative paths to the absolute form of the same resource', () => {
+  // The parsed URL is what gets returned, so a relative path comes back
+  // absolute. Same resource, and it keeps the returned value identical to the
+  // value that was actually validated.
+  assert.equal(safeImageSrc('/static/avatar.png'), 'https://codescriet.dev/static/avatar.png');
+  assert.equal(safeImageSrc('avatar.png'), 'https://codescriet.dev/avatar.png');
+});
+
+test('rejects every non-http(s) scheme', () => {
+  assert.equal(safeImageSrc('javascript:alert(1)'), undefined);
+  assert.equal(safeImageSrc('JavaScript:alert(1)'), undefined);
+  assert.equal(safeImageSrc('data:image/svg+xml,<svg onload=alert(1)>'), undefined);
+  assert.equal(safeImageSrc('blob:https://codescriet.dev/abc'), undefined);
+  assert.equal(safeImageSrc('vbscript:msgbox(1)'), undefined);
+  assert.equal(safeImageSrc('file:///etc/passwd'), undefined);
+});
+
+test('rejects the whitespace/control-character tricks used to smuggle a scheme past a naive prefix check', () => {
+  // The URL parser strips these before resolving the scheme, so each still
+  // lands on `javascript:` and must be rejected.
+  assert.equal(safeImageSrc('  javascript:alert(1)'), undefined);
+  assert.equal(safeImageSrc('java\nscript:alert(1)'), undefined);
+  assert.equal(safeImageSrc('java\tscript:alert(1)'), undefined);
+  assert.equal(safeImageSrc('\0javascript:alert(1)'), undefined);
+});
+
+test('rejects empty, blank and non-string input', () => {
+  assert.equal(safeImageSrc(''), undefined);
+  assert.equal(safeImageSrc('   '), undefined);
+  assert.equal(safeImageSrc(null), undefined);
+  assert.equal(safeImageSrc(undefined), undefined);
+  assert.equal(safeImageSrc(42 as unknown as string), undefined);
+});
+
+test('trims, so a padded-but-valid URL is still usable', () => {
+  assert.equal(safeImageSrc('  https://example.com/a.png  '), 'https://example.com/a.png');
+});
+
+test('the real provider avatar URLs round-trip byte-identical (normalisation is a no-op for them)', () => {
+  // Guards the one behavioural risk of returning `parsed.href` instead of the
+  // caller's string: that URL normalisation could rewrite a working CDN URL.
+  for (const url of [
+    'https://lh3.googleusercontent.com/a/ACg8ocK=s96-c',
+    'https://avatars.githubusercontent.com/u/12345?v=4',
+    'https://res.cloudinary.com/demo/image/upload/v1/avatars/u1.png',
+    'https://cdn.discordapp.com/avatars/1/abc.png?size=128',
+  ]) {
+    assert.equal(safeImageSrc(url), url, `normalisation changed ${url}`);
+  }
+});

@@ -85,7 +85,9 @@ export function StatusStrip() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="inline-flex h-6 items-center gap-1 rounded border border-zinc-200 px-2 font-mono text-[10px] text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+          {/* Runtime tier + timing are diagnostics — on a phone the row only has
+              room for the one number that gates the next run (the quota). */}
+          <span className="hidden h-6 items-center gap-1 rounded border border-zinc-200 px-2 font-mono text-[10px] text-zinc-600 sm:inline-flex dark:border-zinc-800 dark:text-zinc-300">
             {local ? <Cpu className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
             {local ? 'Local · CPU' : 'Cloud'}
           </span>

@@ -16,6 +16,16 @@ import { setAutoReloadBlocked } from '@/lib/chunkReload';
 const AWAY_LOCK_MS = 10_000;
 const HEARTBEAT_MS = 15_000;
 
+/**
+ * iOS Safari implements the Fullscreen API only for `<video>` — there is no
+ * `Element.requestFullscreen` on iPhone. Callers must check this before gating
+ * anything behind fullscreen, otherwise an iPhone contestant is stuck behind a
+ * "enter fullscreen to continue" wall they can never satisfy.
+ */
+export function isFullscreenSupported(): boolean {
+  return typeof document !== 'undefined' && typeof document.documentElement.requestFullscreen === 'function';
+}
+
 export interface UseProctorResult {
   locked: boolean;
   lockReason: string | null;
@@ -23,6 +33,8 @@ export interface UseProctorResult {
   awayMsLeft: number | null;
   /** True once the contestant is in fullscreen (fullscreen lockdown only). */
   inFullscreen: boolean;
+  /** False on iPhone/iPad Safari — never gate the round behind fullscreen there. */
+  fullscreenSupported: boolean;
   /** Request fullscreen — must be called from a user gesture (a button). */
   enterFullscreen: () => void;
   /** Apply an out-of-band lock/unlock (e.g. an admin push over the contest socket). */
@@ -229,7 +241,8 @@ export function useProctor(opts: {
   }, [enabled, locked, roundId]);
 
   const enterFullscreen = useCallback(() => {
-    document.documentElement.requestFullscreen?.().catch(() => undefined);
+    if (!isFullscreenSupported()) return;
+    document.documentElement.requestFullscreen().catch(() => undefined);
   }, []);
 
   // Apply an admin lock/unlock pushed over the contest socket so it lands instantly instead
@@ -246,5 +259,13 @@ export function useProctor(opts: {
     }
   }, [clearAway]);
 
-  return { locked, lockReason, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush };
+  return {
+    locked,
+    lockReason,
+    awayMsLeft,
+    inFullscreen,
+    fullscreenSupported: isFullscreenSupported(),
+    enterFullscreen,
+    applyProctorPush,
+  };
 }

@@ -13,13 +13,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, ChevronLeft, Clock, Loader2, Megaphone, Trophy, X } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronsUpDown, Clock, Loader2, Megaphone, Trophy, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { mainApi, type ContestRoundProblem } from '@/lib/mainApi';
 import { QOTDSolverShell, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { useProctor } from '@/hooks/useProctor';
 import { useContestSocket } from '@/hooks/useContestSocket';
+import { useIsCompact } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
+import { MobileSheet } from '@/components/ui/mobile-sheet';
 import { getMainSiteOrigin } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
@@ -106,7 +108,13 @@ export default function ContestArenaPage() {
   const [tab, setTab] = useState<'problems' | 'leaderboard'>('problems');
   // Clarifications live in a floating corner window (not a tab) that auto-opens when an
   // admin broadcasts, so a contestant never misses one without leaving their problem.
+  // On a phone that corner would sit on top of the solver's Run/Submit bar, so the
+  // same content is presented as a bottom sheet launched from the header instead.
   const [clarOpen, setClarOpen] = useState(false);
+  // Below `lg` there is no room for a 230px problem rail beside the solver — the
+  // list moves into a sheet behind a one-line picker.
+  const compact = useIsCompact();
+  const [problemPickerOpen, setProblemPickerOpen] = useState(false);
 
   const leaderboardQuery = useQuery({
     queryKey: ['contest-arena-leaderboard', roundId],
@@ -124,7 +132,7 @@ export default function ContestArenaPage() {
   const clarifications = clarificationsQuery.data?.clarifications ?? [];
   const clarificationCount = clarifications.length;
 
-  const { locked: proctorLocked, awayMsLeft, inFullscreen, enterFullscreen, applyProctorPush } = useProctor({
+  const { locked: proctorLocked, awayMsLeft, inFullscreen, fullscreenSupported, enterFullscreen, applyProctorPush } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
     // DSA proctor is lock-only (no auto-submit — see file header) but enforces the
@@ -149,7 +157,14 @@ export default function ContestArenaPage() {
       );
     },
   });
-  const needsFullscreen = Boolean(round?.proctored) && isActive && !inFullscreen && !proctorLocked;
+  // iPhone/iPad Safari has no Fullscreen API. Requiring fullscreen there would
+  // wall every phone contestant out of a proctored round behind a button that
+  // can never succeed, so the fullscreen gate is skipped when it is unavailable
+  // (tab-away detection, clipboard blocking and the server lock all still apply).
+  // `fullscreenSupported` comes from the proctor hook so the capability check
+  // has exactly one definition — the hook's own `enterFullscreen` obeys it too.
+  const needsFullscreen =
+    Boolean(round?.proctored) && isActive && fullscreenSupported && !inFullscreen && !proctorLocked;
 
   // Live push (no reloads): leaderboard/clarifications update their query caches in place,
   // first-solves pop a balloon toast, and a status change re-syncs the round (lobby →
@@ -216,7 +231,7 @@ export default function ContestArenaPage() {
     );
   }
   if (roundQuery.isLoading) {
-    return <div className="h-screen flex items-center justify-center bg-background"><Loader2 className="h-9 w-9 animate-spin text-primary" /></div>;
+    return <div className="h-app flex items-center justify-center bg-background"><Loader2 className="h-9 w-9 animate-spin text-primary" /></div>;
   }
   if (roundQuery.isError || !round) {
     return (
@@ -239,7 +254,7 @@ export default function ContestArenaPage() {
   // (synced start). No polling needed for the flip.
   if (round.status === 'DRAFT') {
     return (
-      <div className="h-screen flex items-center justify-center bg-warmwhite dark:bg-inknight px-4">
+      <div className="h-app flex items-center justify-center bg-warmwhite dark:bg-inknight px-4">
         <div className="max-w-lg w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-card p-8 text-center space-y-4">
           <Trophy className="h-10 w-10 text-amber-500 mx-auto" />
           <h1 className="text-2xl font-bold">{round.title}</h1>
@@ -263,31 +278,79 @@ export default function ContestArenaPage() {
     );
   }
 
+  const problemRow = (p: ContestRoundProblem, index: number, onPick: () => void) => {
+    const best = p.submission?.score ?? null;
+    const isPicked = p.id === selectedId;
+    return (
+      <button
+        key={p.id}
+        onClick={onPick}
+        className={cn(
+          'w-full text-left px-3 py-3 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2.5 transition-colors',
+          isPicked ? 'bg-amber-50 dark:bg-zinc-800/60' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/40',
+        )}
+      >
+        <span className={cn('size-2 rounded-full shrink-0', verdictDot(p))} />
+        <span className="font-mono text-[11px] text-zinc-400 w-4 shrink-0">{index + 1}</span>
+        <span className="flex-1 min-w-0">
+          <span className="block truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">{p.title}</span>
+          <span className="flex items-center gap-1.5 mt-0.5">
+            <span className={cn('text-[9.5px] uppercase font-semibold px-1 py-px rounded border', difficultyTone(p.difficulty))}>{p.difficulty}</span>
+            <span className="text-[10px] text-zinc-400 font-mono">{Math.round((weightShare.get(p.id) ?? 0) * 100)}%</span>
+          </span>
+        </span>
+        <span className="font-mono text-[12px] font-semibold text-zinc-700 dark:text-zinc-300 shrink-0">{best ?? '–'}</span>
+      </button>
+    );
+  };
+
+  const selectedIndex = round.problems.findIndex((p) => p.id === selectedId);
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-warmwhite dark:bg-inknight">
+    <div className="h-app flex flex-col overflow-hidden bg-warmwhite dark:bg-inknight">
       {/* Header */}
-      <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 px-3 sm:px-4 flex items-center justify-between gap-3 bg-warmwhite dark:bg-inknight">
-        <div className="min-w-0 flex items-center gap-2">
-          <a href={`${MAIN_SITE_URL}/competition/${round.id}/results`} className="size-8 rounded-lg flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500" aria-label="Back to results">
-            <ChevronLeft className="h-4 w-4" />
+      <div className="h-14 shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-3 bg-warmwhite dark:bg-inknight">
+        <div className="min-w-0 flex items-center gap-1 sm:gap-2">
+          <a href={`${MAIN_SITE_URL}/competition/${round.id}/results`} className="size-9 shrink-0 rounded-lg flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500" aria-label="Back to results">
+            <ChevronLeft className="h-5 w-5" />
           </a>
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate text-zinc-950 dark:text-zinc-50">{round.title}</p>
+            <p className="text-[13px] sm:text-sm font-semibold truncate text-zinc-950 dark:text-zinc-50">{round.title}</p>
             <p className="text-[11px] text-zinc-500 truncate">DSA contest · {round.problems.length} problem{round.problems.length === 1 ? '' : 's'}{round.penaltyModel === 'ICPC' ? ' · ICPC penalty' : ''}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-center">
+        <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+          {/* Phone: the clarification launcher lives here instead of floating over
+              the solver's sticky Run/Submit bar. */}
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setClarOpen(true)}
+              aria-label="Clarifications"
+              className="relative grid size-9 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <Megaphone className="h-5 w-5 text-amber-500" />
+              {clarificationCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-[1rem] place-items-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                  {clarificationCount}
+                </span>
+              )}
+            </button>
+          )}
+          <div className="hidden text-center sm:block">
             <p className="text-[10px] uppercase tracking-wide text-zinc-400">Score</p>
             <p className="font-mono text-sm font-bold text-zinc-900 dark:text-zinc-100 inline-flex items-center gap-1">
               <Trophy className="h-3.5 w-3.5 text-amber-500" />{roundScore}
             </p>
           </div>
-          <div className="text-center min-w-[84px]">
+          <div className="text-center min-w-[64px] sm:min-w-[84px]">
             {isActive ? (
               <>
-                <p className="text-[10px] uppercase tracking-wide text-zinc-400 inline-flex items-center gap-1"><Clock className="h-3 w-3" />Time left</p>
-                <p className={cn('font-mono text-lg font-bold', (remainingSeconds ?? 0) <= 60 ? 'text-red-500 animate-pulse' : (remainingSeconds ?? 0) <= 300 ? 'text-amber-500' : 'text-emerald-600')}>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-400 inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  <span className="hidden sm:inline">Time left</span>
+                </p>
+                <p className={cn('font-mono text-base sm:text-lg font-bold', (remainingSeconds ?? 0) <= 60 ? 'text-red-500 animate-pulse' : (remainingSeconds ?? 0) <= 300 ? 'text-amber-500' : 'text-emerald-600')}>
                   {remainingSeconds === null ? '—' : remainingSeconds <= 0 ? "TIME'S UP" : formatClock(remainingSeconds)}
                 </p>
               </>
@@ -323,23 +386,30 @@ export default function ContestArenaPage() {
       )}
 
       {/* Tab strip */}
-      <div className="h-9 border-b border-zinc-200 dark:border-zinc-800 px-2 flex items-center gap-1 bg-warmwhite dark:bg-inknight">
+      <div className="h-11 shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-2 flex items-center gap-1 bg-warmwhite dark:bg-inknight">
         {([['problems', 'Problems'], ['leaderboard', 'Leaderboard']] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={cn(
-              'h-7 px-3 rounded-md text-[12.5px] font-medium transition-colors',
+              'h-9 px-3.5 rounded-md text-[12.5px] font-medium transition-colors',
               tab === id ? 'bg-amber-100 text-amber-900 dark:bg-zinc-800 dark:text-zinc-100' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800',
             )}
           >
             {label}
           </button>
         ))}
+        {/* Score has no room in the phone header — it rides the tab strip instead. */}
+        {compact && (
+          <span className="ml-auto inline-flex items-center gap-1 pr-1 font-mono text-[12.5px] font-bold text-zinc-900 dark:text-zinc-100">
+            <Trophy className="h-3.5 w-3.5 text-amber-500" />
+            {roundScore}
+          </span>
+        )}
       </div>
 
       {tab === 'leaderboard' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+        <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-4">
           {leaderboardQuery.isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
           ) : leaderboardQuery.data?.frozen ? (
@@ -372,56 +442,82 @@ export default function ContestArenaPage() {
         </div>
       ) : (
       <div className="flex-1 min-h-0 flex">
-        {/* Problem navigator */}
-        <aside className="w-[230px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-y-auto bg-warmwhite dark:bg-inknight">
-          <div className="px-3 py-2 text-[10px] uppercase tracking-[0.08em] font-semibold text-zinc-400 border-b border-zinc-100 dark:border-zinc-800">Problems</div>
-          {round.problems.map((p, index) => {
-            const best = p.submission?.score ?? null;
-            const isPicked = p.id === selectedId;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setSelectedId(p.id)}
-                className={cn(
-                  'w-full text-left px-3 py-2.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2.5 transition-colors',
-                  isPicked ? 'bg-amber-50 dark:bg-zinc-800/60' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/40',
-                )}
-              >
-                <span className={cn('size-2 rounded-full shrink-0', verdictDot(p))} />
-                <span className="font-mono text-[11px] text-zinc-400 w-4 shrink-0">{index + 1}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">{p.title}</span>
-                  <span className="flex items-center gap-1.5 mt-0.5">
-                    <span className={cn('text-[9.5px] uppercase font-semibold px-1 py-px rounded border', difficultyTone(p.difficulty))}>{p.difficulty}</span>
-                    <span className="text-[10px] text-zinc-400 font-mono">{Math.round((weightShare.get(p.id) ?? 0) * 100)}%</span>
-                  </span>
-                </span>
-                <span className="font-mono text-[12px] font-semibold text-zinc-700 dark:text-zinc-300 shrink-0">{best ?? '–'}</span>
-              </button>
-            );
-          })}
-        </aside>
+        {/* Problem navigator — a fixed rail only where there is room for it. */}
+        {!compact && (
+          <aside className="w-[230px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-y-auto bg-warmwhite dark:bg-inknight">
+            <div className="px-3 py-2 text-[10px] uppercase tracking-[0.08em] font-semibold text-zinc-400 border-b border-zinc-100 dark:border-zinc-800">Problems</div>
+            {round.problems.map((p, index) => problemRow(p, index, () => setSelectedId(p.id)))}
+          </aside>
+        )}
 
         {/* Solver */}
-        <main className="flex-1 min-w-0 overflow-hidden">
-          {!selectedProblem ? (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Select a problem to begin.</div>
-          ) : problemQuery.isLoading ? (
-            <div className="h-full flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-          ) : problemQuery.isError || !problemQuery.data ? (
-            <div className="h-full flex items-center justify-center text-sm text-red-600 px-4 text-center">
-              {problemQuery.error instanceof Error ? problemQuery.error.message : 'Could not load this problem.'}
-            </div>
-          ) : (
-            <QOTDSolverShell key={selectedProblem.id} problem={problemQuery.data.problem} context={solverContext} />
+        <main className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setProblemPickerOpen(true)}
+              className="flex h-11 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 text-left dark:border-zinc-800"
+            >
+              {selectedProblem && <span className={cn('size-2 shrink-0 rounded-full', verdictDot(selectedProblem))} />}
+              <span className="font-mono text-[11px] text-zinc-400">
+                {selectedIndex >= 0 ? selectedIndex + 1 : '–'}/{round.problems.length}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                {selectedProblem?.title ?? 'Choose a problem'}
+              </span>
+              <span className="font-mono text-[12px] font-semibold text-zinc-600 dark:text-zinc-300">
+                {selectedProblem?.submission?.score ?? '–'}
+              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-zinc-400" />
+            </button>
           )}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {!selectedProblem ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Select a problem to begin.</div>
+            ) : problemQuery.isLoading ? (
+              <div className="h-full flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            ) : problemQuery.isError || !problemQuery.data ? (
+              <div className="h-full flex items-center justify-center text-sm text-red-600 px-4 text-center">
+                {problemQuery.error instanceof Error ? problemQuery.error.message : 'Could not load this problem.'}
+              </div>
+            ) : (
+              <QOTDSolverShell key={selectedProblem.id} problem={problemQuery.data.problem} context={solverContext} />
+            )}
+          </div>
         </main>
       </div>
       )}
 
-      {/* Clarifications — floating corner window. Auto-opens when an admin broadcasts (see
-          the socket onClarification handler); otherwise a small launcher with a count. */}
-      {clarOpen ? (
+      {compact && (
+        <MobileSheet open={problemPickerOpen} onClose={() => setProblemPickerOpen(false)} title="Problems">
+          {round.problems.map((p, index) =>
+            problemRow(p, index, () => {
+              setSelectedId(p.id);
+              setProblemPickerOpen(false);
+            }),
+          )}
+        </MobileSheet>
+      )}
+
+      {/* Clarifications — floating corner window on desktop. Auto-opens when an admin
+          broadcasts (see the socket onClarification handler); otherwise a small launcher
+          with a count. On a phone the same content is a bottom sheet opened from the
+          header, so it never covers the solver's Run/Submit bar. */}
+      {compact ? (
+        <MobileSheet open={clarOpen} onClose={() => setClarOpen(false)} title="Clarifications">
+          <div className="space-y-2 p-3">
+            {clarifications.map((c) => (
+              <div key={c.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-warmwhite dark:bg-zinc-900/40 p-3">
+                <p className="text-[13px] text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap">{c.message}</p>
+                <p className="text-[10.5px] text-zinc-400 mt-1">{new Date(c.createdAt).toLocaleTimeString()}</p>
+              </div>
+            ))}
+            {clarificationCount === 0 && !clarificationsQuery.isLoading && (
+              <p className="py-8 text-center text-[13px] text-zinc-400">No clarifications yet.</p>
+            )}
+          </div>
+        </MobileSheet>
+      ) : clarOpen ? (
         <div className="fixed bottom-4 right-4 z-[55] w-[320px] max-w-[calc(100vw-2rem)] max-h-[60vh] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-card shadow-xl flex flex-col">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800">
             <Megaphone className="h-4 w-4 text-amber-500" />
@@ -496,7 +592,7 @@ export default function ContestArenaPage() {
 
 function CenteredCard({ tone, title, children }: { tone: 'warn' | 'error'; title: string; children: React.ReactNode }) {
   return (
-    <div className="h-screen flex items-center justify-center bg-background px-4">
+    <div className="h-app flex items-center justify-center bg-background px-4">
       <div className={cn('max-w-md w-full rounded-xl border p-6 text-center space-y-3', tone === 'error' ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50')}>
         <AlertCircle className={cn('h-8 w-8 mx-auto', tone === 'error' ? 'text-red-500' : 'text-amber-500')} />
         <h1 className="text-xl font-semibold text-zinc-900">{title}</h1>
