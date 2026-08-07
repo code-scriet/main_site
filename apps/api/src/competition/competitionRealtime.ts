@@ -31,7 +31,24 @@ function relayEmit(room: string, event: string, payload: unknown): void {
     headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
     body: JSON.stringify({ room, event, payload }),
     signal: AbortSignal.timeout(4000),
-  }).catch(() => undefined);
+  })
+    // A non-2xx (403 secret mismatch, 429 throttle, 5xx) RESOLVES the fetch, so a bare
+    // .catch() sees nothing and the push is dropped in total silence — the arena and the
+    // admin monitor just go stale while their sockets stay connected, which means the
+    // REST-polling fallback (keyed on `connected`) never engages either. Log it so a
+    // misconfigured or throttled relay is diagnosable instead of invisible.
+    .then((res) => {
+      if (!res.ok) {
+        logger.warn('Contest relay emit rejected', { room, event, status: res.status });
+      }
+    })
+    .catch((error) => {
+      logger.warn('Contest relay emit failed', {
+        room,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 interface ContestRoom {

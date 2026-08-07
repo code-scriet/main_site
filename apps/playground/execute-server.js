@@ -149,17 +149,32 @@ app.use(cors({
 // safe to run pre-parse. The per-handler checks stay as defense in depth.
 // CORS is NOT a defense here: the origin callback allows origin-less requests, and CORS
 // never blocks a non-browser client.
-const internalLimiter = rateLimit({
+// Abuse limiter for UNAUTHENTICATED callers only. It must run AFTER the secret check,
+// never before: this service sits behind Render's edge proxy and does not set
+// `trust proxy`, so `req.ip` resolves to the proxy address for every caller — a
+// limiter placed first would put the main API's server-to-server emits and an
+// attacker's junk in the SAME bucket. Anyone could then spend ~2 req/s to exhaust it
+// and silently starve every relay push (relayEmit is fire-and-forget, and a 429 is a
+// RESOLVED fetch, so the drop would be invisible). Legitimate traffic is also far
+// higher than it looks: the leaderboard broadcast alone is throttled to 1/sec per
+// ACTIVE round and issues TWO POSTs (roomAll + roomAdmin) = 120/min for one round,
+// before any submission/violation/proctor/clarification events.
+//
+// So: a valid secret is trusted and bypasses the limiter entirely; only rejected
+// callers are metered, purely to bound brute-force noise.
+const internalAbuseLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120, // far above real relay traffic (main API emits a handful/sec at peak)
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many internal requests' },
+  message: { error: 'forbidden' },
   keyGenerator: (req) => req.ip || req.socket?.remoteAddress || 'unknown',
 });
-app.use('/internal', internalLimiter, (req, res, next) => {
-  if (!validInternalSecret(req)) return res.status(403).json({ error: 'forbidden' });
-  next();
+app.use('/internal', (req, res, next) => {
+  // Header-only compare — safe to run before the body parser, which is the whole point:
+  // an unauthenticated caller must never reach the 12mb express.json below.
+  if (validInternalSecret(req)) return next();
+  return internalAbuseLimiter(req, res, () => res.status(403).json({ error: 'forbidden' }));
 });
 app.use('/internal', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
@@ -255,13 +270,17 @@ async function optionalAuth(req, _res, next) {
   next();
 }
 
-async function requireAuth(req, res, next) {
-  await optionalAuth(req, res, () => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
-    }
-    next();
-  });
+// `app.use(optionalAuth)` runs globally before every route, so req.user is already resolved
+// by the time any route-level guard executes. Re-invoking optionalAuth here would repeat the
+// whole extractToken → jwt.verify → isAccountRevoked sequence — now a path that can hit the
+// DB — on every authenticated route for no benefit. It was also unsound: optionalAuth only
+// ever ASSIGNS req.user and never clears it, so a first pass that failed open on a DB blip
+// left a req.user that a second, stricter pass could not retract.
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
+  }
+  next();
 }
 
 app.use(optionalAuth);
@@ -366,11 +385,19 @@ async function dbQuery(sql, params = []) {
 // ---------------------------------------------------------------------------
 const REVOCATION_TTL_MS = 30_000;
 const REVOCATION_MAX_ENTRIES = 2000;
-const revocationCache = new Map(); // userId → { tokenVersion, isDeleted, expiresAt }
+// userId → { tokenVersion, isDeleted, missing, expiresAt }
+const revocationCache = new Map();
+// userId → in-flight lookup promise. Single-flight, mirroring competition/roundCache.ts:
+// the arena polls several endpoints per contestant in parallel, so without coalescing every
+// TTL boundary turns into one query PER concurrent request PER user against this server's
+// hardcoded max:5 pg pool — and every contestant's TTL is seeded at contest start, so those
+// boundaries arrive together.
+const revocationInFlight = new Map();
 
 /** Drop one user's cached revocation state (used by the force-logout relay hook). */
 function invalidateRevocationCache(userId) {
   revocationCache.delete(userId);
+  revocationInFlight.delete(userId);
 }
 
 /**
@@ -389,31 +416,49 @@ async function isAccountRevoked(userId, claimTokenVersion) {
 
   if (!state || now >= state.expiresAt) {
     if (!pool) return false; // no DB configured (local in-memory mode) → preserve prior behavior
+
+    // Coalesce concurrent misses for the same user into ONE query.
+    let lookup = revocationInFlight.get(userId);
+    if (!lookup) {
+      lookup = (async () => {
+        const { rows } = await pool.query(
+          'SELECT token_version, is_deleted FROM users WHERE id = $1',
+          [userId],
+        );
+        // Cache the MISSING case too. Returning early without caching meant a token for a
+        // hard-deleted account re-queried on every single request for the rest of its 7-day
+        // life — the 30s TTL never applied to exactly the identity most likely to be retrying.
+        return rows.length === 0
+          ? { tokenVersion: 0, isDeleted: false, missing: true, expiresAt: Date.now() + REVOCATION_TTL_MS }
+          : {
+              tokenVersion: Number(rows[0].token_version ?? 0),
+              isDeleted: rows[0].is_deleted === true,
+              missing: false,
+              expiresAt: Date.now() + REVOCATION_TTL_MS,
+            };
+      })().finally(() => {
+        revocationInFlight.delete(userId);
+      });
+      revocationInFlight.set(userId, lookup);
+    }
+
     try {
-      const { rows } = await pool.query(
-        'SELECT token_version, is_deleted FROM users WHERE id = $1',
-        [userId],
-      );
-      if (rows.length === 0) return true; // token references a user that no longer exists
-      state = {
-        tokenVersion: Number(rows[0].token_version ?? 0),
-        isDeleted: rows[0].is_deleted === true,
-        expiresAt: now + REVOCATION_TTL_MS,
-      };
-      // delete-then-set keeps Map insertion order usable as LRU recency.
-      revocationCache.delete(userId);
-      revocationCache.set(userId, state);
-      if (revocationCache.size > REVOCATION_MAX_ENTRIES) {
-        const oldest = revocationCache.keys().next().value;
-        if (oldest !== undefined) revocationCache.delete(oldest);
-      }
+      state = await lookup;
     } catch (err) {
       console.error('[auth] revocation check failed; allowing request:', err?.message);
       return false;
     }
+
+    // delete-then-set keeps Map insertion order usable as LRU recency.
+    revocationCache.delete(userId);
+    revocationCache.set(userId, state);
+    if (revocationCache.size > REVOCATION_MAX_ENTRIES) {
+      const oldest = revocationCache.keys().next().value;
+      if (oldest !== undefined) revocationCache.delete(oldest);
+    }
   }
 
-  return state.isDeleted || state.tokenVersion > claim;
+  return state.missing || state.isDeleted || state.tokenVersion > claim;
 }
 
 // Max 15 execution history entries with code per user

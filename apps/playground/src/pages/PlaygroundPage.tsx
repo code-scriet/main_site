@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Toolbar } from '@/components/playground/Toolbar';
 import { CodeEditor } from '@/components/playground/CodeEditor';
 import { OutputPanel, StdinPanel } from '@/components/playground/OutputPanel';
-import { ProblemPanel } from '@/components/playground/ProblemPanel';
 import { LanguageSidebar } from '@/components/playground/LanguageSidebar';
 import { StatusStrip } from '@/components/playground/StatusStrip';
 import { Navbar } from '@/components/playground/Navbar';
@@ -57,7 +56,7 @@ export default function PlaygroundPage() {
  * editor-history context) run *inside* the provider.
  */
 function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }) {
-  const { showProblemPanel, language, pyodideError } = usePlayground();
+  const { language, pyodideError } = usePlayground();
   const { toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -433,11 +432,15 @@ function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }
                   canRedo={editorHistory.canRedo}
                 />
               </div>
-              {effectivePane === 'output' && (
-                <div className="min-h-0 flex-1">
-                  <OutputPanel showStdin={false} />
-                </div>
-              )}
+              {/* Hidden, not unmounted — same rule as the code pane above. OutputPanel's
+                  mount effect fires getSessionBootstrap(), so conditionally rendering it
+                  meant one authenticated round-trip per Code↔Output flip (and a contestant
+                  debugging on a phone can burn their own 120/user/60s CRUD limiter), while
+                  also discarding activeTab, history, stats and any partially typed
+                  interactive input on every switch. */}
+              <div className="min-h-0 flex-1" hidden={effectivePane !== 'output'}>
+                <OutputPanel showStdin={false} />
+              </div>
               {effectivePane === 'input' && (
                 <div className="min-h-0 flex-1">
                   <StdinPanel />
@@ -450,16 +453,7 @@ function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }
           ) : (
             <div className="h-full">
               <PanelGroup direction="horizontal" className="h-full">
-                {showProblemPanel && (
-                  <>
-                    <Panel defaultSize={25} minSize={20} maxSize={40}>
-                      <ProblemPanel />
-                    </Panel>
-                    <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
-                  </>
-                )}
-
-                <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
+                <Panel defaultSize={60} minSize={30}>
                   <div className="h-full border-r border-zinc-200 dark:border-zinc-800">{freeEditorStack}</div>
                 </Panel>
 

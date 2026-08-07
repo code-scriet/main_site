@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useAuth } from '@/context/AuthContext';
@@ -85,7 +85,10 @@ export function usePlaygroundActions(): PlaygroundActions {
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    // Revoke on the next tick, not synchronously: `click()` only SCHEDULES the navigation to
+    // the blob: URL, so revoking in the same tick invalidates it before Safari/Firefox have
+    // fetched it — the download silently fails while the success toast still fires.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
     toast.success('Code downloaded');
   }, [code, language.fileExtension]);
 
@@ -126,17 +129,36 @@ export function usePlaygroundActions(): PlaygroundActions {
     document.exitFullscreen().catch(() => toast.error('Failed to exit fullscreen'));
   }, []);
 
-  return {
-    runCode,
-    stopExecution,
-    saveSnippet,
-    copyCode,
-    downloadCode,
-    resetCode,
-    toggleFullscreen,
-    atStarter,
-    runDisabled: quotaExhausted || isRunning,
-    isRunning,
-    quotaExhausted,
-  };
+  // Memoized: every callback above is already stable via useCallback, so returning a bare
+  // object literal would hand consumers a fresh identity on every render and defeat their own
+  // memoization — PlaygroundPage's `mobileActions` useMemo depends on this value, so an
+  // unmemoized return made that memo recompute (and re-render MobileActionBar through
+  // React.memo) on every single render, doing strictly more work than no memo at all.
+  return useMemo(
+    () => ({
+      runCode,
+      stopExecution,
+      saveSnippet,
+      copyCode,
+      downloadCode,
+      resetCode,
+      toggleFullscreen,
+      atStarter,
+      runDisabled: quotaExhausted || isRunning,
+      isRunning,
+      quotaExhausted,
+    }),
+    [
+      runCode,
+      stopExecution,
+      saveSnippet,
+      copyCode,
+      downloadCode,
+      resetCode,
+      toggleFullscreen,
+      atStarter,
+      quotaExhausted,
+      isRunning,
+    ],
+  );
 }

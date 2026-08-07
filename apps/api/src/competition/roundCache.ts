@@ -108,8 +108,6 @@ export interface RoundCache {
   invalidateAllRoundCache(): void;
   /** True iff the user is registered for the event — positive result cached 30s, misses always live. */
   isRegisteredCached(userId: string, eventId: string): Promise<boolean>;
-  /** Test seam: current round-cache entry count (used to assert the size cap holds). */
-  debugRoundCacheSize(): number;
 }
 
 const DEFAULT_ROUND_TTL_MS = 10_000;
@@ -204,15 +202,9 @@ export function createRoundCache(
     return registered;
   };
 
-  const debugRoundCacheSize = (): number => roundCache.size;
-
-  return {
-    getCachedRound,
-    invalidateRoundCache,
-    invalidateAllRoundCache,
-    isRegisteredCached,
-    debugRoundCacheSize,
-  };
+  // No test-only seam on this interface: the size cap is asserted behaviourally in
+  // roundCache.test.ts (evicted entries re-query), which also catches wrong-order eviction.
+  return { getCachedRound, invalidateRoundCache, invalidateAllRoundCache, isRegisteredCached };
 }
 
 // ─── Process-wide singleton wired to Prisma (used by routes/competition.ts) ───

@@ -54,6 +54,12 @@ export interface ReloadDecisionInput {
 export function shouldReloadForStaleChunk({ lastReloadAt, now, blocked }: ReloadDecisionInput): boolean {
   if (blocked) return false;
   if (lastReloadAt === null) return false;
+  // A stored instant AHEAD of `now` (device clock corrected backwards, NTP jump — routine on
+  // student laptops) makes this difference negative forever, which would permanently disable
+  // recovery for the tab. Treat a future stamp as "no previous attempt", mirroring how
+  // readLastReloadAt normalises unparseable values to 0 and how the notification read-cutoff
+  // clamps a future client timestamp.
+  if (lastReloadAt > now) return true;
   return now - lastReloadAt >= RELOAD_COOLDOWN_MS;
 }
 
@@ -79,14 +85,23 @@ export function recordReloadAttempt(storage: ReloadGuardStorage, now: number): b
 // would burn the contestant's only warning. While the proctor runs we therefore
 // never auto-reload — the error reaches the ErrorBoundary, whose Reload button
 // keeps recovery one deliberate click away.
-let autoReloadBlocked = false;
+//
+// REF-COUNTED, not a boolean — same reasoning as MobileSheet's body scroll lock. Two
+// overlapping owners are reachable (a second component holding `useProctor({enabled:true})`,
+// or React StrictMode double-mounting the hook in development), and with a plain boolean the
+// FIRST cleanup to run would clear the block while a surviving instance's beforeunload guard
+// and fullscreen requirement are still live — re-arming exactly the self-inflicted reload
+// this interlock exists to prevent.
+let autoReloadBlockCount = 0;
 
 export function setAutoReloadBlocked(blocked: boolean): void {
-  autoReloadBlocked = blocked;
+  autoReloadBlockCount = blocked
+    ? autoReloadBlockCount + 1
+    : Math.max(0, autoReloadBlockCount - 1);
 }
 
 export function isAutoReloadBlocked(): boolean {
-  return autoReloadBlocked;
+  return autoReloadBlockCount > 0;
 }
 
 /** Wire the `vite:preloadError` listener. Call once, before the app renders. */
@@ -94,7 +109,7 @@ export function installStaleChunkRecovery(): void {
   window.addEventListener('vite:preloadError', (event) => {
     const now = Date.now();
     const lastReloadAt = readLastReloadAt(window.sessionStorage);
-    if (!shouldReloadForStaleChunk({ lastReloadAt, now, blocked: autoReloadBlocked })) return;
+    if (!shouldReloadForStaleChunk({ lastReloadAt, now, blocked: isAutoReloadBlocked() })) return;
     // Record BEFORE preventDefault: if the write fails we must not swallow the
     // error, or the user is left on a dead screen with nothing surfaced.
     if (!recordReloadAttempt(window.sessionStorage, now)) return;

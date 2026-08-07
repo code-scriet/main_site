@@ -31,12 +31,22 @@ const MAX_PENDING_ENTRIES = 500;
 const pending = new Map<string, number>(); // certId → buffered increment
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let flushInFlight: Promise<void> | null = null;
+// Set by stopCertificateViewFlusher(). Without it, a /verify request arriving after
+// shutdown began would call ensureFlushTimer() and re-arm a setInterval on a dying process.
+let stopped = false;
 
 /** Write buffered increments back in one statement. Never throws — telemetry must not 500 a read. */
 export async function flushCertificateViews(): Promise<void> {
-  // Single-flight: a periodic tick and an overflow-triggered flush must not race and
-  // double-apply the same buffered counts.
-  if (flushInFlight) return flushInFlight;
+  // Single-flight, but CHAINED rather than short-circuited. Returning the in-flight promise
+  // would resolve without ever draining what accumulated during it, which breaks the two
+  // guarantees this module makes:
+  //   - shutdown: SIGTERM landing mid-flush would await the OLD batch and drop every view
+  //     recorded since that batch was snapshotted, despite the "a redeploy loses nothing" claim;
+  //   - overflow: the `pending.size >= MAX_PENDING_ENTRIES` trigger would be a no-op for the
+  //     whole duration of a slow query, letting the buffer grow past its documented bound.
+  // Chaining terminates naturally: each pass drains `pending`, and the follow-up returns
+  // immediately once the buffer is empty.
+  if (flushInFlight) return flushInFlight.then(() => flushCertificateViews());
   if (pending.size === 0) return;
 
   // Snapshot and clear synchronously (single-threaded, so no increment can be lost
@@ -72,7 +82,7 @@ export async function flushCertificateViews(): Promise<void> {
 }
 
 function ensureFlushTimer(): void {
-  if (flushTimer) return;
+  if (flushTimer || stopped) return;
   flushTimer = setInterval(() => {
     void flushCertificateViews();
   }, FLUSH_INTERVAL_MS);
@@ -90,8 +100,13 @@ export function recordCertificateView(certId: string): void {
   }
 }
 
-/** Stop the periodic timer (shutdown). Callers should await flushCertificateViews() first. */
+/**
+ * Stop the periodic timer (shutdown). Call this BEFORE the final
+ * `await flushCertificateViews()` — it also latches `stopped` so a late request can't
+ * re-arm the interval behind the drain.
+ */
 export function stopCertificateViewFlusher(): void {
+  stopped = true;
   if (flushTimer) {
     clearInterval(flushTimer);
     flushTimer = null;
@@ -101,4 +116,12 @@ export function stopCertificateViewFlusher(): void {
 /** Test seam: buffered entry count. */
 export function pendingCertificateViewCount(): number {
   return pending.size;
+}
+
+/** Test seam: restore the module to its initial state between cases. */
+export function resetCertificateViewCounterForTests(): void {
+  stopCertificateViewFlusher();
+  pending.clear();
+  flushInFlight = null;
+  stopped = false;
 }

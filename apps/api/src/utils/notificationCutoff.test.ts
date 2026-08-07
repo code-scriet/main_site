@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveReadCutoff } from './notifications.js';
+import { resolveReadCutoff } from '../utils/notificationCutoff.js';
 
 const NOW = new Date('2026-08-06T12:00:00.000Z');
 

@@ -26,10 +26,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[90] bg-zinc-950/55 p-3 backdrop-blur-sm sm:p-4" onMouseDown={() => onOpenChange(false)}>
+    // pointerdown, not mousedown — same reason MobileSheet uses it: touch browsers only
+    // synthesise mousedown as a compatibility event, and suppress it entirely once something
+    // upstream has preventDefault'd the touch sequence (this app installs touch handlers, and
+    // a proctored round preventDefaults clipboard/keydown). On a phone that left
+    // tap-outside-to-dismiss silently dead, with no Esc key to fall back to.
+    <div className="fixed inset-0 z-[90] bg-zinc-950/55 p-3 backdrop-blur-sm sm:p-4" onPointerDown={() => onOpenChange(false)}>
       <Command
         className="mx-auto mt-[6vh] w-full max-w-xl overflow-hidden rounded border border-zinc-200 bg-warmwhite shadow-2xl sm:mt-[12vh] dark:border-zinc-800 dark:bg-inknight"
-        onMouseDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
           <Search className="h-4 w-4 shrink-0 text-zinc-500" />

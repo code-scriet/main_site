@@ -149,22 +149,37 @@ test('invalidateAllRoundCache clears both caches', async () => {
 // Audit F8: the pre-sweep only dropped EXPIRED entries, so polling more than
 // `roundMaxEntries` distinct rounds inside a single TTL window left nothing to evict and
 // the map grew past its documented bound (HC #1). The cap must hold regardless of TTL.
-test('round: cap holds even when nothing has expired yet', async () => {
-  const { cache } = harness({ roundMaxEntries: 4, roundTtlMs: 10_000 });
-  // 20 distinct rounds, all inside one TTL window (clock never advances).
+//
+// Both tests assert BEHAVIOURALLY (via the fetcher call count) rather than reading an
+// internal size counter, so they fail if eviction stops happening OR starts evicting the
+// wrong entry — an internals-only assertion would pass in both cases.
+
+test('round: cap is enforced even when nothing has expired yet', async () => {
+  const { cache, calls } = harness({ roundMaxEntries: 4, roundTtlMs: 10_000 });
+  // 20 distinct rounds, all inside one TTL window (the clock never advances), so the
+  // expired-sweep can free nothing and only the size cap can bound the map.
   for (let i = 0; i < 20; i++) await cache.getCachedRound(`r${i}`);
-  assert.ok(
-    cache.debugRoundCacheSize() <= 4,
-    `round cache grew past its cap: ${cache.debugRoundCacheSize()}`,
-  );
+  const afterFill = calls.round;
+  assert.equal(afterFill, 20, 'each distinct round is fetched once');
+
+  // If the cap held, the earliest rounds were evicted and must re-query.
+  await cache.getCachedRound('r0');
+  assert.equal(calls.round, afterFill + 1, 'r0 must have been evicted by the cap');
 });
 
-test('round: cap eviction is oldest-first, newest entries survive', async () => {
+test('round: eviction is oldest-first — the newest entry survives', async () => {
+  // roundMaxEntries + 1 distinct rounds, so the evict branch (gated on size >= max BEFORE
+  // the insert) genuinely runs. With only `max` rounds the branch never fires at all and
+  // the assertion would be vacuous.
   const { cache, calls } = harness({ roundMaxEntries: 3, roundTtlMs: 10_000 });
+  for (const id of ['r1', 'r2', 'r3', 'r4']) await cache.getCachedRound(id);
+  const afterFill = calls.round;
+
+  // Newest survives: served from cache, no new query.
+  await cache.getCachedRound('r4');
+  assert.equal(calls.round, afterFill, 'the newest entry must survive eviction');
+
+  // Oldest was dropped: re-querying it costs a fetch.
   await cache.getCachedRound('r1');
-  await cache.getCachedRound('r2');
-  await cache.getCachedRound('r3'); // sweep+evict fires here, dropping the oldest
-  const before = calls.round;
-  await cache.getCachedRound('r3'); // most recent → still cached, no new query
-  assert.equal(calls.round, before, 'the newest entry must survive eviction');
+  assert.equal(calls.round, afterFill + 1, 'the oldest entry must be the one evicted');
 });

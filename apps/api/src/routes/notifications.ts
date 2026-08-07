@@ -16,6 +16,7 @@ import { sanitizeUrl } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { requireUuid } from '../utils/idParams.js';
 import { broadcastNotification } from '../utils/notifications.js';
+import { resolveReadCutoff } from '../utils/notificationCutoff.js';
 
 export const notificationsRouter = Router();
 
@@ -258,24 +259,6 @@ const markReadSchema = z.object({
   // Cutoff in ISO string; defaults to "now" if omitted. We never persist per-item read state.
   at: z.string().datetime().optional(),
 });
-
-/**
- * Resolve the notification read-cutoff, CLAMPED to now.
- *
- * `z.string().datetime()` validates SHAPE, not range. Without this clamp a client with a
- * skewed system clock (or any caller passing its own timestamp) could park the cutoff in the
- * future — and because every item's read state is computed as `timestamp < readCutoff`, that
- * permanently marks all FUTURE notifications read as well, across invitations, certificates,
- * quiz starts and admin broadcasts, with no UI to undo it.
- *
- * Exported pure so the rule is unit-tested rather than re-derived from the handler.
- */
-export function resolveReadCutoff(at: string | undefined, now: Date = new Date()): Date {
-  if (!at) return now;
-  const requested = new Date(at);
-  if (Number.isNaN(requested.getTime())) return now;
-  return requested > now ? now : requested;
-}
 
 notificationsRouter.post('/mark-read', authMiddleware, async (req: Request, res: Response) => {
   const auth = getAuthUser(req)!;

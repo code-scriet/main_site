@@ -80,3 +80,10 @@ test('a write failure leaves the guard untouched so the next attempt still decid
   assert.equal(storage.value, null);
   assert.equal(readLastReloadAt(storage), 0);
 });
+
+test('a FUTURE stored instant does not wedge recovery permanently', () => {
+  // Device clock corrected backwards / NTP jump after a reload was recorded. With a plain
+  // `now - lastReloadAt >= COOLDOWN` the difference stays negative forever, so the tab would
+  // never auto-recover from a redeploy again for the rest of the session.
+  assert.equal(shouldReloadForStaleChunk({ lastReloadAt: NOW + 60 * 60 * 1000, now: NOW }), true);
+});
