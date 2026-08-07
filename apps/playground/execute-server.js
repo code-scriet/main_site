@@ -149,19 +149,25 @@ app.use(cors({
 // safe to run pre-parse. The per-handler checks stay as defense in depth.
 // CORS is NOT a defense here: the origin callback allows origin-less requests, and CORS
 // never blocks a non-browser client.
-// Abuse limiter for UNAUTHENTICATED callers only. It must run AFTER the secret check,
-// never before: this service sits behind Render's edge proxy and does not set
-// `trust proxy`, so `req.ip` resolves to the proxy address for every caller — a
-// limiter placed first would put the main API's server-to-server emits and an
-// attacker's junk in the SAME bucket. Anyone could then spend ~2 req/s to exhaust it
-// and silently starve every relay push (relayEmit is fire-and-forget, and a 429 is a
-// RESOLVED fetch, so the drop would be invisible). Legitimate traffic is also far
-// higher than it looks: the leaderboard broadcast alone is throttled to 1/sec per
-// ACTIVE round and issues TWO POSTs (roomAll + roomAdmin) = 120/min for one round,
-// before any submission/violation/proctor/clarification events.
+// Abuse limiter for UNAUTHENTICATED callers only.
 //
-// So: a valid secret is trusted and bypasses the limiter entirely; only rejected
-// callers are metered, purely to bound brute-force noise.
+// The exemption is load-bearing, not a convenience. This service sits behind Render's
+// edge proxy and does not set `trust proxy`, so `req.ip` resolves to the proxy address
+// for EVERY caller — metering trusted traffic would put the main API's server-to-server
+// emits and an attacker's junk in the SAME bucket. Anyone could then spend ~2 req/s to
+// exhaust it and silently starve every relay push (relayEmit is fire-and-forget, and a
+// 429 is a RESOLVED fetch, so the drop is invisible and the REST fallback — keyed on
+// socket `connected` — never engages). Legitimate load is also far higher than it looks:
+// the leaderboard broadcast alone is throttled to 1/sec per ACTIVE round and issues TWO
+// POSTs (roomAll + roomAdmin) = 120/min for a single round, before any
+// submission/violation/proctor/clarification events.
+//
+// Expressed via `skip` rather than by invoking the limiter inside the handler: both give
+// trusted callers a bypass, but this keeps the limiter a declared middleware on the route,
+// so the rate limiting is visible to readers and to static analysis (CodeQL's
+// "authorization without rate limiting" rule cannot follow an imperatively-invoked
+// limiter). Rate limiting a caller that already holds the secret would buy nothing anyway —
+// forging it requires JWT_SECRET, i.e. full compromise.
 const internalAbuseLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -169,12 +175,13 @@ const internalAbuseLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'forbidden' },
   keyGenerator: (req) => req.ip || req.socket?.remoteAddress || 'unknown',
+  skip: (req) => validInternalSecret(req),
 });
-app.use('/internal', (req, res, next) => {
+app.use('/internal', internalAbuseLimiter, (req, res, next) => {
   // Header-only compare — safe to run before the body parser, which is the whole point:
   // an unauthenticated caller must never reach the 12mb express.json below.
-  if (validInternalSecret(req)) return next();
-  return internalAbuseLimiter(req, res, () => res.status(403).json({ error: 'forbidden' }));
+  if (!validInternalSecret(req)) return res.status(403).json({ error: 'forbidden' });
+  next();
 });
 app.use('/internal', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
