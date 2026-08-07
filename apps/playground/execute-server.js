@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'path';
 import { Server as SocketIOServer } from 'socket.io';
 import { findPlagiarismPairs } from './plagiarism.js';
@@ -25,6 +26,10 @@ const roomUser = (roundId, userId) => `round:${roundId}:user:${userId}`;
 
 // Load env from the monorepo root .env, then the local playground .env
 // (local values override root). This ensures JWT_SECRET matches the main API.
+// Sync CJS require inside this ESM module — used only to lazy-load the OPTIONAL
+// native `eiows` engine (see resolveRelayWsEngine).
+const nodeRequire = createRequire(import.meta.url);
+
 const __dir = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dir, '../../.env') });
 dotenv.config({ path: resolve(__dir, '.env') });
@@ -34,6 +39,58 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = NODE_ENV === 'production'
   ? (process.env.PORT || process.env.EXECUTE_PORT || 5002)
   : (process.env.EXECUTE_PORT || process.env.PLAYGROUND_EXECUTE_PORT || 5002);
+
+// ---------------------------------------------------------------------------
+// JWT Authentication (shared with main site)
+//
+// Declared BEFORE the middleware chain on purpose: the /internal secret gate below
+// must run ahead of `express.json`, and deriveInternalSecret() calls getJwtSecret()
+// at module-eval time. Keep this block above the CORS/body-parser section — moving
+// it back down puts JWT_SECRET_CANDIDATES in the temporal dead zone, where
+// deriveInternalSecret's own try/catch would swallow the ReferenceError and
+// silently disable the relay.
+// ---------------------------------------------------------------------------
+const JWT_SECRET_CANDIDATES = ['JWT_SECRET', 'JWT_SECRET_KEY', 'AUTH_JWT_SECRET', 'AUTH_SECRET'];
+const DEV_JWT_SECRET = 'dev_local_jwt_secret_change_me_before_production';
+
+function getJwtSecret() {
+  for (const key of JWT_SECRET_CANDIDATES) {
+    const val = (process.env[key] || '').trim();
+    if (val && !['secret', 'your_super_secret_key_change_this_in_production'].includes(val)) {
+      return val;
+    }
+  }
+  if (NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
+  return DEV_JWT_SECRET;
+}
+
+// ---------------------------------------------------------------------------
+// Internal server-to-server secret (contest relay + plagiarism offload).
+// Prefer an explicit INTERNAL_API_SECRET; otherwise DERIVE it from the shared JWT_SECRET
+// (which must already match the main API). This mirrors getInternalApiSecret() in
+// apps/api/src/utils/internalApi.ts byte-for-byte, so both sides compute the same value with
+// no extra config — setting PLAYGROUND_API_URL on the main API alone turns the relay on.
+// ---------------------------------------------------------------------------
+function deriveInternalSecret() {
+  const explicit = (process.env.INTERNAL_API_SECRET || '').trim();
+  if (explicit) return explicit;
+  let jwt = '';
+  try { jwt = getJwtSecret(); } catch { jwt = ''; } // throws only if JWT_SECRET unset in prod → relay stays off
+  return jwt ? crypto.createHash('sha256').update(`${jwt}:contest-relay-internal`).digest('hex') : '';
+}
+const INTERNAL_API_SECRET = deriveInternalSecret();
+const INTERNAL_SECRET_BUF = Buffer.from(INTERNAL_API_SECRET);
+// Constant-time secret check — avoids leaking the secret length/prefix via early-exit
+// timing on the `!==` compare. Length-mismatch short-circuits (timingSafeEqual throws on
+// unequal lengths), which is fine: it only reveals the length, not the bytes.
+function validInternalSecret(req) {
+  if (!INTERNAL_API_SECRET) return false;
+  const provided = req.headers['x-internal-secret'];
+  if (typeof provided !== 'string') return false;
+  const providedBuf = Buffer.from(provided);
+  return providedBuf.length === INTERNAL_SECRET_BUF.length
+    && crypto.timingSafeEqual(providedBuf, INTERNAL_SECRET_BUF);
+}
 
 // ---------------------------------------------------------------------------
 // CORS — controlled via ALLOWED_ORIGIN env var
@@ -83,6 +140,49 @@ app.use(cors({
 // Internal server-to-server endpoints (contest relay + plagiarism offload) accept larger
 // bodies for per-problem code batches. Mounted BEFORE the global 1mb parser so it parses
 // /internal first (the global one then skips — body-parser is a no-op once req._body is set).
+//
+// SECURITY: this service is a PUBLIC Render web service, so /internal/* is reachable from
+// the open internet. The secret check therefore runs BEFORE the 12mb parser, not inside the
+// route handlers — otherwise an unauthenticated caller could force a 12 MB allocation plus a
+// blocking JSON.parse per request and stall the event loop on this 512 MB box, taking the
+// contest relay's sockets down with it. validInternalSecret only reads a header, so it is
+// safe to run pre-parse. The per-handler checks stay as defense in depth.
+// CORS is NOT a defense here: the origin callback allows origin-less requests, and CORS
+// never blocks a non-browser client.
+// Abuse limiter for UNAUTHENTICATED callers only.
+//
+// The exemption is load-bearing, not a convenience. This service sits behind Render's
+// edge proxy and does not set `trust proxy`, so `req.ip` resolves to the proxy address
+// for EVERY caller — metering trusted traffic would put the main API's server-to-server
+// emits and an attacker's junk in the SAME bucket. Anyone could then spend ~2 req/s to
+// exhaust it and silently starve every relay push (relayEmit is fire-and-forget, and a
+// 429 is a RESOLVED fetch, so the drop is invisible and the REST fallback — keyed on
+// socket `connected` — never engages). Legitimate load is also far higher than it looks:
+// the leaderboard broadcast alone is throttled to 1/sec per ACTIVE round and issues TWO
+// POSTs (roomAll + roomAdmin) = 120/min for a single round, before any
+// submission/violation/proctor/clarification events.
+//
+// Expressed via `skip` rather than by invoking the limiter inside the handler: both give
+// trusted callers a bypass, but this keeps the limiter a declared middleware on the route,
+// so the rate limiting is visible to readers and to static analysis (CodeQL's
+// "authorization without rate limiting" rule cannot follow an imperatively-invoked
+// limiter). Rate limiting a caller that already holds the secret would buy nothing anyway —
+// forging it requires JWT_SECRET, i.e. full compromise.
+const internalAbuseLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'forbidden' },
+  keyGenerator: (req) => req.ip || req.socket?.remoteAddress || 'unknown',
+  skip: (req) => validInternalSecret(req),
+});
+app.use('/internal', internalAbuseLimiter, (req, res, next) => {
+  // Header-only compare — safe to run before the body parser, which is the whole point:
+  // an unauthenticated caller must never reach the 12mb express.json below.
+  if (!validInternalSecret(req)) return res.status(403).json({ error: 'forbidden' });
+  next();
+});
 app.use('/internal', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 
@@ -112,21 +212,10 @@ app.use((_req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// JWT Authentication (shared with main site)
+// JWT Authentication (shared with main site) — getJwtSecret() and the internal
+// secret helpers are declared near the top of this file, above the middleware
+// chain, because the /internal gate needs them before express.json runs.
 // ---------------------------------------------------------------------------
-const JWT_SECRET_CANDIDATES = ['JWT_SECRET', 'JWT_SECRET_KEY', 'AUTH_JWT_SECRET', 'AUTH_SECRET'];
-const DEV_JWT_SECRET = 'dev_local_jwt_secret_change_me_before_production';
-
-function getJwtSecret() {
-  for (const key of JWT_SECRET_CANDIDATES) {
-    const val = (process.env[key] || '').trim();
-    if (val && !['secret', 'your_super_secret_key_change_this_in_production'].includes(val)) {
-      return val;
-    }
-  }
-  if (NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
-  return DEV_JWT_SECRET;
-}
 
 function extractToken(req) {
   const auth = req.headers.authorization;
@@ -136,40 +225,69 @@ function extractToken(req) {
   let cookieToken = null;
   if (cookies) {
     const match = cookies.split(';').find(c => c.trim().startsWith('scriet_session='));
-    if (match) cookieToken = decodeURIComponent(match.split('=').slice(1).join('=').trim());
+    if (match) {
+      const raw = match.split('=').slice(1).join('=').trim();
+      // decodeURIComponent throws a URIError on a malformed escape (e.g. a stray
+      // "%"). optionalAuth is async, so an escaping throw would become an unhandled
+      // rejection and HANG the request instead of 500ing — treat a malformed cookie
+      // as simply absent.
+      try {
+        cookieToken = decodeURIComponent(raw);
+      } catch {
+        cookieToken = null;
+      }
+    }
   }
 
   return { bearerToken, cookieToken };
 }
 
-function optionalAuth(req, _res, next) {
-  const { bearerToken, cookieToken } = extractToken(req);
-  const candidates = [bearerToken, cookieToken].filter(Boolean);
+async function optionalAuth(req, _res, next) {
+  // Everything here is wrapped so `next()` is always reached exactly once. This
+  // middleware is async and registered via app.use(), and Express 4 does not catch
+  // async rejections — an escaping throw would leave the request hanging forever
+  // rather than erroring.
+  try {
+    const { bearerToken, cookieToken } = extractToken(req);
+    const candidates = [bearerToken, cookieToken].filter(Boolean);
 
-  for (const token of candidates) {
-    try {
-      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+    for (const token of candidates) {
+      let decoded;
+      try {
+        decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+      } catch {
+        continue; // try next token candidate (fallback to cookie when bearer token is stale)
+      }
       // Purpose allowlist (audit S1, mirrors the main API's auth middleware):
       // special-purpose tokens signed with this shared secret (oauth exchange
       // codes, invitation claims, quiz access) must not grant playground auth.
       if (decoded && typeof decoded.purpose === 'string') continue;
-      req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
+      const userId = decoded?.userId || decoded?.id;
+      if (!userId) continue;
+      // Signature checks out, but the account may have been force-logged-out or
+      // soft-deleted since issuance — the main API rejects those, so we must too.
+      if (await isAccountRevoked(userId, decoded.tokenVersion)) continue;
+      req.user = { id: userId, email: decoded.email, role: decoded.role };
       break;
-    } catch {
-      // Try next token candidate (fallback to cookie when bearer token is stale)
     }
+  } catch (err) {
+    console.error('[auth] optionalAuth failed; continuing anonymous:', err?.message);
   }
 
   next();
 }
 
+// `app.use(optionalAuth)` runs globally before every route, so req.user is already resolved
+// by the time any route-level guard executes. Re-invoking optionalAuth here would repeat the
+// whole extractToken → jwt.verify → isAccountRevoked sequence — now a path that can hit the
+// DB — on every authenticated route for no benefit. It was also unsound: optionalAuth only
+// ever ASSIGNS req.user and never clears it, so a first pass that failed open on a DB blip
+// left a req.user that a second, stricter pass could not retract.
 function requireAuth(req, res, next) {
-  optionalAuth(req, res, () => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
-    }
-    next();
-  });
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
+  }
+  next();
 }
 
 app.use(optionalAuth);
@@ -257,6 +375,97 @@ async function dbQuery(sql, params = []) {
     console.error('[DB] Query error:', err.message);
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Account-revocation check (mirrors the main API's authMiddleware gates).
+//
+// A valid JWT signature is NOT sufficient: the main API rejects a token when the
+// DB-side `token_version` has moved past the claim (admin force-logout) or the row
+// is soft-deleted. Without the same check here, force-logout was cosmetic for the
+// playground — the target kept code execution, snippets and session access for the
+// token's remaining 7-day life, and re-connected instantly after their sockets were
+// dropped. That is the lever used to pull a cheater out of a live contest.
+//
+// Cached 30s and bounded, exactly like apps/api/src/utils/userAuthCache.ts, so the
+// steady-state cost is a Map hit rather than a query per request.
+// ---------------------------------------------------------------------------
+const REVOCATION_TTL_MS = 30_000;
+const REVOCATION_MAX_ENTRIES = 2000;
+// userId → { tokenVersion, isDeleted, missing, expiresAt }
+const revocationCache = new Map();
+// userId → in-flight lookup promise. Single-flight, mirroring competition/roundCache.ts:
+// the arena polls several endpoints per contestant in parallel, so without coalescing every
+// TTL boundary turns into one query PER concurrent request PER user against this server's
+// hardcoded max:5 pg pool — and every contestant's TTL is seeded at contest start, so those
+// boundaries arrive together.
+const revocationInFlight = new Map();
+
+/** Drop one user's cached revocation state (used by the force-logout relay hook). */
+function invalidateRevocationCache(userId) {
+  revocationCache.delete(userId);
+  revocationInFlight.delete(userId);
+}
+
+/**
+ * True when this token must no longer authenticate: the account is soft-deleted, the
+ * row is gone, or the DB watermark has passed the token's `tokenVersion` claim.
+ *
+ * Uses pool.query directly, NOT dbQuery — dbQuery swallows errors into [], which would
+ * make a transient DB fault indistinguishable from "user not found" and lock everyone out.
+ * Never throws: this runs on every request via optionalAuth, so a DB blip must fail OPEN
+ * (the prior behavior was no check at all, so failing open is never worse than the status quo).
+ */
+async function isAccountRevoked(userId, claimTokenVersion) {
+  const claim = typeof claimTokenVersion === 'number' ? claimTokenVersion : 0;
+  const now = Date.now();
+  let state = revocationCache.get(userId);
+
+  if (!state || now >= state.expiresAt) {
+    if (!pool) return false; // no DB configured (local in-memory mode) → preserve prior behavior
+
+    // Coalesce concurrent misses for the same user into ONE query.
+    let lookup = revocationInFlight.get(userId);
+    if (!lookup) {
+      lookup = (async () => {
+        const { rows } = await pool.query(
+          'SELECT token_version, is_deleted FROM users WHERE id = $1',
+          [userId],
+        );
+        // Cache the MISSING case too. Returning early without caching meant a token for a
+        // hard-deleted account re-queried on every single request for the rest of its 7-day
+        // life — the 30s TTL never applied to exactly the identity most likely to be retrying.
+        return rows.length === 0
+          ? { tokenVersion: 0, isDeleted: false, missing: true, expiresAt: Date.now() + REVOCATION_TTL_MS }
+          : {
+              tokenVersion: Number(rows[0].token_version ?? 0),
+              isDeleted: rows[0].is_deleted === true,
+              missing: false,
+              expiresAt: Date.now() + REVOCATION_TTL_MS,
+            };
+      })().finally(() => {
+        revocationInFlight.delete(userId);
+      });
+      revocationInFlight.set(userId, lookup);
+    }
+
+    try {
+      state = await lookup;
+    } catch (err) {
+      console.error('[auth] revocation check failed; allowing request:', err?.message);
+      return false;
+    }
+
+    // delete-then-set keeps Map insertion order usable as LRU recency.
+    revocationCache.delete(userId);
+    revocationCache.set(userId, state);
+    if (revocationCache.size > REVOCATION_MAX_ENTRIES) {
+      const oldest = revocationCache.keys().next().value;
+      if (oldest !== undefined) revocationCache.delete(oldest);
+    }
+  }
+
+  return state.missing || state.isDeleted || state.tokenVersion > claim;
 }
 
 // Max 15 execution history entries with code per user
@@ -781,8 +990,11 @@ const EXEC_CACHE_MAX_SIZE = 500;
 const execCache = new Map(); // key → { result, expiresAt }
 
 function execCacheKey(language, code, stdin, cacheScope = 'anonymous') {
-  // Use a fast hash: language + code length + first/last chars + stdin
-  // Full collision avoidance via full code comparison in get()
+  // Key = scope + language + code length + a 64-bit prefix of sha256(code + stdin).
+  // Lookup is key-equality only — there is deliberately no full-code comparison in get()
+  // (an earlier comment here claimed one existed; it never did). Collision would require
+  // two programs of identical length and language, under the same user/IP scope, colliding
+  // on 64 bits of sha256 — not a practical concern at this cache's size and 5-minute TTL.
   return `${cacheScope}:${language}:${code.length}:${crypto.createHash('sha256').update(code + (stdin || '')).digest('hex').slice(0, 16)}`;
 }
 
@@ -1026,30 +1238,10 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
 // API sends one problem's submissions per call; we run the O(N²) similarity here (this
 // server is mostly idle) and return flagged pairs. Larger json limit for code batches.
 // ---------------------------------------------------------------------------
-// Prefer an explicit INTERNAL_API_SECRET; otherwise DERIVE it from the shared JWT_SECRET
-// (which must already match the main API). This mirrors getInternalApiSecret() in
-// apps/api/src/utils/internalApi.ts byte-for-byte, so both sides compute the same value with
-// no extra config — setting PLAYGROUND_API_URL on the main API alone turns the relay on.
-function deriveInternalSecret() {
-  const explicit = (process.env.INTERNAL_API_SECRET || '').trim();
-  if (explicit) return explicit;
-  let jwt = '';
-  try { jwt = getJwtSecret(); } catch { jwt = ''; } // throws only if JWT_SECRET unset in prod → relay stays off
-  return jwt ? crypto.createHash('sha256').update(`${jwt}:contest-relay-internal`).digest('hex') : '';
-}
-const INTERNAL_API_SECRET = deriveInternalSecret();
-const INTERNAL_SECRET_BUF = Buffer.from(INTERNAL_API_SECRET);
-// Constant-time secret check — avoids leaking the secret length/prefix via early-exit
-// timing on the `!==` compare. Length-mismatch short-circuits (timingSafeEqual throws on
-// unequal lengths), which is fine: it only reveals the length, not the bytes.
-function validInternalSecret(req) {
-  if (!INTERNAL_API_SECRET) return false;
-  const provided = req.headers['x-internal-secret'];
-  if (typeof provided !== 'string') return false;
-  const providedBuf = Buffer.from(provided);
-  return providedBuf.length === INTERNAL_SECRET_BUF.length
-    && crypto.timingSafeEqual(providedBuf, INTERNAL_SECRET_BUF);
-}
+// deriveInternalSecret() / validInternalSecret() are declared near the top of this
+// file so the app-level /internal gate can reject unauthenticated callers BEFORE the
+// 12mb body parser runs. The per-handler checks below are defense in depth.
+// ---------------------------------------------------------------------------
 
 app.post('/internal/plagiarism', async (req, res) => {
   if (!validInternalSecret(req)) {
@@ -1124,6 +1316,12 @@ app.post('/internal/disconnect-user', async (req, res) => {
   }
   try {
     const userId = req.body?.userId;
+    if (userId) {
+      // Drop the cached revocation state so the bumped token_version takes effect on
+      // the very next HTTP request instead of after the 30s TTL. Without this, a
+      // force-logged-out user could keep executing code for up to 30s after the kick.
+      invalidateRevocationCache(userId);
+    }
     if (contestIo && userId) {
       const sockets = await contestIo.of('/competition').fetchSockets();
       for (const s of sockets) if (s.data?.userId === userId) s.disconnect(true);
@@ -1910,7 +2108,13 @@ function resolveRelayWsEngine() {
     return undefined;
   }
   try {
-    const { Server } = require('eiows');
+    // MUST go through createRequire: this file is ESM ("type": "module"), where a bare
+    // `require` is not defined at all. The previous bare call threw ReferenceError on
+    // EVERY boot, was swallowed by this catch, and silently pinned the relay to stock
+    // `ws` — so the ≈5-8x per-connection memory saving never applied to the box that
+    // actually holds the contest sockets. (WS_ENGINE_STRICT=true would likewise have
+    // refused to boot unconditionally.) Mirrors apps/api/src/utils/socket.ts.
+    const { Server } = nodeRequire('eiows');
     console.log('[relay] Socket.IO using eiows (C++) WebSocket engine (low-memory default)');
     relayActiveWsEngine = 'eiows';
     return Server;
@@ -1947,7 +2151,12 @@ function authSocket(socket) {
     try {
       const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
       if (decoded && typeof decoded.purpose === 'string') continue; // reject special-purpose tokens
-      return { id: decoded.userId || decoded.id, role: decoded.role };
+      return {
+        id: decoded.userId || decoded.id,
+        role: decoded.role,
+        // Carried so `join` can compare it against the live DB watermark (force-logout).
+        tokenVersion: typeof decoded.tokenVersion === 'number' ? decoded.tokenVersion : 0,
+      };
     } catch { /* try next */ }
   }
   return null;
@@ -1958,6 +2167,7 @@ contestIo.of('/competition').use((socket, next) => {
   if (!user?.id) return next(new Error('AUTH_INVALID'));
   socket.data.userId = user.id;
   socket.data.role = user.role;
+  socket.data.tokenVersion = user.tokenVersion;
   next();
 });
 
@@ -1972,12 +2182,19 @@ contestIo.of('/competition').on('connection', (socket) => {
       const round = await pool.query('SELECT event_id FROM competition_rounds WHERE id = $1', [roundId]);
       if (round.rowCount === 0) return socket.emit('contest:error', { message: 'Round not found' });
       // Authorize against the LIVE DB row, not the (≤7-day-old) JWT: a demoted admin must
-      // not keep admin-monitor visibility, and a soft-deleted user must not join at all
-      // (the main API's tokenVersion gate rejects them, but the relay only verifies the
-      // JWT signature). One indexed PK lookup per join.
-      const account = await pool.query('SELECT role, is_deleted FROM users WHERE id = $1', [userId]);
+      // not keep admin-monitor visibility, and a soft-deleted or force-logged-out user must
+      // not join at all. One indexed PK lookup per join.
+      const account = await pool.query(
+        'SELECT role, is_deleted, token_version FROM users WHERE id = $1',
+        [userId],
+      );
       if (account.rowCount === 0 || account.rows[0].is_deleted) {
         return socket.emit('contest:error', { message: 'Account unavailable' });
+      }
+      // Force-logout watermark: an admin pulling a cheater out of a live round bumps
+      // token_version, so a stale-but-signed token must not re-join the arena.
+      if (Number(account.rows[0].token_version ?? 0) > (socket.data.tokenVersion ?? 0)) {
+        return socket.emit('contest:error', { message: 'Session expired. Please sign in again.' });
       }
       const isAdmin = ['ADMIN', 'PRESIDENT'].includes(account.rows[0].role);
       if (isAdmin) { socket.join(roomAdmin(roundId)); return; }

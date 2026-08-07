@@ -130,7 +130,9 @@ export default function AdminEventRegistrations() {
     enabled: Boolean(token),
   });
 
-  const all = eventsQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => eventsQ.data ?? [], [eventsQ.data]);
   const counts = useMemo(() => ({
     all: all.length,
     upcoming: all.filter((e) => e.status === 'UPCOMING').length,

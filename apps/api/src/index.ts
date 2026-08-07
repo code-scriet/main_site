@@ -60,6 +60,7 @@ import { escapeHtml } from './utils/sanitize.js';
 import { isUuid } from './utils/idParams.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
+import { flushCertificateViews, stopCertificateViewFlusher } from './utils/certificateViewCounter.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
 import { resolveRateLimitKey, resolveAuthRateLimitKey, isUserRateLimitKey } from './utils/rateLimitKey.js';
@@ -645,7 +646,13 @@ const shutdown = async () => {
   stopQotdAutoPublishScheduler();
   stopRegistrationOpenScheduler();
   stopQuizSnapshotScheduler(); // S6: stop the writer before rooms are flushed below
+  stopCertificateViewFlusher();
   clearAllContestRooms(); // drop in-memory contest realtime state (throttle timers)
+
+  // Write back any certificate views buffered since the last 30s tick, so a normal
+  // restart/redeploy loses none. Settled (not awaited bare) — telemetry must never
+  // block or fail the shutdown path.
+  await Promise.allSettled([flushCertificateViews()]);
 
   // Close Socket.io server first — disconnects all clients (quiz + attendance + competition)
   io.close();

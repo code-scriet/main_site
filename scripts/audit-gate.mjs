@@ -14,13 +14,22 @@
 // Reviewing an entry means confirming the vulnerable code path is genuinely unreachable
 // in this app — not merely that it's inconvenient to upgrade. Re-check on dependency
 // bumps and delete the entry the moment a real fix is installable.
+//
+// An exception is scoped to the PACKAGES it was reviewed against, not just the GHSA id.
+// Matching on id alone would keep suppressing an advisory after it attaches to a package
+// where the written justification no longer holds — e.g. the react-router RSC exception
+// below is justified by "no @react-router/server|node|dev package present"; if one were
+// ever added, npm would report the SAME id against it and an id-only lookup would wave a
+// genuinely reachable CSRF bypass straight through a green gate.
 
 import { execSync } from 'node:child_process';
 
 /** GHSA id → why it cannot affect this app. Keep short, factual, and dated. */
 const REVIEWED_EXCEPTIONS = {
   'GHSA-qwww-vcr4-c8h2': {
-    package: 'react-router / react-router-dom',
+    // Exact package names this review covers. An advisory hit on ANY other package fails
+    // the gate even though the id matches.
+    packages: ['react-router', 'react-router-dom'],
     title: 'RSC Mode CSRF Bypass Allows Action Execution Before 400 Response',
     reason:
       'Requires React Router RSC (React Server Components) mode / server actions. Both apps/web and '
@@ -95,8 +104,24 @@ for (const [pkg, vuln] of Object.entries(report.vulnerabilities)) {
   }
 }
 
-const unreviewed = [...blocking.values()].filter((a) => !REVIEWED_EXCEPTIONS[a.id]);
-const excepted = [...blocking.values()].filter((a) => REVIEWED_EXCEPTIONS[a.id]);
+// An exception applies only when EVERY package the advisory landed on was covered by the
+// review. Any package outside that set makes the advisory unreviewed again.
+const unreviewed = [];
+const excepted = [];
+for (const advisory of blocking.values()) {
+  const note = REVIEWED_EXCEPTIONS[advisory.id];
+  if (!note) {
+    unreviewed.push(advisory);
+    continue;
+  }
+  const allowed = new Set(note.packages ?? []);
+  const uncovered = [...advisory.packages].filter((pkg) => !allowed.has(pkg));
+  if (uncovered.length > 0) {
+    unreviewed.push({ ...advisory, uncovered });
+  } else {
+    excepted.push(advisory);
+  }
+}
 
 console.log(
   `audit-gate: production deps — ${counts.critical ?? 0} critical, ${counts.high ?? 0} high, `
@@ -116,6 +141,14 @@ if (unreviewed.length > 0) {
   for (const advisory of unreviewed) {
     console.error(`  ${advisory.severity.toUpperCase()} ${advisory.id} — ${advisory.title}`);
     console.error(`    packages: ${[...advisory.packages].join(', ')}`);
+    if (advisory.uncovered) {
+      console.error(
+        `    NOTE: a REVIEWED_EXCEPTIONS entry exists for this id, but it does NOT cover: `
+        + `${advisory.uncovered.join(', ')}. The written justification was reviewed against `
+        + `${(REVIEWED_EXCEPTIONS[advisory.id].packages ?? []).join(', ') || '(none)'} only — `
+        + `re-review it against the new package(s) before extending the entry.`,
+      );
+    }
     console.error('    https://github.com/advisories/' + advisory.id);
   }
   console.error('\nFix it (`npm audit fix`, or bump the dependency). If — and only if — the vulnerable');

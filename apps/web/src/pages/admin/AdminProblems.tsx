@@ -90,7 +90,9 @@ export default function AdminProblems({ embedded = false }: { embedded?: boolean
     queryFn: () => api.adminGetProblems(token!),
     enabled: Boolean(token),
   });
-  const all: Problem[] = q.data?.problems ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all: Problem[] = useMemo(() => q.data?.problems ?? [], [q.data?.problems]);
   const filtered = useMemo(() => {
     return all
       .filter((p) => (publishedOnly ? p.isPublished : true))

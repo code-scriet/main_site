@@ -148,6 +148,15 @@ export function createRoundCache(
     // sweep expired entries before inserting a fresh one.
     if (roundCache.size >= roundMaxEntries) {
       for (const [k, v] of roundCache) if (at - v.at >= roundTtlMs) roundCache.delete(k);
+      // The sweep only drops EXPIRED entries, so if more than `roundMaxEntries` distinct
+      // rounds are polled inside one TTL window nothing is expired and the map would grow
+      // past its documented bound (HC #1). Evict oldest-first until the cap actually holds —
+      // Map iteration is insertion-ordered, so the first key is the oldest.
+      while (roundCache.size >= roundMaxEntries) {
+        const oldest = roundCache.keys().next().value;
+        if (oldest === undefined) break;
+        roundCache.delete(oldest);
+      }
     }
 
     const promise = fetchRound(roundId);
@@ -193,6 +202,8 @@ export function createRoundCache(
     return registered;
   };
 
+  // No test-only seam on this interface: the size cap is asserted behaviourally in
+  // roundCache.test.ts (evicted entries re-query), which also catches wrong-order eviction.
   return { getCachedRound, invalidateRoundCache, invalidateAllRoundCache, isRegisteredCached };
 }
 

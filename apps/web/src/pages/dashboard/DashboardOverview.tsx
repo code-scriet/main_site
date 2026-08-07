@@ -154,7 +154,9 @@ export default function DashboardOverview() {
   void registrations;
 
   // Compute this-week stats from QOTD stats' last30Days + recent submissions
-  const last30 = qotdStatsQ.data?.last30Days ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const last30 = useMemo(() => qotdStatsQ.data?.last30Days ?? [], [qotdStatsQ.data?.last30Days]);
   const solvedThisWeek = useMemo(() => last30.slice(-7).filter((d) => d.solved).length, [last30]);
   const attemptsThisWeek = useMemo(() => {
     const cutoff = Date.now() - 7 * 24 * 3600 * 1000;

@@ -228,7 +228,9 @@ export default function AdminNetwork() {
   }, [statsQ.data, allQ.data, pendingQ.data]);
 
   const pending = pendingQ.data ?? [];
-  const allVerified = allQ.data?.profiles ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const allVerified = useMemo(() => allQ.data?.profiles ?? [], [allQ.data?.profiles]);
   const verifiedFiltered = useMemo(() => {
     return allVerified
       .filter((p) => (verifyFilter === 'featured' ? p.isFeatured : true))

@@ -106,3 +106,32 @@ test('a write failure leaves the guard untouched so the next attempt still decid
   assert.equal(storage.value, null);
   assert.equal(readLastReloadAt(storage), 0);
 });
+
+test('a FUTURE stored instant does not wedge recovery permanently', () => {
+  // Device clock corrected backwards / NTP jump after a reload was recorded. With a plain
+  // `now - lastReloadAt >= COOLDOWN` the difference stays negative forever, so the tab would
+  // never auto-recover from a redeploy again for the rest of the session.
+  assert.equal(
+    shouldReloadForStaleChunk({ lastReloadAt: NOW + 60 * 60 * 1000, now: NOW, blocked: false }),
+    true,
+  );
+});
+
+test('the proctor interlock is ref-counted, not a boolean', () => {
+  // Two overlapping owners (a second useProctor consumer, or StrictMode double-mount): the
+  // first cleanup must NOT clear the block while another instance still holds it, or a
+  // self-inflicted reload drops fullscreen → FULLSCREEN_EXIT → instant lock (budget 1).
+  assert.equal(isAutoReloadBlocked(), false);
+  setAutoReloadBlocked(true);
+  setAutoReloadBlocked(true);
+  setAutoReloadBlocked(false);
+  assert.equal(isAutoReloadBlocked(), true, 'still held by the second owner');
+  setAutoReloadBlocked(false);
+  assert.equal(isAutoReloadBlocked(), false, 'released once every owner has cleaned up');
+  // Never goes negative — an unmatched release must not leave a latent negative count that
+  // silently swallows the next real block.
+  setAutoReloadBlocked(false);
+  setAutoReloadBlocked(true);
+  assert.equal(isAutoReloadBlocked(), true);
+  setAutoReloadBlocked(false);
+});

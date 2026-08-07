@@ -29,6 +29,7 @@ import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { recordCertificateView } from '../utils/certificateViewCounter.js';
 import { getClientIp } from '../utils/clientIp.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
@@ -1259,11 +1260,10 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
       return res.status(200).json({ valid: false, reason: 'revoked', revokedReason: cert.revokedReason });
     }
 
-    // Increment view count asynchronously
-    prisma.certificate.update({
-      where: { certId: cert.certId },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {});
+    // Buffer the view; flushed as one set-based statement every 30s (see
+    // utils/certificateViewCounter.ts). This endpoint is public + unauthenticated, so a
+    // write per read was pure amplification against the pooled Neon connection.
+    recordCertificateView(cert.certId);
 
     return res.status(200).json({
       valid: true,

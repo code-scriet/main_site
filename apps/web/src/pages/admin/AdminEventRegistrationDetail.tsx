@@ -149,7 +149,9 @@ export default function AdminEventRegistrationDetail() {
   });
 
   const event = eventQ.data as EventT | undefined;
-  const regs = (regsQ.data ?? []) as EventAdminRegistration[];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const regs = useMemo(() => (regsQ.data ?? []) as EventAdminRegistration[], [regsQ.data]);
 
   const isAttended = (r: EventAdminRegistration): boolean => {
     const rr = r as unknown as { attended?: boolean; dayAttendances?: Array<{ attended: boolean }> };

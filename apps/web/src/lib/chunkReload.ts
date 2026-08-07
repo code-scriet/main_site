@@ -51,6 +51,12 @@ export interface ReloadDecisionInput {
  */
 export function shouldReloadForStaleChunk({ lastReloadAt, now }: ReloadDecisionInput): boolean {
   if (lastReloadAt === null) return false;
+  // A stored instant AHEAD of `now` (device clock corrected backwards, NTP jump — routine on
+  // student laptops) makes this difference negative forever, which would permanently disable
+  // recovery for the tab. Treat a future stamp as "no previous attempt", mirroring how
+  // readLastReloadAt normalises unparseable values to 0 and how the notification read-cutoff
+  // clamps a future client timestamp.
+  if (lastReloadAt > now) return true;
   return now - lastReloadAt >= RELOAD_COOLDOWN_MS;
 }
 

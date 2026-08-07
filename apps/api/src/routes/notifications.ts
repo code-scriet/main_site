@@ -16,6 +16,7 @@ import { sanitizeUrl } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { requireUuid } from '../utils/idParams.js';
 import { broadcastNotification } from '../utils/notifications.js';
+import { resolveReadCutoff } from '../utils/notificationCutoff.js';
 
 export const notificationsRouter = Router();
 
@@ -265,7 +266,7 @@ notificationsRouter.post('/mark-read', authMiddleware, async (req: Request, res:
   if (!parsed.success) {
     return ApiResponse.validationError(res, parsed.error.errors.map(e => ({ field: e.path.join('.'), message: e.message })));
   }
-  const cutoff = parsed.data.at ? new Date(parsed.data.at) : new Date();
+  const cutoff = resolveReadCutoff(parsed.data.at);
   try {
     await prisma.user.update({
       where: { id: auth.id },

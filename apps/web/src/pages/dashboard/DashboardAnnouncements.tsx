@@ -59,7 +59,9 @@ export default function DashboardAnnouncements() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
   });
 
-  const all = announcementsQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => announcementsQ.data ?? [], [announcementsQ.data]);
   const pinned = useMemo(() => all.filter((a) => a.pinned), [all]);
   const rest = useMemo(() => all.filter((a) => !a.pinned), [all]);
   const polls = (pollsQ.data ?? []).filter((p) => p.isPublished !== false);

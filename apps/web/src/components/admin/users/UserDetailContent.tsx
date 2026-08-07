@@ -159,10 +159,14 @@ function OverviewTab({ userId }: { userId: string }) {
   const [roleDraft, setRoleDraft] = useState(user?.role ?? 'USER');
   const [roleTarget, setRoleTarget] = useState<{ userId: string; userName: string; currentRole: string; newRole: string } | null>(null);
 
+  // Deliberately narrow: resync the role draft only when the identity or role actually
+  // changes, not on every new `user` object identity. Depending on `user` would clobber an
+  // admin's in-progress role selection on any unrelated refetch of the same record.
   useEffect(() => {
     if (user) {
       setRoleDraft(user.role);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role]);
 
   if (!user || !counts) return null;

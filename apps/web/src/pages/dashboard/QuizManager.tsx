@@ -38,7 +38,9 @@ export default function QuizManager() {
     enabled: Boolean(token),
   });
 
-  const quizzes = q.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const quizzes = useMemo(() => q.data ?? [], [q.data]);
   const counts = useMemo(() => ({
     active: quizzes.filter((q) => q.status === 'ACTIVE').length,
     waiting: quizzes.filter((q) => q.status === 'WAITING').length,

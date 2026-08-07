@@ -7,13 +7,30 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
  *
  * Guards `window` so it degrades to `false` if this ever runs without a DOM.
  */
+// One MediaQueryList per query, reused for the lifetime of the page.
+//
+// getSnapshot is called by React on EVERY render and again after each render to check for
+// tearing, so constructing a fresh MediaQueryList inside it meant parsing a media query
+// several times a second on the exact devices this module exists for — ContestArenaPage
+// re-renders once per second from its countdown and calls useIsCompact(), and QOTDSolverShell
+// adds useIsCompact() + useTouchEditor() (itself two queries) on top.
+const mediaQueryLists = new Map<string, MediaQueryList>();
+
+function getMediaQueryList(query: string): MediaQueryList | null {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return null;
+  let list = mediaQueryLists.get(query);
+  if (!list) {
+    list = window.matchMedia(query);
+    mediaQueryLists.set(query, list);
+  }
+  return list;
+}
+
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
     (onChange: () => void) => {
-      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-        return () => undefined;
-      }
-      const list = window.matchMedia(query);
+      const list = getMediaQueryList(query);
+      if (!list) return () => undefined;
       // Safari < 14 only has the deprecated addListener/removeListener pair.
       if (typeof list.addEventListener === 'function') {
         list.addEventListener('change', onChange);
@@ -25,10 +42,7 @@ export function useMediaQuery(query: string): boolean {
     [query],
   );
 
-  const getSnapshot = useCallback(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia(query).matches;
-  }, [query]);
+  const getSnapshot = useCallback(() => getMediaQueryList(query)?.matches ?? false, [query]);
 
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

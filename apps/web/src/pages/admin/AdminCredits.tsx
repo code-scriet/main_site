@@ -65,15 +65,22 @@ export default function AdminCredits() {
     );
   }, [teamQ.data, memberFilter, edit.teamMemberId]);
 
-  const all = q.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => q.data ?? [], [q.data]);
 
   // Local-mutable ordering. Hydrates from server data on first load and on refetch.
   // Saved as a batch via `api.reorderCredits` when "Save order" is clicked.
   const [localOrder, setLocalOrder] = useState<Array<{ id: string; order: number }>>([]);
   const [orderDirty, setOrderDirty] = useState(false);
+  // Keyed on dataUpdatedAt, NOT on `all`, on purpose: local ordering re-hydrates only when
+  // the server actually refetches, so an in-progress drag isn't discarded by an unrelated
+  // re-render. Adding `all` here would be redundant (it is derived from the same query) and
+  // would blur that intent.
   useEffect(() => {
     setLocalOrder(all.map((c) => ({ id: c.id, order: c.order ?? 0 })));
     setOrderDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.dataUpdatedAt]);
 
   const grouped = useMemo(() => {

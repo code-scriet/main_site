@@ -38,8 +38,6 @@ interface PlaygroundState {
   isRunning: boolean;
   executionTime: string;
   fontSize: number;
-  showProblemPanel: boolean;
-  currentProblem: Problem | null;
   /** Which tier ran the last execution ('client' | 'cloud' | null) */
   executionTier: 'client' | 'cloud' | null;
   /** Status message shown during execution (e.g. "Loading Python runtime...") */
@@ -65,8 +63,6 @@ interface PlaygroundContextType extends PlaygroundState {
   resetCode: () => void;
   increaseFontSize: () => void;
   decreaseFontSize: () => void;
-  toggleProblemPanel: () => void;
-  setCurrentProblem: (problem: Problem | null) => void;
   clearOutput: () => void;
   /** Trigger download + warm-up of Pyodide for local Python execution */
   startLocalPython: () => void;
@@ -130,8 +126,6 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       isRunning: false,
       executionTime: '',
       fontSize: 14,
-      showProblemPanel: false,
-      currentProblem: null,
       executionTier: null,
       statusMessage: '',
     };
@@ -280,21 +274,6 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     }));
   };
 
-  const toggleProblemPanel = () => {
-    setState((prev) => ({
-      ...prev,
-      showProblemPanel: !prev.showProblemPanel,
-    }));
-  };
-
-  const setCurrentProblem = (problem: Problem | null) => {
-    setState((prev) => ({
-      ...prev,
-      currentProblem: problem,
-      showProblemPanel: problem !== null,
-    }));
-  };
-
   const clearOutput = () => {
     setState((prev) => ({
       ...prev,
@@ -320,8 +299,6 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     resetCode,
     increaseFontSize,
     decreaseFontSize,
-    toggleProblemPanel,
-    setCurrentProblem,
     clearOutput,
     startLocalPython,
     revertToCloudPython,

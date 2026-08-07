@@ -82,7 +82,9 @@ export default function DashboardEvents() {
     enabled: Boolean(token),
   });
 
-  const all = regsQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => regsQ.data ?? [], [regsQ.data]);
 
   const counts = useMemo(() => ({
     all: all.length,
