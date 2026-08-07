@@ -101,6 +101,8 @@ const AdminEventRegistrationDetail = lazy(() => import('@/pages/admin/AdminEvent
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
+// Unlisted, PRES/SA-only retroactive-records console — see the route below.
+const AdminBackdate = lazy(() => import('@/pages/admin/AdminBackdate'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
@@ -248,6 +250,11 @@ function App() {
                       <Route path="competition/:roundId/monitor" element={withRouteBoundary(<CompetitionMonitor />)} />
                       <Route element={<SuperAdminOrPresidentRoute />}>
                         <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
+                        {/* Deliberately absent from the sidebar and the command palette:
+                            retroactive records are a rare, high-trust operation, reached by
+                            typing the URL. The guard above and the server-side PRES/SA check
+                            on every /api/backdate endpoint are the actual security. */}
+                        <Route path="backdate" element={withRouteBoundary(<AdminBackdate />)} />
                       </Route>
                       <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
                       <Route path="mail" element={withRouteBoundary(<AdminMail />)} />

@@ -1492,14 +1492,26 @@ eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, r
     
     const registration = await prisma.eventRegistration.findFirst({
       where: { id: registrationId, eventId },
-      select: { id: true },
+      select: { id: true, userId: true, registrationType: true },
     });
-    
+
     if (!registration) {
       return res.status(404).json({ success: false, error: { message: 'Registration not found' } });
     }
-    
+
     await prisma.eventRegistration.delete({ where: { id: registrationId } });
+    // Removing someone from an event destroys their attendance and QR token with it
+    // (DayAttendance cascades), so the action needs a trail like every other admin
+    // mutation. Note this leaves an ACCEPTED guest invitation pointing at nothing —
+    // use the backdate console's delete to clean the pair up together.
+    const actor = getAuthUser(req);
+    if (actor) {
+      await auditLog(actor.id, 'EVENT_REGISTRATION_DELETE', 'eventRegistration', registrationId, {
+        eventId,
+        targetUserId: registration.userId,
+        registrationType: registration.registrationType,
+      });
+    }
     res.json({ success: true, message: 'Registration deleted successfully' });
   } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });

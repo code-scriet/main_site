@@ -68,12 +68,20 @@ import {
   filterGuestRecipients,
   type RecipientFilter,
 } from './attendanceCertRecipients';
+import {
+  CertificateBackdateControl,
+  EMPTY_BACKDATE,
+  toBackdatePayload,
+  type CertificateBackdateValue,
+} from '@/components/certificates/CertificateBackdateControl';
 
 interface EventCertificateWizardProps {
   eventId: string;
   eventName: string;
   token: string;
   hasCompetitionRounds: boolean;
+  /** ISO start of this event — the floor the server enforces on a backdated issue date. */
+  eventStartDate?: string | null;
 }
 
 interface Signatory {
@@ -177,6 +185,7 @@ export default function EventCertificateWizard({
   eventName,
   token,
   hasCompetitionRounds,
+  eventStartDate,
 }: EventCertificateWizardProps) {
   const [mode, setMode] = useState<CertificateMode | null>(null);
   const [step, setStep] = useState<WizardStep>('mode');
@@ -222,6 +231,8 @@ export default function EventCertificateWizard({
   const [attendanceEventName, setAttendanceEventName] = useState('');
   const [competitionDomain, setCompetitionDomain] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  // Backdate the whole batch (PRES/SA only). Empty = issue with today's date.
+  const [backdate, setBackdate] = useState<CertificateBackdateValue>(EMPTY_BACKDATE);
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -692,6 +703,10 @@ export default function EventCertificateWizard({
       } else if (facultySignatoryId) {
         body.facultySignatoryId = facultySignatoryId;
       }
+
+      // Spread last so it applies to both the competition and attendance branches.
+      // Empty for a normal issuance — no backdate keys are sent at all.
+      Object.assign(body, toBackdatePayload(backdate));
 
       const result = await api.bulkGenerateCertificates(body, token);
       const certificates: GeneratedCert[] = result.results
@@ -2148,6 +2163,14 @@ export default function EventCertificateWizard({
               </div>
               <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
             </div>
+
+            {/* PRES/SA only, collapsed by default — renders nothing for other admins. */}
+            <CertificateBackdateControl
+              value={backdate}
+              onChange={setBackdate}
+              eventStartDate={eventStartDate}
+              className="mt-4"
+            />
           </CardContent>
         </Card>
 

@@ -277,6 +277,7 @@ export default function EventAdminHub() {
             eventName={event.title}
             token={token!}
             hasCompetitionRounds={hasCompetitionRounds}
+            eventStartDate={event.startDate}
           />
         </ErrorBoundary>
       )}

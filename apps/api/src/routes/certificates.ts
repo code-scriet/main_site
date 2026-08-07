@@ -25,6 +25,8 @@ import {
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { resolveBackdate } from '../utils/backdate.js';
 import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
@@ -72,6 +74,62 @@ const certificateSources = ['attendance', 'competition', 'generic'] as const;
 const competitionGenerationStrategies = ['specific_round', 'best_selected_rounds', 'average_selected_rounds'] as const;
 const certificateTemplateVariablePattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
+// Backdating (PRES/SA only) — `issuedAt` becomes the certificate's effective date
+// everywhere it is shown: the public verify page, the recipient's dashboard, the
+// issued-on line of the email, and the LinkedIn "add to profile" link. Shared by the
+// single-issue and bulk schemas so the two can never drift.
+const backdateFields = {
+  issuedAt: z.string().min(4).max(40).optional().nullable(),
+  backdateReason: z.string().max(300).optional().nullable(),
+};
+
+/**
+ * Resolve the effective issue date for a certificate request, enforcing that only
+ * PRESIDENT / super-admin may backdate. Returns a ready-to-persist triple, or an
+ * error message for the caller to 400/403 with.
+ *
+ * `eventId` is looked up for its startDate so an event-linked certificate cannot be
+ * dated before the event it certifies. Callers that already validated the event pass
+ * the startDate they fetched.
+ */
+type BackdateOutcome =
+  | { ok: true; issuedAt: Date; backdatedBy: string | null; backdateReason: string | null }
+  | { ok: false; status: 403 | 400; message: string };
+
+function resolveCertificateBackdate(params: {
+  requested: string | null | undefined;
+  reason: string | null | undefined;
+  actor: { id: string; email?: string | null; role?: string | null };
+  eventStart: Date | null;
+}): BackdateOutcome {
+  const { requested, reason, actor, eventStart } = params;
+
+  if (!requested) {
+    return { ok: true, issuedAt: new Date(), backdatedBy: null, backdateReason: null };
+  }
+
+  if (!isPresidentOrSuperAdmin(actor)) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'Only the President or super admin can backdate a certificate',
+    };
+  }
+
+  const resolution = resolveBackdate({ requested, now: new Date(), eventStart });
+  if (!resolution.ok) {
+    return { ok: false, status: 400, message: resolution.message };
+  }
+
+  return {
+    ok: true,
+    issuedAt: resolution.at,
+    // A date that rounds to "now" is not a backdate — don't stamp provenance on it.
+    backdatedBy: resolution.isBackdated ? actor.id : null,
+    backdateReason: resolution.isBackdated ? sanitizeOptionalText(reason) : null,
+  };
+}
+
 const generateSchema = z.object({
   recipientName: z.string().min(2).max(100),
   recipientEmail: z.string().email().transform(v => v.trim().toLowerCase()),
@@ -95,6 +153,7 @@ const generateSchema = z.object({
   sendEmail: z.boolean().default(false),
   emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+  ...backdateFields,
 });
 
 const bulkRecipientSchema = z.object({
@@ -131,6 +190,7 @@ const bulkSchema = z.object({
   sendEmail: z.boolean().default(false),
   emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+  ...backdateFields,
 }).superRefine((value, ctx) => {
   if (!value.type && value.recipients.some((recipient) => !recipient.type)) {
     ctx.addIssue({
@@ -722,6 +782,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, sendEmail, emailTemplate, emailSignerName,
+    issuedAt: requestedIssuedAt, backdateReason,
   } = validation.data;
 
   try {
@@ -737,12 +798,29 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       resolvedRecipientId = await findRecipientIdByEmail(recipientEmail);
     }
 
-    // Validate eventId exists if provided
+    // Validate eventId exists if provided. startDate doubles as the floor for a
+    // backdated issue date — an event-linked certificate cannot predate its event.
+    let eventStart: Date | null = null;
     if (eventId) {
-      const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+      const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, startDate: true } });
       if (!eventExists) {
         return ApiResponse.badRequest(res, 'Event not found');
       }
+      eventStart = eventExists.startDate;
+    }
+
+    const backdate = resolveCertificateBackdate({
+      requested: requestedIssuedAt,
+      reason: backdateReason,
+      actor: authUser,
+      eventStart,
+    });
+    if (!backdate.ok) {
+      return ApiResponse.error(res, {
+        code: backdate.status === 403 ? ErrorCodes.FORBIDDEN : ErrorCodes.VALIDATION_ERROR,
+        message: backdate.message,
+        status: backdate.status,
+      });
     }
 
     // Resolve signatories: ID → DB+image, inline base64 → processed image, text → cursive fallback
@@ -815,6 +893,9 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         issuedBy: authUser.id,
         emailTemplate,
         emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+        issuedAt: backdate.issuedAt,
+        backdatedBy: backdate.backdatedBy,
+        backdateReason: backdate.backdateReason,
       });
       certId = issued.certId;
       pdfUrl = issued.pdfUrl;
@@ -844,7 +925,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
             signerName: emailSignerName,
             certType: normalizedCertType,
           })
-        : emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl);
+        : emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl, backdate.issuedAt);
       emailPromise
         .then(async (sent) => {
           if (sent) {
@@ -861,8 +942,23 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         .catch(err => logger.error('Certificate email failed', { certId, error: err.message }));
     }
 
-    logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id });
-    await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName: safeEventName, type });
+    logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id, backdated: Boolean(backdate.backdatedBy) });
+    // The audit row's own `timestamp` is real wall-clock time — only the certificate's
+    // effective date moves, so a backdate is always traceable to when it really happened.
+    await auditLog(
+      authUser.id,
+      backdate.backdatedBy ? 'CERTIFICATE_GENERATE_BACKDATED' : 'CERTIFICATE_GENERATE',
+      'certificate',
+      certId,
+      {
+        recipientEmail,
+        eventName: safeEventName,
+        type,
+        ...(backdate.backdatedBy
+          ? { backdatedTo: backdate.issuedAt.toISOString(), backdateReason: backdate.backdateReason }
+          : {}),
+      },
+    );
 
     // Dashboard v2: push to the recipient's bell menu (best-effort, no-op if no userId).
     if (resolvedRecipientId) {
@@ -924,14 +1020,33 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, domain, sendEmail, source, generationStrategy, selectedRoundIds,
     emailTemplate, emailSignerName,
+    issuedAt: requestedIssuedAt, backdateReason,
   } = validation.data;
 
-  // Validate eventId if provided
+  // Validate eventId if provided. startDate doubles as the backdate floor below.
+  let eventStart: Date | null = null;
   if (eventId) {
-    const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+    const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, startDate: true } });
     if (!eventExists) {
       return ApiResponse.badRequest(res, 'Event not found');
     }
+    eventStart = eventExists.startDate;
+  }
+
+  // Resolved once for the whole batch so every certificate in it carries the same
+  // effective date — a batch that straddled two dates would be indefensible.
+  const backdate = resolveCertificateBackdate({
+    requested: requestedIssuedAt,
+    reason: backdateReason,
+    actor: authUser,
+    eventStart,
+  });
+  if (!backdate.ok) {
+    return ApiResponse.error(res, {
+      code: backdate.status === 403 ? ErrorCodes.FORBIDDEN : ErrorCodes.VALIDATION_ERROR,
+      message: backdate.message,
+      status: backdate.status,
+    });
   }
 
   // Resolve signatories once for the entire batch (image processing is expensive)
@@ -1107,6 +1222,9 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               // template later — even when no email is sent at creation time.
               emailTemplate,
               emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+              issuedAt: backdate.issuedAt,
+              backdatedBy: backdate.backdatedBy,
+              backdateReason: backdate.backdateReason,
             });
             certId = issued.certId;
             pdfUrl = issued.pdfUrl;
@@ -1142,7 +1260,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
                     signerName: emailSignerName,
                     certType: r.type,
                   })
-                : await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl);
+                : await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl, backdate.issuedAt);
               if (sent) {
                 emailsSent++;
                 await updateCertificateWithSchemaFallback(
@@ -1203,9 +1321,12 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     };
   }, {});
 
-  await auditLog(authUser.id, 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
+  await auditLog(authUser.id, backdate.backdatedBy ? 'CERTIFICATE_BULK_GENERATE_BACKDATED' : 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
     eventName: safeEventName,
     type: type || null,
+    ...(backdate.backdatedBy
+      ? { backdatedTo: backdate.issuedAt.toISOString(), backdateReason: backdate.backdateReason }
+      : {}),
     generated: successes.length,
     failed: failures.length,
     total: recipients.length,
@@ -1691,6 +1812,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           emailSignerName: string | null;
           pdfUrl: string | null;
           isRevoked: boolean;
+          issuedAt: Date;
           lastEmailResentAt: Date | null;
         }
       | null;
@@ -1709,6 +1831,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           emailSignerName: true,
           pdfUrl: true,
           isRevoked: true,
+          issuedAt: true,
           lastEmailResentAt: true,
         },
       });
@@ -1729,6 +1852,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           description: true,
           pdfUrl: true,
           isRevoked: true,
+          issuedAt: true,
         },
       });
       cert = legacyCert
@@ -1767,6 +1891,9 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           cert.eventName,
           cert.certId,
           downloadUrl,
+          // Replay the certificate's stored effective date — a resend must not
+          // re-stamp a backdated certificate with today.
+          cert.issuedAt,
         );
 
     if (sent) {

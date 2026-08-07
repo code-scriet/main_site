@@ -50,6 +50,9 @@ import type {
   AttendanceQR,
   AttendanceRecord,
   AttendanceSearchResult,
+  BackdateEventSnapshot,
+  BackdateRegistrationInput,
+  BackdateRegistrationResult,
   CertType,
   CertificateBulkGenerateInput,
   CertificateBulkGenerateResponse,
@@ -369,6 +372,27 @@ export const eventOpsApi = {
     request<{ success: boolean }>(`/competition/${roundId}/publish-as-practice`, { method: 'POST', token }),
   raiseContestCap: (roundId: string, input: { userId?: string; problemId?: string; newCap: number }, token: string) =>
     request<{ success: boolean; affected: number }>(`/competition/${roundId}/raise-cap`, { method: 'POST', body: JSON.stringify(input), token }),
+  // Backdate console (PRES/SA only) — retroactive event records. The server enforces
+  // the authority check and the date bounds; these are thin wrappers.
+  getBackdateEventSnapshot: (eventId: string, token: string) =>
+    request<BackdateEventSnapshot>(`/backdate/event/${eventId}`, { token }),
+  createBackdatedRegistration: (eventId: string, data: BackdateRegistrationInput, token: string) =>
+    request<BackdateRegistrationResult>(`/backdate/event/${eventId}/registration`, { method: 'POST', body: JSON.stringify(data), token }),
+  setBackdatedAttendance: (
+    registrationId: string,
+    data: { dayNumber: number; attended: boolean; scannedAt?: string | null; reason?: string | null },
+    token: string,
+  ) =>
+    request<{ registrationId: string; dayNumber: number; attended: boolean; scannedAt: string | null }>(
+      `/backdate/registration/${registrationId}/attendance`,
+      { method: 'PATCH', body: JSON.stringify(data), token },
+    ),
+  deleteBackdatedRegistration: (registrationId: string, token: string, dropInvitation = false) =>
+    request<{ registrationId: string }>(
+      `/backdate/registration/${registrationId}${dropInvitation ? '?dropInvitation=true' : ''}`,
+      { method: 'DELETE', token },
+    ),
+
   exportCompetitionResults: async (roundId: string, token: string) => {
     const res = await fetch(`${API_URL}/competition/${roundId}/results/export?format=xlsx`, {
       headers: { Authorization: `Bearer ${token}` },

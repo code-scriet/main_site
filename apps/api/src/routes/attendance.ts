@@ -32,6 +32,8 @@ import {
   unmarkDayAttendanceAtomic,
 } from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { resolveBackdate } from '../utils/backdate.js';
 import { isUuid, requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { getClientIp } from '../utils/clientIp.js';
@@ -698,7 +700,13 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.unauthorized(res);
     }
 
-    const { registrationId, dayNumber } = req.body as { registrationId?: string; dayNumber?: number };
+    const { registrationId, dayNumber, scannedAt: requestedScannedAt } = req.body as {
+      registrationId?: string;
+      dayNumber?: number;
+      // Optional backdate (PRES/SA only) — check someone in as of the event's own
+      // date rather than now. Omitted by the live scanner, which always means "now".
+      scannedAt?: string | null;
+    };
 
     if (!requireUuid(res, registrationId, 'registration ID')) {
       return;
@@ -708,7 +716,7 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       where: { id: registrationId },
       include: {
         user: { select: { id: true, name: true } },
-        event: { select: { eventDays: true } },
+        event: { select: { eventDays: true, startDate: true } },
       },
     });
 
@@ -722,13 +730,31 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const scannedAt = new Date();
+    let scannedAt = new Date();
+    let backdatedBy: string | undefined;
+    if (requestedScannedAt) {
+      if (!isPresidentOrSuperAdmin(admin)) {
+        return ApiResponse.forbidden(res, 'Only the President or super admin can backdate a check-in');
+      }
+      const resolution = resolveBackdate({
+        requested: requestedScannedAt,
+        now: scannedAt,
+        eventStart: registration.event.startDate,
+      });
+      if (!resolution.ok) {
+        return ApiResponse.badRequest(res, resolution.message);
+      }
+      scannedAt = resolution.at;
+      backdatedBy = resolution.isBackdated ? admin.id : undefined;
+    }
+
     const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
       registrationId,
       dayNumber: effectiveDayNumber,
       scannedAt,
       scannedBy: admin.id,
       manualOverride: true,
+      backdatedBy,
     }));
 
     if (outcome === 'duplicate') {
@@ -746,11 +772,12 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       scannedBy: admin.id,
     });
 
-    await auditLog(admin.id, 'ATTENDANCE_MANUAL', 'eventRegistration', registrationId, {
+    await auditLog(admin.id, backdatedBy ? 'ATTENDANCE_MANUAL_BACKDATED' : 'ATTENDANCE_MANUAL', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       userId: registration.user.id,
       userName: registration.user.name,
       dayNumber: effectiveDayNumber,
+      ...(backdatedBy ? { backdatedTo: scannedAt.toISOString() } : {}),
     });
 
     return ApiResponse.success(res, {
@@ -1031,7 +1058,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
       include: {
-        event: { select: { eventDays: true } },
+        event: { select: { eventDays: true, startDate: true } },
       },
     });
 
@@ -1051,6 +1078,9 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
     // invariant) lives behind editDayAttendance.
     const changes: Record<string, unknown> = {};
     let attendance: { kind: 'mark'; scannedAt: Date } | { kind: 'unmark' } | undefined;
+    // Actor id when the resolved timestamp is a genuine backdate — threaded into the
+    // DayAttendance write so a retroactive mark is distinguishable from a live one.
+    let backdatedBy: string | null = null;
 
     if (scannedAt !== undefined) {
       if (scannedAt === null || scannedAt === '') {
@@ -1066,15 +1096,36 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
 
         const nowMs = Date.now();
         const parsedMs = parsed.getTime();
-        if (
-          parsedMs > nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS ||
-          parsedMs < nowMs - CLIENT_SCAN_MAX_AGE_MS
-        ) {
-          return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
+        const withinNormalWindow =
+          parsedMs <= nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS &&
+          parsedMs >= nowMs - CLIENT_SCAN_MAX_AGE_MS;
+
+        if (!withinNormalWindow) {
+          // Outside the routine 24h correction window this is a backdate, which only
+          // PRESIDENT / super admin may perform, and only back to the event's start.
+          // CORE_MEMBER and plain ADMIN keep exactly the old behaviour.
+          if (!isPresidentOrSuperAdmin(admin)) {
+            return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
+          }
+
+          const resolution = resolveBackdate({
+            requested: parsed,
+            now: new Date(nowMs),
+            eventStart: registration.event.startDate,
+          });
+          if (!resolution.ok) {
+            return ApiResponse.badRequest(res, resolution.message);
+          }
+          if (resolution.isBackdated) {
+            backdatedBy = admin.id;
+          }
         }
 
         attendance = { kind: 'mark', scannedAt: parsed };
         changes.scannedAt = parsed;
+        if (backdatedBy) {
+          changes.backdated = true;
+        }
       }
     }
 
@@ -1092,6 +1143,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       editorId: admin.id,
       attendance,
       manualOverride,
+      backdatedBy,
     }));
 
     await syncRegistrationAttendance(registrationId);
@@ -1105,7 +1157,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       },
     });
 
-    await auditLog(admin.id, 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
+    await auditLog(admin.id, backdatedBy ? 'ATTENDANCE_EDIT_BACKDATED' : 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       dayNumber: effectiveDayNumber,
       changes,

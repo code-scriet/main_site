@@ -95,11 +95,17 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
         orderBy: { invitedAt: 'desc' },
         take: 10,
       }),
-      // Certificates issued to me in the last 30d
+      // Certificates recorded for me in the last 30d.
+      //
+      // Windowed on createdAt (real row-write time), NOT issuedAt: a backdated
+      // certificate carries its event's date, so an issuedAt window would silently
+      // hide it from the recipient who was just given it. The bell still DISPLAYS
+      // issuedAt below — the recipient sees the certificate's real date, they just
+      // get told about it when it actually lands.
       prisma.certificate.findMany({
-        where: { recipientId: auth.id, issuedAt: { gte: since } },
-        select: { id: true, certId: true, type: true, eventName: true, issuedAt: true },
-        orderBy: { issuedAt: 'desc' },
+        where: { recipientId: auth.id, createdAt: { gte: since } },
+        select: { id: true, certId: true, type: true, eventName: true, issuedAt: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
       // Quiz sessions I joined or that are currently joinable — tagged as 'starting'
@@ -167,14 +173,21 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
     }
 
     for (const c of recentCerts) {
+      // A backdated certificate carries its event's date in issuedAt. Feed ordering
+      // and read-state must therefore run off createdAt — ordering on issuedAt would
+      // bury a brand-new certificate years down the list, and the read comparison
+      // would mark it read on arrival (issuedAt < the user's read cutoff), so they'd
+      // never see the unread badge for a certificate they were just given. The
+      // certificate's own date is surfaced in the body instead.
+      const dated = c.issuedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
       items.push({
         id: `cert-${c.id}`,
         group: 'certificates',
         icon: 'award',
         title: `Certificate issued: ${c.type}`,
-        body: `${c.eventName} · ${c.certId}`,
-        timestamp: c.issuedAt.toISOString(),
-        read: c.issuedAt < readCutoff,
+        body: `${c.eventName} · ${c.certId} · ${dated}`,
+        timestamp: c.createdAt.toISOString(),
+        read: c.createdAt < readCutoff,
         link: `/verify/${c.certId}`,
       });
     }
