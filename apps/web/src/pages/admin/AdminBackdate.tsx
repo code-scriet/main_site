@@ -114,11 +114,25 @@ export default function AdminBackdate() {
     mutationFn: (input: BackdateRegistrationInput) =>
       api.createBackdatedRegistration(selectedEventId!, input, token!),
     onSuccess: (result) => {
-      toast.success(
-        result.reusedExistingRegistration
-          ? 'That person was already registered — their records were updated.'
-          : 'Registration recorded.',
-      );
+      if (result.reusedExistingRegistration) {
+        // Say plainly that the date was NOT applied. The server deliberately keeps an
+        // existing registration's timestamp (it may be a real organic one), so a
+        // cheerful "records updated" would send the admin away believing a date
+        // correction landed when it didn't.
+        const extra = [
+          result.retypedFrom ? `type changed from ${result.retypedFrom}` : null,
+          result.markedDays.length ? `${result.markedDays.length} day(s) marked present` : null,
+        ].filter(Boolean).join(' · ');
+        toast.warning('Already registered — existing registration date kept', {
+          description: `${extra ? `${extra}. ` : ''}Remove and re-add them to change the registration date itself.`,
+        });
+      } else {
+        toast.success(
+          result.markedDays.length
+            ? `Registration recorded · ${result.markedDays.length} day(s) marked present.`
+            : 'Registration recorded.',
+        );
+      }
       setPersonEmail('');
       setReason('');
       void queryClient.invalidateQueries({ queryKey: ['admin', 'backdate', 'snapshot', selectedEventId] });

@@ -1407,9 +1407,12 @@ export interface BackdateRegistrationInput {
 export interface BackdateRegistrationResult {
   registrationId: string;
   invitationId: string | null;
-  registeredAt: string;
+  /** Null when an existing registration was reused — its original date was kept. */
+  registeredAt: string | null;
   markedDays: number[];
   reusedExistingRegistration: boolean;
+  /** Set when the existing registration's type was changed to match the request. */
+  retypedFrom: 'PARTICIPANT' | 'GUEST' | null;
 }
 
 export interface CertificateUpdateInput {

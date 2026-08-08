@@ -73,6 +73,29 @@ backdateRouter.use(authMiddleware, requireRole('ADMIN'), requirePresidentOrSuper
 
 const optionalText = (max: number) => z.string().max(max).optional().nullable();
 
+/**
+ * Describe exactly what a retro-registration write did. Worth spelling out because
+ * the reuse path deliberately does NOT apply the requested date: telling the admin
+ * "records were updated" while silently keeping the old timestamp would send them
+ * away believing a correction landed when it didn't.
+ */
+function buildRetroRegistrationMessage(
+  reused: boolean,
+  retypedFrom: RegistrationType | null,
+  markedDayCount: number,
+): string {
+  if (!reused) {
+    return markedDayCount > 0
+      ? `Registration recorded, and marked present on ${markedDayCount} day${markedDayCount === 1 ? '' : 's'}.`
+      : 'Registration recorded.';
+  }
+
+  const parts = ['That person was already registered, so their existing registration date was kept'];
+  if (retypedFrom) parts.push(`their type was changed from ${retypedFrom} to match`);
+  if (markedDayCount > 0) parts.push(`attendance was recorded for ${markedDayCount} day${markedDayCount === 1 ? '' : 's'}`);
+  return `${parts.join('; ')}. Remove and re-add them if the registration date itself needs to change.`;
+}
+
 const retroRegistrationSchema = z.object({
   // Identify the person by account id or by email — the console resolves whichever
   // the admin has. An email with no matching account is rejected rather than
@@ -258,28 +281,53 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
     const eventDays = normalizeEventDays(event.eventDays);
     const requestedDays = Array.from(new Set(attendedDays ?? [])).filter((day) => day >= 1 && day <= eventDays);
 
-    let created: { registrationId: string; invitationId: string | null; alreadyRegistered: boolean };
+    const wantedType = registrationType === 'GUEST' ? RegistrationType.GUEST : RegistrationType.PARTICIPANT;
+
+    let created: {
+      registrationId: string;
+      invitationId: string | null;
+      alreadyRegistered: boolean;
+      retypedFrom: RegistrationType | null;
+    };
 
     try {
       created = await executeSerializableTransaction(async (tx) => {
         const existing = await tx.eventRegistration.findUnique({
           where: { userId_eventId: { userId: target.id, eventId } },
-          select: { id: true },
+          select: { id: true, registrationType: true },
         });
 
-        // Idempotent on re-submit: an existing registration is reused (its
-        // attendance can still be backdated below) rather than 409'ing the admin
-        // out of the operation they actually care about.
+        // Idempotent on re-submit: an existing registration is reused rather than
+        // 409'ing the admin out of the operation they actually care about. Its
+        // `timestamp` is deliberately NOT rewritten — that column may hold a real
+        // organic registration moment, and silently overwriting it would destroy a
+        // true record to satisfy a retro form. The response says so explicitly.
         const registrationId = existing
           ? existing.id
           : (await createEventRegistrationInTx(tx, {
               userId: target.id,
               eventId,
               eventDays: event.eventDays,
-              registrationType: registrationType === 'GUEST' ? RegistrationType.GUEST : RegistrationType.PARTICIPANT,
+              registrationType: wantedType,
               timestamp,
               backdatedBy,
             })).registration.id;
+
+        // The type IS reconciled, unlike the timestamp. Leaving it alone would let an
+        // ACCEPTED GUEST invitation point at a row still marked PARTICIPANT — the
+        // organic accept flow refuses that combination outright (invitations.ts 409s
+        // on an existing participant registration), and the certificate wizard's
+        // Participants/Guests tabs plus every `participantsOnly` count key off this
+        // column, so the speaker would surface in the participant list. The admin
+        // named the type explicitly; honour it and report the change.
+        let retypedFrom: RegistrationType | null = null;
+        if (existing && existing.registrationType !== wantedType) {
+          await tx.eventRegistration.update({
+            where: { id: registrationId },
+            data: { registrationType: wantedType },
+          });
+          retypedFrom = existing.registrationType;
+        }
 
         let invitationId: string | null = null;
         if (registrationType === 'GUEST') {
@@ -301,9 +349,9 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
             certificateType: (certificateType ?? 'SPEAKER') as CertType,
             invitedAt: timestamp,
             respondedAt: timestamp,
-            // Never send mail for a reconstructed invitation — emailSent stays false
-            // and no send is attempted, so the resend action also stays honest.
-            emailSent: false,
+            // An invitation cannot be both ACCEPTED and revoked; clear the stale
+            // marker rather than leaving the row self-contradictory.
+            revokedAt: null,
             registrationId,
             backdatedBy,
           };
@@ -311,6 +359,9 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
           const invitation = existingInvitation
             ? await tx.eventInvitation.update({
                 where: { id: existingInvitation.id },
+                // NOTE: emailSent is NOT in this payload. A prior invitation may have
+                // genuinely emailed the guest; resetting the flag would erase that and
+                // make the admin's "resend" read as a first send.
                 data: invitationData,
                 select: { id: true },
               })
@@ -321,13 +372,16 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
                   inviteeUserId: target.id,
                   inviteeEmail: target.email?.toLowerCase() ?? null,
                   invitedById: authUser.id,
+                  // Fresh reconstruction: nothing was ever sent, and this router
+                  // never sends, so the flag starts (and stays) false.
+                  emailSent: false,
                 },
                 select: { id: true },
               });
           invitationId = invitation.id;
         }
 
-        return { registrationId, invitationId, alreadyRegistered: Boolean(existing) };
+        return { registrationId, invitationId, alreadyRegistered: Boolean(existing), retypedFrom };
       });
     } catch (error) {
       if (isSerializationConflict(error)) {
@@ -367,6 +421,7 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
       backdatedTo: timestamp.toISOString(),
       isBackdated: Boolean(backdatedBy),
       reusedExistingRegistration: created.alreadyRegistered,
+      retypedFrom: created.retypedFrom,
       invitationId: created.invitationId,
       markedDays,
       reason: reason ? sanitizeText(reason) : null,
@@ -382,12 +437,14 @@ backdateRouter.post('/event/:eventId/registration', async (req: Request, res: Re
     return ApiResponse.success(res, {
       registrationId: created.registrationId,
       invitationId: created.invitationId,
-      registeredAt: timestamp.toISOString(),
+      // The ACTUAL date on the row, which is not the requested one when an existing
+      // registration was reused — the client shows this, so it can't imply the
+      // original date was rewritten.
+      registeredAt: created.alreadyRegistered ? null : timestamp.toISOString(),
       markedDays,
       reusedExistingRegistration: created.alreadyRegistered,
-    }, created.alreadyRegistered
-      ? 'That person was already registered — their records were updated.'
-      : 'Registration recorded.');
+      retypedFrom: created.retypedFrom,
+    }, buildRetroRegistrationMessage(created.alreadyRegistered, created.retypedFrom, markedDays.length));
   } catch (error) {
     logger.error('Failed to record backdated registration', {
       eventId,
