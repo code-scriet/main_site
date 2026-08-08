@@ -302,6 +302,11 @@ model EventRegistration {
   scannedAt       DateTime? @map("scanned_at")
   manualOverride  Boolean   @default(false) @map("manual_override")
 
+  // Set when this registration was created retroactively for a past event (the
+  // `timestamp` above is then the backdated moment, not the real insert time).
+  // Plain-string actor snapshot, same rule as scannedBy/issuedBy.
+  backdatedBy String? @map("backdated_by")
+
   event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   teamMember     EventTeamMember?
@@ -342,6 +347,9 @@ model EventInvitation {
   invitedBy         User      @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Restrict)
   invitedAt         DateTime  @default(now()) @map("invited_at")
   respondedAt       DateTime? @map("responded_at")
+  // Set when this invitation was reconstructed retroactively for a past event
+  // (invitedAt/respondedAt then hold the backdated moments; createdAt stays real).
+  backdatedBy       String?   @map("backdated_by")
   revokedAt         DateTime? @map("revoked_at")
   emailSent         Boolean   @default(false) @map("email_sent")
   emailSentAt       DateTime? @map("email_sent_at")
@@ -369,6 +377,9 @@ model DayAttendance {
   scannedAt      DateTime?         @map("scanned_at")
   scannedBy      String?           @map("scanned_by")
   manualOverride Boolean           @default(false) @map("manual_override")
+  // Set when scannedAt was backdated beyond the normal 24h edit window. createdAt
+  // stays the real row-write time, so the pair reveals a retroactive mark.
+  backdatedBy    String?           @map("backdated_by")
   createdAt      DateTime          @default(now()) @map("created_at")
 
   @@unique([registrationId, dayNumber])
@@ -1538,7 +1549,17 @@ model Certificate {
   facultySignatoryImageUrl String?    @map("faculty_signatory_image_url")
 
   issuedBy String   @map("issued_by")
+  // The certificate's EFFECTIVE date — what the recipient, the public verify page,
+  // the email and LinkedIn all see. Normally "now", but PRES/SA may backdate it so a
+  // certificate issued today for a long-past event carries that event's date.
+  // `createdAt` below always holds the real row-write time; never conflate the two.
   issuedAt DateTime @default(now()) @map("issued_at")
+
+  // Set only when issuedAt was deliberately backdated. Plain-string actor snapshot
+  // (audit A3 rule) — it records who backdated this at that moment and must survive
+  // the actor's deletion. Null ⇒ issuedAt is the real issuance time.
+  backdatedBy     String? @map("backdated_by")
+  backdateReason  String? @map("backdate_reason")
 
   emailSent   Boolean   @default(false) @map("email_sent")
   emailSentAt DateTime? @map("email_sent_at")

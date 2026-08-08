@@ -51,6 +51,18 @@ export interface CreateEventRegistrationParams {
    * and the token's `registrationId` claim can never disagree.
    */
   registrationId?: string;
+  /**
+   * Overrides the registration's recorded moment. Omitted by every organic flow
+   * (which takes the column's now() default); supplied only by the PRES/SA retro
+   * console, which reconstructs a registration for an event that already happened.
+   * Already validated against the event's start by resolveBackdate at the route.
+   */
+  timestamp?: Date;
+  /**
+   * Actor id, set ONLY alongside a backdated `timestamp`. Marks the row as
+   * retroactively created so it is never mistaken for an organic registration.
+   */
+  backdatedBy?: string | null;
 }
 
 export interface CreateEventRegistrationResult {
@@ -79,6 +91,8 @@ export async function createEventRegistrationInTx(
       registrationType: params.registrationType ?? RegistrationType.PARTICIPANT,
       customFieldResponses: params.customFieldResponses,
       attendanceToken,
+      ...(params.timestamp ? { timestamp: params.timestamp } : {}),
+      ...(params.backdatedBy ? { backdatedBy: params.backdatedBy } : {}),
     },
     select: createdRegistrationSelect,
   });

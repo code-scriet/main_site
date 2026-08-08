@@ -32,6 +32,7 @@ import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { searchRouter } from './routes/search.js';
+import { backdateRouter } from './routes/backdate.js';
 import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
 import { recoverQuizzesFromSnapshots, startQuizSnapshotScheduler, stopQuizSnapshotScheduler } from './quiz/quizSnapshot.js';
@@ -529,6 +530,8 @@ app.use('/api/attendance', attendanceRouter);
 app.use('/api/competition', competitionRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/search', searchRouter);
+// Retroactive event records (PRES/SA only) — gating lives inside the router.
+app.use('/api/backdate', backdateRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging.

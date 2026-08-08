@@ -1321,9 +1321,99 @@ export interface CertificateBulkGenerateInput {
   sendEmail?: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  /**
+   * Backdate the whole batch (PRESIDENT / super admin only). ISO date string. Becomes
+   * the certificates' effective date everywhere: the public verify page, the
+   * recipient's dashboard, the "Issued On" line of the email, and the LinkedIn link.
+   * Omit for normal issuance. The server rejects it for anyone else, and rejects a
+   * date before the linked event's start or after now.
+   */
+  issuedAt?: string | null;
+  backdateReason?: string | null;
 }
 
 export type CertificateEmailTemplate = 'default' | 'faculty_distribution';
+
+/** Backdate payload shared by the single-issue and bulk certificate endpoints. */
+export interface CertificateBackdateInput {
+  issuedAt?: string | null;
+  backdateReason?: string | null;
+}
+
+// ── Backdate console (PRES/SA only) ────────────────────────────────
+// Retroactive event records: reconstructing a registration, a guest invitation, or
+// an attendance mark on an event that already happened.
+
+export interface BackdateDayAttendance {
+  dayNumber: number;
+  attended: boolean;
+  scannedAt: string | null;
+  backdatedBy: string | null;
+}
+
+export interface BackdateRegistrationRow {
+  id: string;
+  timestamp: string;
+  registrationType: 'PARTICIPANT' | 'GUEST';
+  attended: boolean;
+  backdatedBy: string | null;
+  user: { id: string; name: string; email: string; avatar: string | null };
+  dayAttendances: BackdateDayAttendance[];
+}
+
+export interface BackdateInvitationRow {
+  id: string;
+  status: string;
+  role: string;
+  inviteeEmail: string | null;
+  inviteeNameSnapshot: string | null;
+  invitedAt: string;
+  respondedAt: string | null;
+  backdatedBy: string | null;
+  certificateType: CertType;
+  registrationId: string | null;
+  inviteeUser: { id: string; name: string; email: string } | null;
+}
+
+export interface BackdateEventSnapshot {
+  event: {
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    startDate: string;
+    endDate: string | null;
+    eventDays: number;
+    dayLabels: string[];
+  };
+  registrations: BackdateRegistrationRow[];
+  invitations: BackdateInvitationRow[];
+}
+
+export interface BackdateRegistrationInput {
+  userId?: string | null;
+  email?: string | null;
+  registrationType: 'PARTICIPANT' | 'GUEST';
+  /** ISO date the person is recorded as having registered. */
+  registeredAt: string;
+  reason?: string | null;
+  guestRole?: string | null;
+  guestDesignation?: string | null;
+  guestCompany?: string | null;
+  certificateType?: CertType | null;
+  attendedDays?: number[];
+}
+
+export interface BackdateRegistrationResult {
+  registrationId: string;
+  invitationId: string | null;
+  /** Null when an existing registration was reused — its original date was kept. */
+  registeredAt: string | null;
+  markedDays: number[];
+  reusedExistingRegistration: boolean;
+  /** Set when the existing registration's type was changed to match the request. */
+  retypedFrom: 'PARTICIPANT' | 'GUEST' | null;
+}
 
 export interface CertificateUpdateInput {
   recipientName?: string;

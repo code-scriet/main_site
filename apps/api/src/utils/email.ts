@@ -1505,6 +1505,10 @@ class EmailService {
     eventName: string,
     certId: string,
     downloadUrl: string,
+    // The certificate's effective issue date. Defaults to now for callers that don't
+    // pass one — but a backdated certificate MUST pass its real issuedAt, otherwise
+    // the email contradicts the PDF, the verify page and the recipient's dashboard.
+    issuedAt: Date = new Date(),
   ): Promise<boolean> {
     const safeName = sanitizeText(name);
     const safeEventName = sanitizeText(eventName);
@@ -1520,7 +1524,7 @@ class EmailService {
         subtitle: `Your certificate for "${safeEventName}" has been issued by code.scriet.`,
         infoCards: [
           { icon: '🆔', label: 'Certificate ID', value: safeCertId },
-          { icon: '📅', label: 'Issued On', value: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
+          { icon: '📅', label: 'Issued On', value: issuedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
         ],
         body: `
           <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">

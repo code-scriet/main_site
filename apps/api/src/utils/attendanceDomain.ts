@@ -213,6 +213,10 @@ export interface MarkDayAttendanceParams {
   // leave manualOverride untouched on update and at its default on create —
   // this is what the QR-scan path wants (it must not clear an override).
   manualOverride?: boolean;
+  // Actor id, set ONLY when scannedAt is a deliberate backdate (a retroactive
+  // mark for an event that already finished). Undefined leaves the column alone,
+  // so a live scan never touches it.
+  backdatedBy?: string;
 }
 
 // Atomically mark a single (registration, day) present.
@@ -234,7 +238,7 @@ export async function markDayAttendanceAtomic(
   client: AttendanceDbClient,
   params: MarkDayAttendanceParams,
 ): Promise<DayAttendanceMarkOutcome> {
-  const { registrationId, dayNumber, scannedAt, scannedBy, manualOverride } = params;
+  const { registrationId, dayNumber, scannedAt, scannedBy, manualOverride, backdatedBy } = params;
 
   const updateData: Prisma.DayAttendanceUpdateManyMutationInput = {
     attended: true,
@@ -243,6 +247,9 @@ export async function markDayAttendanceAtomic(
   };
   if (manualOverride !== undefined) {
     updateData.manualOverride = manualOverride;
+  }
+  if (backdatedBy !== undefined) {
+    updateData.backdatedBy = backdatedBy;
   }
 
   const marked = await client.dayAttendance.updateMany({
@@ -275,6 +282,7 @@ export async function markDayAttendanceAtomic(
       scannedAt,
       scannedBy,
       ...(manualOverride !== undefined ? { manualOverride } : {}),
+      ...(backdatedBy !== undefined ? { backdatedBy } : {}),
     }],
     skipDuplicates: true,
   });
@@ -311,6 +319,7 @@ export async function unmarkDayAttendanceAtomic(
       scannedAt: null,
       scannedBy: null,
       manualOverride: false,
+      backdatedBy: null,
     },
   });
   return updated.count > 0 ? 'unmarked' : 'not-marked';
@@ -337,6 +346,11 @@ export interface EditDayAttendanceParams {
   // (unlike unmarkDayAttendanceAtomic) — the admin edit only changes what it was
   // told to. To clear it, pass manualOverride: false.
   manualOverride?: boolean;
+  // Actor id when this edit backdates scannedAt beyond the normal window. Unlike
+  // manualOverride, this IS cleared on unmark and on a non-backdated re-mark: the
+  // marker describes the timestamp currently on the row, so leaving it set after
+  // the timestamp changed would be a lie.
+  backdatedBy?: string | null;
 }
 
 // Apply an admin edit to a single (registration, day) and keep the row's four
@@ -353,17 +367,21 @@ export async function editDayAttendance(
   client: AttendanceDbClient,
   params: EditDayAttendanceParams,
 ): Promise<void> {
-  const { registrationId, dayNumber, editorId, attendance, manualOverride } = params;
+  const { registrationId, dayNumber, editorId, attendance, manualOverride, backdatedBy } = params;
 
   const update: Prisma.DayAttendanceUncheckedUpdateInput = {};
   if (attendance?.kind === 'mark') {
     update.attended = true;
     update.scannedAt = attendance.scannedAt;
     update.scannedBy = editorId;
+    // Whenever the timestamp moves, the backdate marker is rewritten to match it —
+    // including being cleared (null) when the new timestamp is not a backdate.
+    update.backdatedBy = backdatedBy ?? null;
   } else if (attendance?.kind === 'unmark') {
     update.attended = false;
     update.scannedAt = null;
     update.scannedBy = null;
+    update.backdatedBy = null;
   }
   if (manualOverride !== undefined) {
     update.manualOverride = manualOverride;
@@ -378,6 +396,7 @@ export async function editDayAttendance(
       scannedAt: attendance?.kind === 'mark' ? attendance.scannedAt : null,
       scannedBy: attendance?.kind === 'mark' ? editorId : null,
       manualOverride: manualOverride ?? false,
+      backdatedBy: attendance?.kind === 'mark' ? backdatedBy ?? null : null,
     },
     update,
   });

@@ -22,6 +22,7 @@ import {
   GenerateCertificateDialog,
   type GenerateFormData,
 } from '@/components/admin/certificates/GenerateCertificateDialog';
+import { EMPTY_BACKDATE, toBackdatePayload } from '@/components/certificates/CertificateBackdateControl';
 import { BulkGenerateDialog } from '@/components/admin/certificates/BulkGenerateDialog';
 import { EditCertificateDialog } from '@/components/admin/certificates/EditCertificateDialog';
 import {
@@ -95,6 +96,7 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     sendEmail: false,
     emailTemplate: 'default',
     emailSignerName: 'PRINCE GUPTA',
+    backdate: EMPTY_BACKDATE,
   };
 }
 
@@ -349,6 +351,8 @@ export default function AdminCertificates() {
         sendEmail: form.sendEmail,
         emailTemplate: form.emailTemplate,
         emailSignerName: form.emailTemplate === 'faculty_distribution' ? (form.emailSignerName.trim() || undefined) : undefined,
+        // Empty for a normal issuance — no backdate keys are sent at all.
+        ...toBackdatePayload(form.backdate),
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: form.signatoryId,

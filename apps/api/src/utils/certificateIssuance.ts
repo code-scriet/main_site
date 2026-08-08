@@ -62,11 +62,11 @@ export interface CertRenderSource {
   position?: string | null;
   domain?: string | null;
   /**
-   * Team name printed on WINNER team certificates. Only available at first
-   * issuance — the Certificate row has NO team_name column, so regeneration
-   * (recover / edit) cannot restore it and passes undefined. Known gap; persist
-   * a team_name column to close it. Threading it explicitly here keeps the gap
-   * visible instead of hidden in a hand-written mapping.
+   * Team name printed on WINNER team certificates. Persisted since migration
+   * 20260619000000, so regeneration (recover / edit) restores it via
+   * readCertificateTeamName — which returns null on P2022, keeping the column
+   * non-mandatory on an un-migrated instance. Threaded explicitly rather than
+   * hidden in a hand-written mapping.
    */
   teamName?: string | null;
   description?: string | null;
@@ -215,6 +215,15 @@ export interface IssueCertificateParams {
   issuedBy: string;
   emailTemplate?: CertEmailTemplate;
   emailSignerName?: string | null;
+  /**
+   * The certificate's effective date. Defaults to now; PRES/SA may pass a past date
+   * so a certificate issued today for a long-finished event carries that event's
+   * date. Already validated by resolveBackdate() at the route — this module trusts it.
+   */
+  issuedAt?: Date;
+  /** Actor id, set ONLY when issuedAt is a real backdate. Null for normal issuance. */
+  backdatedBy?: string | null;
+  backdateReason?: string | null;
 }
 
 export interface IssueCertificateResult {
@@ -232,6 +241,10 @@ export class CertificateIssuanceError extends Error {
 const MAX_CERT_ID_CREATE_RETRIES = 3;
 
 export async function issueOneCertificate(params: IssueCertificateParams): Promise<IssueCertificateResult> {
+  // Resolved once, outside the retry loop, so a certId collision retry cannot shift
+  // the certificate's date by the duration of a PDF render.
+  const issuedAt = params.issuedAt ?? new Date();
+
   for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
     const certId = generateCertId();
 
@@ -245,7 +258,7 @@ export async function issueOneCertificate(params: IssueCertificateParams): Promi
       domain: params.domain,
       teamName: params.teamName,
       description: params.description,
-      issuedAt: new Date(),
+      issuedAt,
       signatoryName: params.primarySig.name,
       signatoryTitle: params.primarySig.title,
       signatoryImageUrl: params.primarySig.processedImageUrl,
@@ -267,6 +280,7 @@ export async function issueOneCertificate(params: IssueCertificateParams): Promi
       template: params.template,
       pdfUrl,
       issuedBy: params.issuedBy,
+      issuedAt,
     };
 
     try {
@@ -288,6 +302,12 @@ export async function issueOneCertificate(params: IssueCertificateParams): Promi
           facultySignatoryImageUrl: params.facultySig?.rawImageUrl || null,
           emailTemplate: params.emailTemplate ?? 'default',
           emailSignerName: params.emailSignerName ?? null,
+          // Backdate provenance lives only in the full payload; the legacy fallback
+          // omits it so an un-migrated DB still creates the row (issuedAt itself is
+          // an original column, so the backdated DATE survives either way — only the
+          // "who backdated it" marker is lost).
+          backdatedBy: params.backdatedBy ?? null,
+          backdateReason: params.backdateReason ?? null,
         },
         legacyCertificateData,
       );
@@ -311,7 +331,8 @@ export async function issueOneCertificate(params: IssueCertificateParams): Promi
 // ──────────────────────────────────────────────────────────────────
 // Cloud-asset recovery — regenerate the PDF for an existing certificate
 // whose Cloudinary asset went missing, re-upload, and re-point pdfUrl.
-// (teamName cannot be restored — it isn't persisted; see CertRenderSource.)
+// Reuses the stored issuedAt, so regenerating a backdated certificate keeps
+// its date rather than silently re-stamping it with today.
 // ──────────────────────────────────────────────────────────────────
 export async function recoverMissingCertificateCloudAsset(certId: string): Promise<string | null> {
   if (!isCloudinaryConfigured) {
