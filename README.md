@@ -75,7 +75,7 @@ Founded by undergraduate students, the club provides a structured space to learn
 
 ### Prerequisites
 
-- Node.js `v18+`
+- Node.js `20.19+` (see `engines` in package.json, CI uses node-20)
 - npm or yarn
 - Git
 
@@ -91,9 +91,12 @@ npm install
 
 # 3. Set up environment variables
 cp .env.example .env
-# Fill in the required values in .env
+cp apps/web/.env.example apps/web/.env
+cp apps/playground/.env.example apps/playground/.env
+# Fill in the required values in each .env file
 
-# 4. Run database migrations
+# 4. Generate the Prisma client, then run database migrations
+npx prisma generate
 npx prisma migrate dev
 
 # 5. Start the development server

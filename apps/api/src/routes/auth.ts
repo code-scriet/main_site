@@ -17,6 +17,7 @@ import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { oauthStateMatches } from '../utils/oauthEmail.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { getClientIp } from '../utils/clientIp.js';
+import { isSuperAdmin } from '../utils/superAdmin.js';
 
 export const authRouter = Router();
 
@@ -157,7 +158,7 @@ const normalizeNetworkType = (value: string | undefined): 'professional' | 'alum
 
 const withSuperAdmin = <T extends { email: string }>(user: T) => ({
   ...user,
-  isSuperAdmin: !!process.env.SUPER_ADMIN_EMAIL && user.email === process.env.SUPER_ADMIN_EMAIL,
+  isSuperAdmin: isSuperAdmin(user),
 });
 
 const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(user: T): Promise<T> => {

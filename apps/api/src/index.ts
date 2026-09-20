@@ -6,6 +6,7 @@ import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { createRequire } from 'node:module';
 import passport from 'passport';
 import { createServer } from 'http';
 import { Prisma } from '@prisma/client';
@@ -65,6 +66,12 @@ import { flushCertificateViews, stopCertificateViewFlusher } from './utils/certi
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
 import { resolveRateLimitKey, resolveAuthRateLimitKey, isUserRateLimitKey } from './utils/rateLimitKey.js';
+
+// Sync CJS require inside this ESM module — hpp ships without types, so a plain
+// `import hpp from 'hpp'` fails tsc (TS7016); same nodeRequire pattern as
+// utils/socket.ts for the untyped `eiows` native module.
+const nodeRequire = createRequire(import.meta.url);
+const hpp: () => import('express').RequestHandler = nodeRequire('hpp');
 
 // Environment is loaded by ./config/loadEnv.js (imported first, above) so the
 // Prisma client sees DATABASE_URL at construction time.
@@ -271,6 +278,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '2mb' }));
+app.use(hpp());
 
 // CSRF protection for cookie-authenticated writes:
 // mutating requests must come from an allowed browser origin unless they use Bearer auth.

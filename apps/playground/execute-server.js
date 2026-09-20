@@ -29,6 +29,7 @@ const roomUser = (roundId, userId) => `round:${roundId}:user:${userId}`;
 // Sync CJS require inside this ESM module — used only to lazy-load the OPTIONAL
 // native `eiows` engine (see resolveRelayWsEngine).
 const nodeRequire = createRequire(import.meta.url);
+const hpp = nodeRequire('hpp');
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dir, '../../.env') });
@@ -210,6 +211,9 @@ app.use((_req, res, next) => {
   }
   next();
 });
+// HTTP Parameter Pollution defense (query `?a=1&a=2` → keep-last single value),
+// alongside the other hardening middleware and before route registration.
+app.use(hpp());
 
 // ---------------------------------------------------------------------------
 // JWT Authentication (shared with main site) — getJwtSecret() and the internal

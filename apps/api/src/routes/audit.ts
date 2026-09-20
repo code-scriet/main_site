@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 import { ApiResponse } from '../utils/response.js';
 import { getQueryString } from '../utils/pagination.js';
+import { isSuperAdmin } from '../utils/superAdmin.js';
 
 export const auditRouter = Router();
 
@@ -14,11 +15,10 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
   try {
     // Additional check: only super admin and presidents can view audit logs
     const authUser = getAuthUser(req)!;
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     const isPresident = authUser.role === 'PRESIDENT';
 
-    if (!isSuperAdmin && !isPresident) {
+    if (!isSuperAdminUser && !isPresident) {
       return ApiResponse.forbidden(res, 'Only the super admin or president can view audit logs');
     }
 
@@ -127,11 +127,10 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 auditRouter.delete('/retention', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     const isPresident = authUser.role === 'PRESIDENT';
 
-    if (!isSuperAdmin && !isPresident) {
+    if (!isSuperAdminUser && !isPresident) {
       return ApiResponse.forbidden(res, 'Only the super admin or president can delete audit logs');
     }
 

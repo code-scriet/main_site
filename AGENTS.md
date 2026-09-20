@@ -36,7 +36,7 @@ club_site/
 | Backend | Express.js, TypeScript, Node.js 20 |
 | Frontend | React 18, Vite, TypeScript, TailwindCSS |
 | Database | PostgreSQL (Neon serverless) via Prisma ORM |
-| Auth | Passport.js (Google, GitHub OAuth), JWT, bcryptjs |
+| Auth | Passport.js (Google, GitHub OAuth), JWT, bcrypt |
 | Real-time | Socket.io (quiz system, live updates) |
 | Email | Brevo (Sendinblue) API via `sib-api-v3-sdk` |
 | File Storage | Cloudinary (images, certificate PDFs) |
@@ -61,7 +61,7 @@ npm run build:web              # Build Web only
 # Database
 npm run db:migrate             # Run migrations (dev)
 npm run db:migrate:deploy      # Run migrations (production)
-npm run db:generate            # Regenerate Prisma client
+npx prisma generate            # Regenerate Prisma client (no db:generate script)
 npm run db:push                # Push schema without migration
 npm run db:seed                # Seed super admin + default settings
 npm run db:studio              # Open Prisma Studio
@@ -186,11 +186,11 @@ Super admin is determined by matching `process.env.SUPER_ADMIN_EMAIL`. Only supe
 ## Known Issues
 
 See `issues.md` for the full list. Critical items:
-1. Session cookie `httpOnly: false` — XSS can steal tokens
+1. Session cookie `httpOnly: true` — see `apps/api/src/routes/auth.ts` (`setSessionCookie`/`clearSessionCookie`)
 2. JWT in URL hash fragment after OAuth
 3. Playground tables managed via raw SQL outside Prisma
-4. No test suite anywhere in the codebase
-5. 38+ AI-generated markdown files tracked in git
+4. Stability suite via `npm run test:stability` (~54 test files under `apps/*/src`, `apps/*/tests`)
+5. 29 AI-generated markdown files tracked in git
 
 ## Deployment (Render)
 
