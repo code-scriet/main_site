@@ -28,7 +28,6 @@
     "express": "^5.2.1",
     "express-rate-limit": "^7.1.5",
     "framer-motion": "^12.23.26",
-    "hpp": "^0.2.3",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",
     "monaco-editor": "^0.52.2",

@@ -29,7 +29,6 @@ const roomUser = (roundId, userId) => `round:${roundId}:user:${userId}`;
 // Sync CJS require inside this ESM module — used only to lazy-load the OPTIONAL
 // native `eiows` engine (see resolveRelayWsEngine).
 const nodeRequire = createRequire(import.meta.url);
-const hpp = nodeRequire('hpp');
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dir, '../../.env') });
@@ -211,9 +210,16 @@ app.use((_req, res, next) => {
   }
   next();
 });
-// HTTP Parameter Pollution defense (query `?a=1&a=2` → keep-last single value),
-// alongside the other hardening middleware and before route registration.
-app.use(hpp());
+// Query pollution defense: collapse duplicate query params at parse time
+// (`?a=1&a=2` → keep-last single value, matching reader semantics).
+// A custom parser is required because Express 5 re-parses req.query per access,
+// which makes mutation-based sanitizers (e.g. hpp) silent no-ops. Bodies are
+// never touched (relay/plagiarism payloads legitimately carry arrays).
+app.set('query parser', (query) => {
+  const out = {};
+  for (const [key, value] of new URLSearchParams(query)) out[key] = value;
+  return out;
+});
 
 // ---------------------------------------------------------------------------
 // JWT Authentication (shared with main site) — getJwtSecret() and the internal

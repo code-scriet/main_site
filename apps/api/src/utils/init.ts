@@ -35,8 +35,10 @@ export async function initializeDatabase() {
       });
     }
 
-    // Get super admin credentials from environment variables
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    // Canonical lowercase form (mirrors prisma/seed.ts): User.email is a
+    // case-sensitive @unique, so a mixed-case env value would miss the existing
+    // lowercase row with findUnique and then insert a duplicate admin identity.
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
     const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
     const superAdminName = process.env.SUPER_ADMIN_NAME || 'Super Admin';
 
