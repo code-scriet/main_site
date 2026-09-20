@@ -7,8 +7,7 @@
     "node": "20.x"
   },
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "bash ./scripts/free-dev-ports.sh && concurrently -n \"API,WEB,PLAYGROUND\" -c \"blue,green,magenta\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run playground\"",

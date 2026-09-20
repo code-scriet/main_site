@@ -889,10 +889,9 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     // Check permissions: Super admin can see everyone, other admins cannot see other admins
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     
-    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'You cannot view other admin/president profiles' } });
     }
 
@@ -946,15 +945,14 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     // Check permissions: Super admin can edit everyone, other admins cannot edit other admins
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     
-    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'You cannot edit other admin/president profiles' } });
     }
 
     // Prevent editing super admin unless you are super admin
-    if (targetUser.email === superAdminEmail && !isSuperAdmin) {
+    if (isSuperAdmin(targetUser) && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'Cannot modify super admin' } });
     }
 

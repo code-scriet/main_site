@@ -7,7 +7,7 @@ export function isSuperAdmin(user: UserLike | undefined | null): boolean {
   const target = user?.email;
   const env = process.env.SUPER_ADMIN_EMAIL;
   if (!target || !env) return false;
-  return target === env;
+  return target.trim().toLowerCase() === env.trim().toLowerCase();
 }
 
 export function isPresident(user: UserLike | undefined | null): boolean {

@@ -13,6 +13,7 @@ import { updateEventStatuses } from '../utils/eventStatus.js';
 import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 import { getPlaygroundRelayBase } from '../utils/internalApi.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 
 export const settingsRouter = Router();
 
@@ -86,10 +87,7 @@ const updateSecurityEnvSchema = z.object({
 });
 
 function isSuperAdminOrPresident(authUser: { email: string; role: string }): boolean {
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-  const isSuperAdmin = Boolean(superAdminEmail) && authUser.email === superAdminEmail;
-  const isPresident = authUser.role === 'PRESIDENT';
-  return isSuperAdmin || isPresident;
+  return isPresidentOrSuperAdmin(authUser);
 }
 
 function enforceSuperAdminOrPresident(authUser: { email: string; role: string }, res: Response): boolean {

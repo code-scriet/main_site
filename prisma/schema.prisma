@@ -256,7 +256,7 @@ model Event {
   tags                  String[]    @default([])
   targetAudience        String?     @map("target_audience")
   videoUrl              String?     @map("video_url")
-  slug                  String      @unique @default("")
+  slug                  String      @unique
   allowLateRegistration Boolean     @default(false) @map("allow_late_registration")
   remindersEnabled      Boolean     @default(true) @map("reminders_enabled")
   eventDays             Int         @default(1) @map("event_days")
@@ -403,6 +403,7 @@ model EventTeam {
   competitionAutoSaves   CompetitionAutoSave[]
 
   @@unique([eventId, teamName])
+  @@index([leaderId])
   @@map("event_teams")
 }
 
@@ -419,6 +420,7 @@ model EventTeamMember {
   registration EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
+  @@index([userId])
   @@map("event_team_members")
 }
 
@@ -610,7 +612,7 @@ model Announcement {
   links            Json?
   pinned           Boolean              @default(false)
   shortDescription String?              @map("short_description") @db.VarChar(300)
-  slug             String               @unique @default("")
+  slug             String               @unique
   tags             String[]             @default([])
   creator          User                 @relation(fields: [createdBy], references: [id], onDelete: Restrict)
 
@@ -742,7 +744,7 @@ model TeamMember {
 model Achievement {
   id               String   @id @default(uuid())
   title            String
-  slug             String   @unique @default("")
+  slug             String   @unique
   description      String
   content          String?  @db.Text
   shortDescription String?  @map("short_description") @db.VarChar(300)
@@ -868,6 +870,7 @@ model HiringApplication {
   @@index([status, createdAt])
   @@index([applyingRole, createdAt])
   @@index([cycle, createdAt])
+  @@index([userId])
   @@map("hiring_applications")
 }
 
@@ -1309,6 +1312,7 @@ model Problem {
 
   @@index([isPublished, difficulty])
   @@index([createdAt])
+  @@index([createdBy])
   @@map("problems")
 }
 
@@ -1328,6 +1332,7 @@ model ProblemSheet {
   items       ProblemSheetItem[]
 
   @@index([isPublished, createdAt(sort: Desc)])
+  @@index([createdBy])
   @@map("problem_sheets")
 }
 
@@ -1425,6 +1430,7 @@ model CompetitionRoundProblem {
 
   @@unique([roundId, problemId])
   @@unique([roundId, displayOrder])
+  @@index([problemId])
   @@map("competition_round_problems")
 }
 
