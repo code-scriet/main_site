@@ -95,8 +95,10 @@ cp apps/web/.env.example apps/web/.env
 cp apps/playground/.env.example apps/playground/.env
 # Fill in the required values in each .env file
 
-# 4. Generate the Prisma client, then run database migrations
+# 4. Generate the Prisma client, then create and apply database migrations
 npx prisma generate
+npx prisma migrate dev --create-only --name init
+# Review prisma/migrations/<name>/migration.sql, then apply:
 npx prisma migrate dev
 
 # 5. Start the development server
