@@ -104,6 +104,9 @@ async function runJudgeViaCodeBox(
         source_code: wrappedCode,
         language_id: CODEBOX_LANG_IDS[language],
         stdin,
+        // JVM needs headroom for threads+heap (CodeBox default 128-256MB OOMs
+        // "unable to create native thread"); cap is 512000.
+        memory_limit: language === 'JAVA' ? 512000 : 256000,
       }),
       signal,
     });
