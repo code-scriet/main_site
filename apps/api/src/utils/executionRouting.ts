@@ -129,17 +129,21 @@ export function createExecutionRouter(opts: ExecutionRouterOptions = {}): Execut
     if (ordered.length === 1) return ordered[0];
 
     if (setting !== 'balanced') {
-      // Fixed primary. If it's cooling down and another host is healthy,
-      // pre-route there — same semantics the CF Worker's fallback would apply,
-      // just without burning the 12s upstream stall first.
-      if (setting === 'codebox' || setting === 'wandbox' || setting === 'godbolt') {
-        if (!isHealthy(setting)) {
-          const spare = ordered.find((p) => p !== setting && isHealthy(p));
-          if (spare) return spare;
-        }
-        return setting;
+      // Fixed primary, but only if it can actually run the language. Junk
+      // settings fall back to wandbox (matches normalizeProviderSetting). If
+      // the primary is cooling down (or unsuitable), pre-route to the first
+      // healthy candidate — same semantics the CF Worker's fallback would
+      // apply, just without burning the 12s upstream stall first.
+      const primary: ExecutionProvider =
+        setting === 'codebox' || setting === 'wandbox' || setting === 'godbolt'
+          ? setting
+          : 'wandbox';
+      if (providerSupportsLanguage(primary, language) && isHealthy(primary)) {
+        return primary;
       }
-      return ordered[0];
+      const spare = ordered.find((p) => p !== primary && isHealthy(p));
+      if (spare) return spare;
+      return providerSupportsLanguage(primary, language) ? primary : ordered[0];
     }
 
     const healthy = ordered.filter(isHealthy);

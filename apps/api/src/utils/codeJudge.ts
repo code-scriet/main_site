@@ -70,6 +70,79 @@ const CODEBOX_LANG_IDS: Record<ProblemLanguage, number> = {
   CPP: 54,
   JAVA: 62,
 };
+
+function codeBoxInfraError(): Error {
+  const err = new Error('EXEC_INFRA_UNAVAILABLE');
+  (err as NodeJS.ErrnoException).code = 'EXEC_INFRA_UNAVAILABLE';
+  return err;
+}
+
+/**
+ * Run the harnessed batch on the local CodeBox (Judge0-compatible) engine and
+ * shape the result exactly like a CF Worker response so ALL downstream parsing
+ * (marker frames, per-test verdicts, infra detection) is shared. Throws
+ * EXEC_INFRA_UNAVAILABLE-tagged errors when CodeBox itself is down so callers
+ * spill to the worker chain via cooldown.
+ */
+async function runJudgeViaCodeBox(
+  language: ProblemLanguage,
+  wrappedCode: string,
+  stdin: string,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  let response: Response;
+  try {
+    response = await fetch(`${CODEBOX_URL}/submissions?wait=true`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(CODEBOX_TOKEN ? { 'X-Auth-Token': CODEBOX_TOKEN } : {}),
+      },
+      body: JSON.stringify({
+        source_code: wrappedCode,
+        language_id: CODEBOX_LANG_IDS[language],
+        stdin,
+      }),
+      signal,
+    });
+  } catch {
+    executionRouter.reportInfraFailure('codebox');
+    throw codeBoxInfraError();
+  }
+  if (!response.ok) {
+    if (response.status >= 500) {
+      executionRouter.reportInfraFailure('codebox');
+      throw codeBoxInfraError();
+    }
+    throw new Error(`CodeBox HTTP ${response.status}`);
+  }
+  const j = (await response.json()) as {
+    stdout?: string | null;
+    stderr?: string | null;
+    compile_output?: string | null;
+    exit_code?: number | null;
+    status?: { id?: number; description?: string };
+  };
+  const statusId = j.status?.id ?? 0;
+  if (statusId === 13) {
+    executionRouter.reportInfraFailure('codebox');
+    throw codeBoxInfraError();
+  }
+  const stdout = j.stdout ?? '';
+  const stderr = j.stderr ?? '';
+  const compileOut = j.compile_output ?? '';
+  if (statusId === 3) {
+    return { program_output: stdout, program_error: stderr, compiler_error: '', compiler_output: compileOut, status: '0', signal: null, judge_provider: 'codebox' };
+  }
+  if (statusId === 6) {
+    return { program_output: '', program_error: '', compiler_error: compileOut || stderr || 'Compilation failed', compiler_output: compileOut, status: '1', signal: null, judge_provider: 'codebox' };
+  }
+  if (statusId === 5) {
+    return { program_output: stdout, program_error: stderr || 'Time limit exceeded', compiler_error: '', compiler_output: compileOut, status: '1', signal: null, judge_provider: 'codebox' };
+  }
+  const code = typeof j.exit_code === 'number' && j.exit_code !== 0 ? j.exit_code : 1;
+  return { program_output: stdout, program_error: stderr, compiler_error: '', compiler_output: compileOut, status: String(code), signal: null, judge_provider: 'codebox' };
+}
 const EXECUTION_TIMEOUT_MS = 15_000;
 // Compiled languages (Java, C++) need extra headroom for compilation + the
 // per-test fork/ClassLoader isolation overhead. Interpreted languages stay
@@ -281,6 +354,9 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     } catch (error) {
       logger.error('Judge worker request failed', { error: error instanceof Error ? error.message : String(error) });
       if (error instanceof Error && error.name === 'AbortError') {
+        // A ceiling abort on the local engine means CodeBox is wedged/slow —
+        // cool it so the next attempt spills to the worker chain.
+        if (provider === 'codebox') executionRouter.reportInfraFailure(provider);
         // F-4: this is OUR client-side ceiling on the whole batch, not the
         // student's per-test limit (each harness enforces that itself and frames
         // TIMEOUT per test). Reporting TIME_LIMIT_EXCEEDED blamed correct code
@@ -322,7 +398,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     // infra-failed en route (`judge_fallback`); with an older deployed worker
     // those fields are absent and accounting degrades to requested-provider-only.
     const servedProvider: ExecutionProvider | null =
-      workerResult.judge_provider === 'wandbox' || workerResult.judge_provider === 'godbolt'
+      workerResult.judge_provider === 'wandbox' || workerResult.judge_provider === 'godbolt' || workerResult.judge_provider === 'codebox'
         ? workerResult.judge_provider
         : null;
     if (workerResult.judge_fallback === true) {

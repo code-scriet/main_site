@@ -23,8 +23,13 @@ interface Props {
 const PROVIDERS: Array<{ id: string; label: string; blurb: string }> = [
   {
     id: 'balanced',
-    label: 'Balanced (both)',
-    blurb: 'Recommended for contests. Splits every run/submit across Wandbox AND godbolt (least-loaded first), roughly doubling judge throughput. A failing host is avoided automatically; JavaScript always runs on Wandbox.',
+    label: 'Balanced (local-first)',
+    blurb: 'Recommended. Runs on the local CodeBox engine first for minimum latency; spills to Wandbox/godbolt automatically on high load or outage. JavaScript runs on CodeBox or Wandbox.',
+  },
+  {
+    id: 'codebox',
+    label: 'CodeBox (local)',
+    blurb: 'Self-hosted Judge0 engine on our server (~0.5s runs, batch test cases). Falls back to the worker chain on infra failure. No TypeScript runtime — TS uses Wandbox.',
   },
   {
     id: 'wandbox',
@@ -68,7 +73,7 @@ export function CodeExecutionCard({ settings, onChange, lastSavedAt, onSaved }: 
       icon={Cpu}
       lastSavedAt={lastSavedAt}
     >
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
         {PROVIDERS.map((p) => {
           const active = current === p.id;
           return (
@@ -98,7 +103,7 @@ export function CodeExecutionCard({ settings, onChange, lastSavedAt, onSaved }: 
         })}
       </div>
       <p className="text-[11.5px] text-[var(--ds-text-3)]">
-        Note: godbolt has no JavaScript/Node runtime, so JS always runs on Wandbox. Balanced needs no Cloudflare redeploy — the API resolves a concrete host per request before calling the worker.
+        Note: godbolt has no JavaScript/Node runtime, so JS runs on CodeBox or Wandbox. Balanced is local-first: CodeBox serves everything it can, Wandbox/godbolt absorb peaks and outages — no redeploy needed to switch.
       </p>
     </SettingsCard>
   );
