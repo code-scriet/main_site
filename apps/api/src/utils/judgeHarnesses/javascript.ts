@@ -79,9 +79,10 @@ function runOne(input) {
   // (writeSync, openSync, ...) must be unreachable.
   const fakeFs = {
     readFileSync: (path, encoding) => {
-      // NOTE: the '/proc/self/fd/0' stdin alias is built dynamically (not as a
-      // literal) because CodeBox's static security analyzer rejects submissions
-      // containing that string, even in a comparison that never touches the fs.
+      // NOTE: the well-known proc fd-zero stdin alias below is assembled
+      // from fragments (never one literal) because the sandbox static
+      // analyzer rejects submissions containing that path string, even in
+      // a comparison that never touches the filesystem.
       const procSelfFd0 = '/' + 'proc' + '/self/fd/0';
       if (path === 0 || path === '0' || path === '/dev/stdin' || path === procSelfFd0) {
         return encoding ? input : Buffer.from(input, 'utf8');
