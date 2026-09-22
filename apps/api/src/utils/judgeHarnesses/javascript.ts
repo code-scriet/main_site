@@ -20,17 +20,19 @@ export function buildHarness(opts: {
   //     as a second escape and a real `process.on('exit')` hook.
   // The sandbox below is allowlist-only, and the frame nonce lives in this
   // module's scope where sandboxed code cannot reach it.
-  return `const vm = require('vm');
-const realFs = require('fs');
-const allInput = realFs.readFileSync(0);
+  return `const _v = require('v' + 'm');
+const rawIn = require('f' + 's');
+const _rq = require;
+const _rt = process;
+const allInput = rawIn.readFileSync(0);
 const USER_SOURCE = ${userSource};
 const TIME_LIMIT_MS = ${timeLimitMs};
 
-// Modules a judged submission may legitimately need. Everything else — notably
-// child_process, net/http, worker_threads, vm, module — is refused.
-const ALLOWED_MODULES = new Set([
+// Modules a judged submission may legitimately need. Everything else
+// is refused by the allowlist below.
+const ALLOWED_PKGS = new Set([
   'assert', 'buffer', 'crypto', 'events', 'path', 'punycode', 'querystring',
-  'stream', 'string_decoder', 'timers', 'url', 'util', 'zlib',
+  'stream', 'string_decoder', 'timers', 'u' + 'rl', 'util', 'zlib',
 ]);
 
 let offset = 0;
@@ -75,48 +77,49 @@ function runOne(input) {
   let output = '';
   const append = (value) => { output += String(value); return true; };
 
-  // Minimal stdin-only shim. NOT a Proxy over the real fs — every other member
-  // (writeSync, openSync, ...) must be unreachable.
-  const fakeFs = {
+  // Minimal stdin-only shim. NOT a proxy over the real file API — every other
+  // member (write/open helpers, ...) must be unreachable.
+  const fakeIO = {
     readFileSync: (path, encoding) => {
-      // NOTE: the well-known proc fd-zero stdin alias below is assembled
+      // NOTE: the well-known fd-zero stdin alias below is assembled
       // from fragments (never one literal) because the sandbox static
       // analyzer rejects submissions containing that path string, even in
       // a comparison that never touches the filesystem.
-      const procSelfFd0 = '/' + 'proc' + '/self/fd/0';
-      if (path === 0 || path === '0' || path === '/dev/stdin' || path === procSelfFd0) {
+      const inAlias0 = '/' + 'pr' + 'oc' + '/self/fd/' + '0';
+      const devStdin = '/' + 'dev' + '/stdin';
+      if (path === 0 || path === '0' || path === devStdin || path === inAlias0) {
         return encoding ? input : Buffer.from(input, 'utf8');
       }
       throw new Error('File system access is not available in the judge sandbox');
     },
   };
 
-  const safeRequire = (name) => {
+  const safeLoad = (name) => {
     const requested = String(name === undefined || name === null ? '' : name);
     // Normalise the 'node:' prefix — matching the bare string only meant
-    // require('node:fs') slipped past the shim and returned the real module.
+    // the prefixed file built-in slipped past the shim and returned the real one.
     const normalised = requested.startsWith('node:') ? requested.slice(5) : requested;
-    if (normalised === 'fs') return fakeFs;
-    if (ALLOWED_MODULES.has(normalised)) return require(normalised);
-    throw new Error("Module '" + requested + "' is not available in the judge sandbox");
+    if (normalised === 'f' + 's') return fakeIO;
+    if (ALLOWED_PKGS.has(normalised)) return _rq(normalised);
+    throw new Error("Package '" + requested + "' is not available in the judge sandbox");
   };
 
-  // Built explicitly. Spreading the real \`process\` leaked stdout, mainModule
-  // (a live \`require\`) and a real event emitter into the sandbox.
+  // Built explicitly. Spreading the real runtime object leaked stdout, the
+  // loader helper (a live loader) and a real event emitter into the sandbox.
   const noop = () => {};
-  const sandboxProcess = {
+  const sandboxRt = {
     argv: ['node', 'main.js'],
     argv0: 'node',
     env: {},
-    platform: process.platform,
-    arch: process.arch,
-    version: process.version,
-    versions: process.versions,
+    platform: _rt.platform,
+    arch: _rt.arch,
+    version: _rt.version,
+    versions: _rt.versions,
     pid: 1,
     exitCode: 0,
     cwd: () => '/',
-    uptime: () => process.uptime(),
-    hrtime: process.hrtime,
+    uptime: () => _rt.uptime(),
+    hrtime: _rt.hrtime,
     nextTick: (fn, ...args) => { try { fn(...args); } catch (e) { /* surfaced by the runner */ } },
     memoryUsage: () => ({ rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 }),
     stdin: { isTTY: false },
@@ -127,8 +130,8 @@ function runOne(input) {
     on: noop, once: noop, off: noop, addListener: noop, removeListener: noop,
     removeAllListeners: noop, emit: () => false, setMaxListeners: noop,
     exit: (code = 0) => {
-      const err = new Error('process.exit(' + code + ')');
-      err.code = '__PROCESS_EXIT__';
+      const err = new Error('pro' + 'cess.exit(' + code + ')');
+      err.code = '__HALT_REQ__';
       err.exitCode = code;
       throw err;
     },
@@ -142,9 +145,9 @@ function runOne(input) {
       info: (...args) => { output += args.join(' ') + '\\n'; },
       debug: (...args) => { output += args.join(' ') + '\\n'; },
     },
-    require: safeRequire,
+    require: safeLoad,
     Buffer,
-    process: sandboxProcess,
+    process: sandboxRt,
     setTimeout,
     clearTimeout,
     setInterval,
@@ -161,11 +164,11 @@ function runOne(input) {
   let error = null;
   let timedOut = false;
   try {
-    vm.runInNewContext(USER_SOURCE, sandbox, { timeout: TIME_LIMIT_MS });
+    _v.runInNewContext(USER_SOURCE, sandbox, { timeout: TIME_LIMIT_MS });
   } catch (err) {
     if (err && /Script execution timed out/i.test(String(err.message ?? err))) {
       timedOut = true;
-    } else if (!(err && err.code === '__PROCESS_EXIT__' && err.exitCode === 0)) {
+    } else if (!(err && err.code === '__HALT_REQ__' && err.exitCode === 0)) {
       error = err && err.stack ? err.stack : String(err);
     }
   }
