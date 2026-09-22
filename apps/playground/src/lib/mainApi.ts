@@ -1,7 +1,7 @@
 import { getPlaygroundStoredToken } from './authToken';
 import { requestMainApiJson } from './utils';
 
-export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'JAVA';
+export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'C' | 'JAVA';
 export type ProblemContextType = 'QOTD' | 'CONTEST' | 'PRACTICE';
 export type ProctorViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
 export type SubmissionVerdict =

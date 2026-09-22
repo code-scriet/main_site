@@ -14,7 +14,7 @@ import { api, type ProblemInput, type ProblemLanguage, type ProblemTestCase } fr
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { ArrowLeft, ArrowRight, BookOpen, Check, FileCode2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
-const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
+const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'C', 'JAVA'];
 
 function emptyCase(prefix: string, index: number): ProblemTestCase {
   return { id: `${prefix}-${index}`, input: '', expectedOutput: '' };

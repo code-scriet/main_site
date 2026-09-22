@@ -14,6 +14,7 @@ import {
 } from './executionRouting.js';
 import { buildHarness as buildPythonHarness } from './judgeHarnesses/python.js';
 import { buildHarness as buildJavaScriptHarness } from './judgeHarnesses/javascript.js';
+import { buildHarness as buildCHarness } from './judgeHarnesses/c.js';
 import { buildHarness as buildCppHarness } from './judgeHarnesses/cpp.js';
 import { buildHarness as buildJavaHarness } from './judgeHarnesses/java.js';
 
@@ -68,6 +69,7 @@ const CODEBOX_LANG_IDS: Record<ProblemLanguage, number> = {
   PYTHON: 71,
   JAVASCRIPT: 63,
   CPP: 54,
+  C: 50,
   JAVA: 62,
 };
 
@@ -159,6 +161,7 @@ const COMPILERS: Record<ProblemLanguage, CompilerConfig> = {
   // (Codeforces, AtCoder, etc). Lets users guard their `freopen("input.txt", …)`
   // template blocks with `#ifndef ONLINE_JUDGE` so they don't trip the judge.
   CPP: { compiler: 'gcc-13.2.0', options: 'warning,c++17', compilerOptionRaw: '-DONLINE_JUDGE' },
+  C: { compiler: 'gcc-13.2.0-c', options: 'warning', compilerOptionRaw: '-DONLINE_JUDGE' },
   JAVA: { compiler: 'openjdk-jdk-22+36' },
 };
 
@@ -202,6 +205,8 @@ function buildHarness(language: ProblemLanguage, userCode: string, testCases: Ar
       return buildJavaScriptHarness(opts);
     case 'CPP':
       return buildCppHarness(opts);
+    case 'C':
+      return buildCHarness(opts);
     case 'JAVA':
       return buildJavaHarness(opts);
     default:
@@ -244,6 +249,19 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
       '',
       'A function-only solution (e.g. just `string reverseWords(...)` with no main) cannot',
       'run here. Put your logic in main(), or call your function from main().',
+    ].join('\n');
+  } else if (language === 'C' && /__user_main\b/.test(raw)) {
+    hint = [
+      'Your C solution must define an entry point — these problems read input from',
+      'standard input and write the answer to standard output (not a bare function):',
+      '',
+      '    #include <stdio.h>',
+      '    int main(void) {',
+      '        // read input with scanf',
+      '        // print your answer with printf',
+      '    }',
+      '',
+      'A function-only solution with no main cannot run here.',
     ].join('\n');
   } else if (language === 'JAVA' && /__UserMain\b/.test(raw)) {
     // `__UserMain` is the harness's renamed copy of the student's `class Main`; it

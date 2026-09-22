@@ -109,6 +109,20 @@ int main() {
 }
 `,
   },
+  C: {
+    label: 'C',
+    filename: 'main.c',
+    monaco: 'c',
+    ioHint: 'Define int main(void). Read input with scanf and print the answer with printf.',
+    starter: `#include <stdio.h>
+
+int main(void) {
+    // TODO: read input with scanf and print your answer with printf
+    // example: int n; scanf("%d", &n); printf("%d\\n", n);
+    return 0;
+}
+`,
+  },
   JAVA: {
     label: 'Java',
     filename: 'Main.java',

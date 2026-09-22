@@ -1465,6 +1465,7 @@ enum ProblemLanguage {
   PYTHON
   JAVASCRIPT
   CPP
+  C
   JAVA
 }
 

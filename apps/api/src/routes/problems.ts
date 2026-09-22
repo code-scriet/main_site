@@ -60,7 +60,7 @@ const problemInputSchema = z.object({
   body: z.string().min(1).max(60_000),
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']),
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-  allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(4),
+    allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(5),
   timeLimitMs: z.coerce.number().int().min(500).max(10_000).default(2000),
   defaultSubmitCap: z.coerce.number().int().min(1).max(100).default(5),
   sampleTests: z.array(testCaseSchema).min(1).max(20),

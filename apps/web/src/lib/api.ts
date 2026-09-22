@@ -80,7 +80,7 @@ export interface QOTDStats {
   recentSubmissions: Array<{ date: string; difficulty: string; timestamp: string }>;
 }
 
-export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'JAVA';
+export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'C' | 'JAVA';
 export type ProblemContextType = 'QOTD' | 'CONTEST' | 'PRACTICE';
 export type SubmissionVerdict =
   | 'PENDING'
