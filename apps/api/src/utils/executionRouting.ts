@@ -1,4 +1,4 @@
-// Dual-provider execution routing for the code judge.
+// Triple-provider execution routing for the code judge (local-first).
 //
 // Why: Wandbox and godbolt are both free services with no SLA. Historically the
 // judge sent EVERY execution to one admin-chosen primary and relied on the CF
@@ -6,9 +6,12 @@
 // load onto one upstream while the other host sits idle.
 //
 // This module makes the judge provider-aware:
-//  - `Settings.codeExecutionProvider = 'balanced'` splits traffic across BOTH
-//    upstreams: least-loaded pick per request, round-robin on ties. JavaScript
-//    always routes to Wandbox (godbolt has no JS runtime).
+//  - `Settings.codeExecutionProvider = 'balanced'` spreads traffic across all
+//    HEALTHY upstreams with CodeBox (local Judge0 engine) first: least-loaded
+//    pick per request, round-robin on ties. JavaScript runs on CodeBox or
+//    Wandbox (godbolt has no JS runtime).
+//  - `'codebox'` pins the local engine; on infra failure it cools down and
+//    traffic spills to the CF Worker chain automatically.
 //  - Each provider gets its OWN concurrency lane per mode (submit/testrun), so
 //    in balanced mode capacity ADDS instead of sharing one global semaphore.
 //  - A provider that infra-fails goes on a short cooldown so new requests
@@ -23,17 +26,18 @@
 import type { ProblemLanguage } from '@prisma/client';
 import { getCachedSettings } from './settingsCache.js';
 
-export type ExecutionProvider = 'wandbox' | 'godbolt';
+export type ExecutionProvider = 'wandbox' | 'godbolt' | 'codebox';
 export type ExecutionProviderSetting = ExecutionProvider | 'balanced';
 export type JudgeLane = 'submit' | 'testrun';
 
-export const EXECUTION_PROVIDERS: readonly ExecutionProvider[] = ['wandbox', 'godbolt'];
+export const EXECUTION_PROVIDERS: readonly ExecutionProvider[] = ['wandbox', 'godbolt', 'codebox'];
 
 export function normalizeProviderSetting(value: unknown): ExecutionProviderSetting {
-  return value === 'godbolt' || value === 'balanced' ? value : 'wandbox';
+  if (value === 'godbolt' || value === 'balanced' || value === 'codebox') return value;
+  return 'wandbox';
 }
 
-/** godbolt (Compiler Explorer) compiles but cannot EXECUTE JavaScript/Node. */
+/** godbolt compiles but cannot EXECUTE JavaScript/Node. CodeBox runs all judge languages. */
 export function providerSupportsLanguage(provider: ExecutionProvider, language: ProblemLanguage): boolean {
   if (provider === 'godbolt') return language !== 'JAVASCRIPT';
   return true;
@@ -99,6 +103,7 @@ export function createExecutionRouter(opts: ExecutionRouterOptions = {}): Execut
   const providers: Record<ExecutionProvider, ProviderState> = {
     wandbox: { cooldownUntil: 0, lanes: { submit: { active: 0, queue: [] }, testrun: { active: 0, queue: [] } } },
     godbolt: { cooldownUntil: 0, lanes: { submit: { active: 0, queue: [] }, testrun: { active: 0, queue: [] } } },
+    codebox: { cooldownUntil: 0, lanes: { submit: { active: 0, queue: [] }, testrun: { active: 0, queue: [] } } },
   };
   // Tie-breaker for equally-loaded healthy providers — alternates so a quiet
   // period doesn't pin everything to one host.
@@ -116,27 +121,48 @@ export function createExecutionRouter(opts: ExecutionRouterOptions = {}): Execut
     lane: JudgeLane,
   ): ExecutionProvider => {
     const candidates = EXECUTION_PROVIDERS.filter((p) => providerSupportsLanguage(p, language));
-    if (candidates.length === 1) return candidates[0];
+    // Local-first: CodeBox wins ties and quiet periods (ordered first in
+    // EXECUTION_PROVIDERS); least-loaded pick across the pool otherwise.
+    const ordered = [...candidates].sort((a, b) =>
+      (a === 'codebox' ? 0 : 1) - (b === 'codebox' ? 0 : 1),
+    );
+    if (ordered.length === 1) return ordered[0];
 
     if (setting !== 'balanced') {
-      // Fixed primary. If it's cooling down and the other host is healthy,
+      // Fixed primary. If it's cooling down and another host is healthy,
       // pre-route there — same semantics the CF Worker's fallback would apply,
       // just without burning the 12s upstream stall first.
-      const other: ExecutionProvider = setting === 'wandbox' ? 'godbolt' : 'wandbox';
-      if (!isHealthy(setting) && isHealthy(other)) return other;
-      return setting;
+      if (setting === 'codebox' || setting === 'wandbox' || setting === 'godbolt') {
+        if (!isHealthy(setting)) {
+          const spare = ordered.find((p) => p !== setting && isHealthy(p));
+          if (spare) return spare;
+        }
+        return setting;
+      }
+      return ordered[0];
     }
 
-    const healthy = candidates.filter(isHealthy);
-    const pool = healthy.length > 0 ? healthy : candidates;
+    const healthy = ordered.filter(isHealthy);
+    const pool = healthy.length > 0 ? healthy : ordered;
     if (pool.length === 1) return pool[0];
 
-    const [a, b] = pool;
-    const loadA = laneLoad(a, lane);
-    const loadB = laneLoad(b, lane);
-    if (loadA !== loadB) return loadA < loadB ? a : b;
-    rrToggle ^= 1;
-    return pool[rrToggle];
+    let best = pool[0];
+    let bestLoad = laneLoad(best, lane);
+    for (let i = 1; i < pool.length; i++) {
+      const load = laneLoad(pool[i], lane);
+      if (load < bestLoad) {
+        best = pool[i];
+        bestLoad = load;
+      }
+    }
+    // Full tie (typical quiet period): prefer local; otherwise alternate the
+    // remotes, preserving the legacy wandbox/godbolt round-robin.
+    if (pool.every((p) => laneLoad(p, lane) === bestLoad)) {
+      if (pool.includes('codebox')) return 'codebox';
+      rrToggle ^= 1;
+      return pool[rrToggle % pool.length];
+    }
+    return best;
   };
 
   const acquire = (provider: ExecutionProvider, lane: JudgeLane): Promise<() => void> => {
@@ -184,7 +210,7 @@ export function createExecutionRouter(opts: ExecutionRouterOptions = {}): Execut
           testrun: { active: providers[p].lanes.testrun.active, waiting: providers[p].lanes.testrun.queue.length },
         },
       });
-      return { providers: { wandbox: shape('wandbox'), godbolt: shape('godbolt') } };
+      return { providers: { wandbox: shape('wandbox'), godbolt: shape('godbolt'), codebox: shape('codebox') } };
     },
   };
 }

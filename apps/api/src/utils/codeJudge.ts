@@ -1,4 +1,11 @@
 import { ProblemLanguage, SubmissionVerdict } from '@prisma/client';
+import {
+  buildJudgeStdin,
+  frameMarker,
+  makeJudgeNonce,
+  parseFrames,
+  scrubHarnessInternals,
+} from './judgeFrames.js';
 import { logger } from './logger.js';
 import {
   executionRouter,
@@ -31,6 +38,13 @@ export interface JudgeResult {
   }>;
   totalRuntimeMs: number;
   compilerOutput?: string;
+  /**
+   * Set when the harness output could not be trusted — duplicate frames for one
+   * test id, or frames for a test that was never sent. Callers MUST NOT refund
+   * the submit cap / daily quota for a tampered run (unlike a genuine
+   * JUDGE_ERROR, this is not the platform's fault).
+   */
+  tampered?: boolean;
 }
 
 interface CompilerConfig {
@@ -46,6 +60,16 @@ const EXECUTOR_ORIGIN_HEADER = process.env.EXECUTOR_ORIGIN_HEADER
 // once EXECUTOR_SECRET is set in ITS environment; sending it unconditionally
 // when configured here makes the judge ready for that flip.
 const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
+// Local Judge0 engine (CodeBox, loopback). Same box, no external dependency;
+// the CF Worker chain below stays as the backstop when CodeBox is unhealthy.
+const CODEBOX_URL = process.env.CODEBOX_URL || 'http://127.0.0.1:3000';
+const CODEBOX_TOKEN = process.env.CODEBOX_TOKEN || '';
+const CODEBOX_LANG_IDS: Record<ProblemLanguage, number> = {
+  PYTHON: 71,
+  JAVASCRIPT: 63,
+  CPP: 54,
+  JAVA: 62,
+};
 const EXECUTION_TIMEOUT_MS = 15_000;
 // Compiled languages (Java, C++) need extra headroom for compilation + the
 // per-test fork/ClassLoader isolation overhead. Interpreted languages stay
@@ -96,8 +120,8 @@ function normalizeOutput(value: string): string {
     .replace(/\n+$/g, '');
 }
 
-function buildHarness(language: ProblemLanguage, userCode: string, testCases: Array<{ id: string; input: string }>, timeLimitMs: number): string {
-  const opts = { userCode, testCases, approach: 'A' as const, timeLimitMs };
+function buildHarness(language: ProblemLanguage, userCode: string, testCases: Array<{ id: string; input: string }>, timeLimitMs: number, nonce: string): string {
+  const opts = { userCode, testCases, approach: 'A' as const, timeLimitMs, nonce };
   switch (language) {
     case 'PYTHON':
       return buildPythonHarness(opts);
@@ -112,40 +136,12 @@ function buildHarness(language: ProblemLanguage, userCode: string, testCases: Ar
   }
 }
 
-function buildJudgeStdin(testCases: Array<{ id: string; input: string }>): string {
-  let stdin = `__N=${testCases.length}\n`;
-  for (const testCase of testCases) {
-    const input = testCase.input ?? '';
-    stdin += `__ID=${testCase.id}\n`;
-    stdin += `__LEN=${Buffer.byteLength(input, 'utf8')}\n`;
-    stdin += input;
-    stdin += '\n';
-  }
-  return stdin;
-}
-
 function decodeFramePayload(payload: string): string {
   try {
     return Buffer.from(payload, 'base64').toString('utf8');
   } catch {
     return '[judge output decode failed]';
   }
-}
-
-function parseFrames(stdout: string): Map<string, { status: string; runtimeMs: number; payload: string }> {
-  const frames = new Map<string, { status: string; runtimeMs: number; payload: string }>();
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line.startsWith('__JUDGE:')) continue;
-    const parts = line.split(':');
-    if (parts.length < 5) continue;
-    const [, testId, status, runtimeRaw, ...payloadParts] = parts;
-    frames.set(testId, {
-      status,
-      runtimeMs: Number.parseInt(runtimeRaw, 10) || 0,
-      payload: payloadParts.join(':'),
-    });
-  }
-  return frames;
 }
 
 function cleanWorkerText(value: unknown): string {
@@ -160,6 +156,7 @@ function cleanWorkerText(value: unknown): string {
 // signatures into a clear, actionable message; leave genuine user errors as-is.
 function humanizeCompilerError(language: ProblemLanguage, raw: string | undefined): string | undefined {
   if (!raw) return raw;
+  raw = scrubHarnessInternals(raw);
 
   let hint = '';
   if (language === 'CPP' && /__user_main\b/.test(raw)) {
@@ -229,13 +226,16 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
 
   try {
     const compiler = COMPILERS[req.language];
+    const nonce = makeJudgeNonce();
+    const marker = frameMarker(nonce);
     const wrappedCode = buildHarness(
       req.language,
       req.userCode,
       req.testCases.map(({ id, input }) => ({ id, input })),
       req.timeLimitMs,
+      nonce,
     );
-    const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })));
+    const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })), nonce);
     const controller = new AbortController();
     const isCompiled = req.language === 'CPP' || req.language === 'JAVA';
     const ceiling = isCompiled ? COMPILED_EXECUTION_TIMEOUT_MS : EXECUTION_TIMEOUT_MS;
@@ -243,45 +243,59 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
 
     let workerResult: Record<string, unknown>;
     try {
-      const response = await fetch(EXECUTOR_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Origin: EXECUTOR_ORIGIN_HEADER,
-          ...(EXECUTOR_SECRET ? { 'X-Executor-Secret': EXECUTOR_SECRET } : {}),
-        },
-        body: JSON.stringify({
-          compiler: compiler.compiler,
-          code: wrappedCode,
-          stdin,
-          options: compiler.options || '',
-          provider,
-          ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
-        }),
-        signal: controller.signal,
-      });
+      if (provider === 'codebox') {
+        workerResult = await runJudgeViaCodeBox(req.language, wrappedCode, stdin, controller.signal);
+      } else {
+        const response = await fetch(EXECUTOR_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: EXECUTOR_ORIGIN_HEADER,
+            ...(EXECUTOR_SECRET ? { 'X-Executor-Secret': EXECUTOR_SECRET } : {}),
+          },
+          body: JSON.stringify({
+            compiler: compiler.compiler,
+            code: wrappedCode,
+            stdin,
+            options: compiler.options || '',
+            provider,
+            ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        logger.warn('Judge worker returned non-OK response', { status: response.status });
-        // 5xx from the worker = every reachable upstream failed for this request.
-        if (response.status >= 500) executionRouter.reportInfraFailure(provider);
+        if (!response.ok) {
+          logger.warn('Judge worker returned non-OK response', { status: response.status });
+          // 5xx from the worker = every reachable upstream failed for this request.
+          if (response.status >= 500) executionRouter.reportInfraFailure(provider);
+          return {
+            verdict: 'JUDGE_ERROR',
+            perTestVerdicts: [],
+            totalRuntimeMs: Date.now() - totalStartedAt,
+            compilerOutput: truncate(await response.text(), COMPILER_OUTPUT_LIMIT),
+          };
+        }
+
+        workerResult = await response.json() as Record<string, unknown>;
+      }
+    } catch (error) {
+      logger.error('Judge worker request failed', { error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof Error && error.name === 'AbortError') {
+        // F-4: this is OUR client-side ceiling on the whole batch, not the
+        // student's per-test limit (each harness enforces that itself and frames
+        // TIMEOUT per test). Reporting TIME_LIMIT_EXCEEDED blamed correct code
+        // for a batch that was merely slow in aggregate. JUDGE_ERROR is the
+        // honest classification: it refunds the cap + daily quota and files the
+        // submission for review.
+        logger.warn('Judge upstream call aborted at the client ceiling', {
+          language: req.language,
+          tests: req.testCases.length,
+        });
         return {
           verdict: 'JUDGE_ERROR',
           perTestVerdicts: [],
           totalRuntimeMs: Date.now() - totalStartedAt,
-          compilerOutput: truncate(await response.text(), COMPILER_OUTPUT_LIMIT),
-        };
-      }
-
-      workerResult = await response.json() as Record<string, unknown>;
-    } catch (error) {
-      logger.error('Judge worker request failed', { error: error instanceof Error ? error.message : String(error) });
-      if (error instanceof Error && error.name === 'AbortError') {
-        return {
-          verdict: 'TIME_LIMIT_EXCEEDED',
-          perTestVerdicts: [],
-          totalRuntimeMs: Date.now() - totalStartedAt,
-          compilerOutput: 'Execution timed out',
+          compilerOutput: 'The judge took too long to respond and the attempt was not counted. Please try again.',
         };
       }
       return {
@@ -325,7 +339,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
 
     // Upstream container/host capacity failure (no program ran) — classify as a
     // retryable judge outage, not a code-compilation failure.
-    if (!stdout.includes('__JUDGE:') && (isInfraFailure(compilerError) || isInfraFailure(stderr))) {
+    if (!stdout.includes(marker) && (isInfraFailure(compilerError) || isInfraFailure(stderr))) {
       logger.warn('Judge upstream resource failure', { snippet: (compilerError || stderr).slice(0, 200) });
       // An infra result surviving the worker's chain means every provider that
       // could run this language failed — cool down both we know about.
@@ -343,7 +357,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     // from a healthy host.
     executionRouter.reportSuccess(servedProvider ?? provider);
 
-    if (compilerError && !stdout.includes('__JUDGE:')) {
+    if (compilerError && !stdout.includes(marker)) {
       return {
         verdict: 'COMPILATION_ERROR',
         perTestVerdicts: [],
@@ -365,7 +379,52 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       };
     }
 
-    const frames = parseFrames(stdout);
+    const { frames, tampered, complete } = parseFrames(stdout, nonce);
+
+    // Forgery attempt: a duplicate frame for one test id. The genuine frame is
+    // always emitted by the harness, so a submission that writes its own frames
+    // necessarily collides. Never trust this run, and never refund it.
+    if (tampered) {
+      logger.error('Judge output tampering detected', {
+        language: req.language,
+        tests: req.testCases.length,
+      });
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        compilerOutput: 'The judge could not verify this run. Your submission has been flagged for manual review.',
+        tampered: true,
+      };
+    }
+
+    // Frames for tests we never sent — only a forger produces these.
+    const requestedIds = new Set(req.testCases.map((test) => test.id));
+    for (const id of frames.keys()) {
+      if (!requestedIds.has(id)) {
+        logger.error('Judge frame for an unknown test id', { language: req.language, id });
+        return {
+          verdict: 'JUDGE_ERROR',
+          perTestVerdicts: [],
+          totalRuntimeMs: Date.now() - totalStartedAt,
+          compilerOutput: 'The judge could not verify this run. Your submission has been flagged for manual review.',
+          tampered: true,
+        };
+      }
+    }
+
+    // The harness did not reach its end sentinel — it was killed mid-run (e.g. a
+    // submission calling System.exit / os._exit). Frames collected so far may be
+    // a partial view, so don't score it.
+    if (frames.size > 0 && !complete) {
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        compilerOutput: 'The program exited before the judge finished running every test. Avoid terminating the process (e.g. System.exit / sys.exit / os._exit) in your solution.',
+      };
+    }
+
     if (frames.size === 0) {
       return {
         verdict: status !== 0 ? 'RUNTIME_ERROR' : 'JUDGE_ERROR',
@@ -397,12 +456,13 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         };
       }
       if (frame.status === 'FAIL') {
+        const scrubbed = scrubHarnessInternals(decoded);
         return {
           testId: testCase.id,
           passed: false,
-          actualOutput: truncate(decoded, ACTUAL_OUTPUT_LIMIT),
+          actualOutput: truncate(scrubbed, ACTUAL_OUTPUT_LIMIT),
           runtimeMs: frame.runtimeMs,
-          error: truncate(decoded, ACTUAL_OUTPUT_LIMIT),
+          error: truncate(scrubbed, ACTUAL_OUTPUT_LIMIT),
         };
       }
 

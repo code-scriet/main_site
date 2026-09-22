@@ -799,9 +799,11 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     }
 
     if (key === 'codeExecutionProvider') {
-      // 'balanced' splits judge/playground traffic across BOTH upstreams per
-      // request (least-loaded, JS pinned to Wandbox) — utils/executionRouting.ts.
-      const allowedProviders = ['wandbox', 'godbolt', 'balanced'];
+      // 'balanced' splits judge/playground traffic across healthy upstreams per
+      // request (least-loaded, JS pinned to Wandbox for the worker chain);
+      // 'codebox' pins the local Judge0 engine (spills to the worker chain on
+      // infra failure). See utils/executionRouting.ts.
+      const allowedProviders = ['wandbox', 'godbolt', 'balanced', 'codebox'];
       if (typeof value !== 'string' || !allowedProviders.includes(value)) {
         return res.status(400).json({
           success: false,
