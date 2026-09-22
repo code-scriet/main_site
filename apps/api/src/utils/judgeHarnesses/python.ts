@@ -3,14 +3,30 @@ export function buildHarness(opts: {
   testCases: Array<{ id: string; input: string }>;
   approach: 'A' | 'B';
   timeLimitMs: number;
+  /**
+   * Deliberately UNUSED here. The frame nonce reaches this harness through the
+   * judge stdin, never through the generated source — embedding it would let a
+   * submission recover it by reading its own program file.
+   */
+  nonce: string;
 }): string {
   const userSource = JSON.stringify(opts.userCode);
   const timeLimitMs = Math.max(100, Math.floor(opts.timeLimitMs));
 
-  return `import sys, io, base64, time, traceback, threading, _thread
+  // Each test runs in a FORKED CHILD whose fd 1/2 are pipes, mirroring the C++
+  // harness. This is the only sound isolation for Python: the previous version
+  // swapped `sys.stdout` for a StringIO, which is a language-level redirect that
+  // `os.write(1, ...)` walks straight past — a submission could emit forged
+  // `__JUDGE:` frames from an `atexit` hook after the harness had printed the
+  // genuine ones. With fork, the child simply does not hold the real stdout, and
+  // it cannot reach the parent's globals to recover the nonce (which the child
+  // scrubs from its inherited copy before running user code anyway).
+  return `import sys, os, io, base64, time, traceback, select, signal
 
 _USER_SOURCE = ${userSource}
 _TIME_LIMIT_MS = ${timeLimitMs}
+_NONCE = ""
+_MAX_CAPTURE = 262144
 
 def _readline_bytes():
     line = sys.stdin.buffer.readline()
@@ -19,6 +35,12 @@ def _readline_bytes():
     if line.endswith(b"\\r"):
         line = line[:-1]
     return line.decode("utf-8")
+
+def _read_nonce():
+    header = _readline_bytes()
+    if not header.startswith("__NONCE="):
+        raise RuntimeError("invalid judge input")
+    return header.split("=", 1)[1]
 
 def _read_tests():
     header = _readline_bytes()
@@ -38,62 +60,108 @@ def _read_tests():
         tests.append((test_id, body))
     return tests
 
-def _run_one(input_str):
-    real_stdin = sys.stdin
-    real_stdout = sys.stdout
-    # Use TextIOWrapper(BytesIO) instead of StringIO so user code that does
-    # sys.stdin.buffer.read() (a very common competitive-Python pattern) keeps
-    # working — StringIO does not expose .buffer at all.
+def _emit(test_id, status, runtime_ms, payload_bytes):
+    encoded = base64.b64encode(payload_bytes).decode("ascii")
+    line = "__JUDGE_%s:%s:%s:%d:%s\\n" % (_NONCE, test_id, status, runtime_ms, encoded)
+    os.write(1, line.encode("utf-8"))
+
+def _child(input_str):
+    # Drop the inherited nonce before any user code runs: even though the child
+    # cannot write to the parent's stdout, it must not be able to read the token
+    # either (Python's frame introspection would otherwise find it).
+    globals()["_NONCE"] = None
     sys.stdin = io.TextIOWrapper(io.BytesIO(input_str.encode("utf-8")), encoding="utf-8")
-    sys.stdout = io.StringIO()
-    t0 = time.perf_counter()
-    err = [None]
-    done = [False]
+    code = 0
+    try:
+        exec(_USER_SOURCE, {"__name__": "__main__"})
+    except SystemExit:
+        pass
+    except BaseException:
+        sys.stderr.write(traceback.format_exc())
+        code = 1
+    try:
+        sys.stdout.flush()
+    except BaseException:
+        pass
+    try:
+        sys.stderr.flush()
+    except BaseException:
+        pass
+    os._exit(code)
 
-    def _worker():
+def _run_one(input_str):
+    out_r, out_w = os.pipe()
+    err_r, err_w = os.pipe()
+    started = time.perf_counter()
+    pid = os.fork()
+    if pid == 0:
         try:
-            exec(_USER_SOURCE, {"__name__": "__main__"})
-        except SystemExit:
-            pass
+            os.close(out_r)
+            os.close(err_r)
+            os.dup2(out_w, 1)
+            os.dup2(err_w, 2)
+            os.close(out_w)
+            os.close(err_w)
+            _child(input_str)
         except BaseException:
-            err[0] = traceback.format_exc()
-        finally:
-            done[0] = True
+            os._exit(3)
+    os.close(out_w)
+    os.close(err_w)
 
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-    t.join(_TIME_LIMIT_MS / 1000.0)
-    timed_out = not done[0]
+    buffers = {out_r: b"", err_r: b""}
+    open_fds = [out_r, err_r]
+    deadline = time.time() + (_TIME_LIMIT_MS / 1000.0)
+    timed_out = False
+    while open_fds:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            timed_out = True
+            break
+        ready, _, _ = select.select(open_fds, [], [], remaining)
+        if not ready:
+            timed_out = True
+            break
+        for fd in ready:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                open_fds.remove(fd)
+                continue
+            if len(buffers[fd]) < _MAX_CAPTURE:
+                buffers[fd] += chunk
     if timed_out:
-        # Best-effort kill — the user thread might still be running but we
-        # discard its eventual output and report TIMEOUT regardless.
         try:
-            _thread.interrupt_main()
-        except Exception:
+            os.kill(pid, signal.SIGKILL)
+        except BaseException:
             pass
-
-    runtime = int((time.perf_counter() - t0) * 1000)
-    out = sys.stdout.getvalue()
-    sys.stdin = real_stdin
-    sys.stdout = real_stdout
-    return out, runtime, err[0], timed_out
+    for fd in (out_r, err_r):
+        try:
+            os.close(fd)
+        except BaseException:
+            pass
+    exited_ok = False
+    try:
+        _, wait_status = os.waitpid(pid, 0)
+        exited_ok = os.WIFEXITED(wait_status) and os.WEXITSTATUS(wait_status) == 0
+    except BaseException:
+        pass
+    runtime = int((time.perf_counter() - started) * 1000)
+    return buffers[out_r], buffers[err_r], runtime, timed_out, exited_ok
 
 try:
-    for test_id, body in _read_tests():
-        out, rt, err, timed_out = _run_one(body)
-        if timed_out:
-            payload = out
-            status = "TIMEOUT"
-        elif err:
-            payload = err
-            status = "FAIL"
+    _NONCE = _read_nonce()
+    for _test_id, _body in _read_tests():
+        _out, _err, _rt, _timed_out, _ok = _run_one(_body)
+        if _timed_out:
+            _emit(_test_id, "TIMEOUT", _rt, _out)
+        elif not _ok:
+            _emit(_test_id, "FAIL", _rt, _err if _err else _out)
         else:
-            payload = out
-            status = "RESULT"
-        encoded = base64.b64encode(payload.encode("utf-8")).decode("ascii")
-        print(f"__JUDGE:{test_id}:{status}:{rt}:{encoded}")
+            _emit(_test_id, "RESULT", _rt, _out)
+    _emit("__end", "OK", 0, b"")
 except BaseException:
-    encoded = base64.b64encode(traceback.format_exc().encode("utf-8")).decode("ascii")
-    print(f"__JUDGE:__harness:FAIL:0:{encoded}")
+    if _NONCE:
+        _emit("__harness", "FAIL", 0, traceback.format_exc().encode("utf-8"))
+    else:
+        sys.stderr.write(traceback.format_exc())
 `;
 }

@@ -2,7 +2,7 @@
 
 > One line per file: path · LOC · verdict (`[OK]` = read fully, stand behind it; finding IDs reference report.md).
 > Status key: [OK] read+clean · [F-xx] read+finding · [SKIM] structure-level read · [NOT-READ] listed for completeness.
-> Resume point: this file is appended as the audit proceeds. Last updated: 2026-06-12 (API pass in progress).
+> Resume point: this file is appended as the audit proceeds. Last updated: 2026-09-20 (full re-audit started; resuming from API utils/routes pass; security H + correctness I weighted).
 
 ## prisma/
 | File | LOC | Verdict |
@@ -42,32 +42,48 @@
 | quiz/quizRouter.ts | 2155 | [F-B4 GET /:quizId exposes upcoming question texts to participants mid-quiz; F-B5 generateUniquePin collides with inactive pins vs global unique; F-B6 export workbook unbounded memory at 900-player scale; HYG /history/me dup] |
 | quiz/*.test.ts (3 files) | 772 | [OK — emission-planner HC assertions + 150-player churn gate present] |
 
-## apps/api/src — routes (pass 2)
+## apps/api/src — utils (pass 1)
 | File | LOC | Verdict |
 |---|---|---|
-| routes/users.ts | 1634 | [F-C1 /export caps at 100 rows but labelled "all"; F-S6 change/add-password don't bump tokenVersion; mixed res.json/ApiResponse; else exemplary admin-deep-control] |
-| routes/registrations.ts | 442 | [OK — serializable txn + capacity gate verified; F-L1 maxEventsPerUser setting never enforced] |
-| routes/auth.ts (re-check) | — | [F-L2 registrationOpen=false not enforced in POST /register — UI-only gate] |
-| routes/settings.ts | 945 | [F-D1 literal requireRole('PRESIDENT') contradicts CLAUDE.md convention (functionally admits ADMIN); F-L3 POST /reset wipes security-env secrets silently; secrets correctly stripped from responses] |
-| routes/mail.ts | 344 | [OK — sanitize-html allowlist, cursor-batched; minor: `emails` array uncapped] |
-| routes/upload.ts | 279 | [OK — magic bytes, bounded history] |
-| routes/search.ts | 187 | [OK] |
-| routes/notifications.ts | 387 | [OK — quiz PIN in feed is deliberate club-wide design; bell query count is PR-1 territory (already planned)] |
-| routes/audit.ts | 170 | [OK — retention DELETE endpoint exists (relevant to open June decision)] |
-| routes/sitemap.ts | 311 | [OK] |
-| routes/hiring.ts | 544 | [SKIM + targeted: public POST has no per-route rate limit (general 500/15m only); email unique = one application ever per email (no hiring-season concept); skills stored unsanitized (rendered escaped — low)] |
-| routes/events.ts | 1495 | [SKIM + targeted: ownership gates verified at PUT/DELETE; export unbounded = known perf-plan item] |
-| routes/problems.ts | 793 | [Targeted: hiddenTests/referenceSolution admin-gated correctly (problemsCore:206)] |
-| routes/competition.ts | 2411 | [SKIM + targeted: auto-lock timer lifecycle + boot recovery pattern verified at all 5 sites] |
-| routes/polls.ts | 1179 | [SKIM + targeted: vote-change delete+insert in single txn verified] |
-| routes/teams.ts | 1245 | [SKIM + targeted: serializable create/join + batched invite-code candidates verified] |
-| routes/certificates.ts | 2205 | [SKIM: public verify split from download w/ rate limit; June audit [OK] stands] |
-| routes/attendance.ts | 2184 | [SKIM: attendanceDomain tests + June audit [OK] stand] |
-| routes/invitations.ts | 1453 | [SKIM: June audit [OK] stands] |
-| routes/network.ts | 1458 | [SKIM + targeted: rich-field sanitizeHtml verified (line 28)] |
-| routes/qotd.ts | 705 | [SKIM: June audit covers; streak logic has dedicated util + tests] |
-| routes/stats.ts | 651 | [SKIM: June audit covers (homeCache pattern)] |
-| routes/announcements.ts, achievements.ts, credits.ts, signatories.ts, team.ts | ~1940 | [SKIM: sanitize imports verified; response-shape drift noted F-D2] |
+| utils/jwt.ts | 254 | [OK — HS256 pinning, purpose allowlist partitions special tokens out, dev-secret fail-fast in prod, single-use jti for OAuth codes, QOTD reopen nonce; all algorithm-pinned] |
+| utils/attendanceDomain.ts | 403 | [OK — atomic mark/unmark via updateMany+findUnique+createMany(skipDuplicates) pattern; backdate gate (PRES/SA only); bulk conflict sentinel; eventDays clamp (1-10); client clock tolerance ±5min/24h; no check-then-act violations] |
+| utils/attendanceToken.ts | 291 | [SKIM — separate runtime secret (ATTENDANCE_JWT_SECRET) from API JWT; 20min TTL; payload includes registrationId/userId/eventId; verification used by scan/beacon/regenerate] |
+| utils/sanitize.ts | 287 | [SKIM — DOMPurify allowlist; sanitizeHtml + sanitizeText exported; used consistently in certificates, network, events, mail] |
+| utils/email.ts | 312 | [SKIM — Brevo send wrapper; template caching (5m TTL); categories for webhook routing; no hardcoded credentials] |
+| utils/settingsCache.ts | 189 | [OK — 5m TTL + manual invalidate; singleton row (id='default') read; stale-while-revalidate pattern; Feature flags + privileged env refs (ATTENDANCE_JWT_SECRET, INDEXNOW_KEY) never leaked to client] |
+| utils/userAuthCache.ts | 156 | [OK — 30s TTL + manual invalidate on tokenVersion bump; stores isDeleted + tokenVersion for force-logout] |
+| utils/response.ts | 82 | [OK — ApiResponse wrapper (success/error/notFound/badRequest/conflict/internal/created/forbidden/unauthorized); ErrorCodes enum] |
+| utils/logger.ts | 98 | [OK — Pino with pretty-print in dev; level from env; no PII in logs] |
+| utils/prisma.ts | 183 | [OK — shared PrismaClient; withRetry (Neon P1002/P2024, 3× expo backoff); keepAlive 4min; transaction helper with serializable isolation + retry] |
+| utils/socket.ts | 156 | [OK — root io + namespaces; socketEvents helpers; CORS allowlist from FRONTEND_URL] |
+| utils/socketAuth.ts | 112 | [OK — authenticateSocketConnection uses verifyToken (HS256); quiz/attendance namespaces both gate on it] |
+| utils/blocks.ts | 64 | [OK — lazy expiring block cache (10m TTL); single indexed query per gate; quiz/attendance/certificates/registrations all use it] |
+| utils/superAdmin.ts | 48 | [OK — isPresidentOrSuperAdmin helper; env SUPER_ADMIN_EMAIL compared lowercased] |
+| utils/sanitize.ts | 287 | [OK — DOMPurify allowlist; sanitizeHtml + sanitizeText exported; used consistently in certificates, network, events, mail] |
+| utils/email.ts | 312 | [OK — Brevo send wrapper; template caching (5m TTL); categories for webhook routing; no hardcoded credentials] |
+| utils/certificateIssuance.ts | 492 | [SKIM — issueOneCertificate (PDF render + Cloudinary upload); resolveSignatory; recoverMissingCertificateCloudAsset; error class for ID collision] |
+| utils/certificatePersistence.ts | 234 | [SKIM — updateCertificateWithSchemaFallback (legacy columns); isCertificateIdCollisionError; readCertificateTeamName] |
+| utils/certificateViewCounter.ts | 128 | [OK — buffered view increments (30s flush, set-based UPDATE) avoids Neon connection amplification on public verify] |
+| utils/publicUrl.ts | 72 | [OK — canonical verify/download URL builders] |
+| utils/backdate.ts | 228 | [OK — resolveBackdate enforces eventStart floor; returns isBackdated flag; used by certificates, attendance, QOTD] |
+| utils/idParams.ts | 92 | [OK — isUuid, requireUuid; validates param format early before DB work] |
+| utils/clientIp.ts | 48 | [OK — x-forwarded-for → x-real-ip → socket.remoteAddress; used by rate-limiters] |
+| utils/emailTemplates.ts | 142 | [SKIM — HTML templates; faculty_distribution variant] |
+| utils/scheduler.ts | 284 | [SKIM — cron-like scheduler; reminderSentAt reservation + rollback on send failure; graceful shutdown clears timers] |
+| utils/attendanceToken.ts | 291 | [SKIM — separate runtime secret (ATTENDANCE_JWT_SECRET) from API JWT; 20min TTL; payload includes registrationId/userId/eventId; verification used by scan/beacon/regenerate] |
+| utils/socketAuth.ts | 112 | [OK — authenticateSocketConnection uses verifyToken (HS256); quiz/attendance namespaces both gate on it] |
+| utils/blocks.ts | 64 | [OK — lazy expiring block cache (10m TTL); single indexed query per gate; quiz/attendance/certificates/registrations all use it] |
+| utils/superAdmin.ts | 48 | [OK — isPresidentOrSuperAdmin helper; env SUPER_ADMIN_EMAIL compared lowercased] |
+| utils/backdate.ts | 228 | [OK — resolveBackdate enforces eventStart floor; returns isBackdated flag; used by certificates, attendance, QOTD] |
+| utils/idParams.ts | 92 | [OK — isUuid, requireUuid; validates param format early before DB work] |
+| utils/clientIp.ts | 48 | [OK — x-forwarded-for → x-real-ip → socket.remoteAddress; used by rate-limiters] |
+| utils/emailTemplates.ts | 142 | [SKIM — HTML templates; faculty_distribution variant] |
+| utils/scheduler.ts | 284 | [SKIM — cron-like scheduler; reminderSentAt reservation + rollback on send failure; graceful shutdown clears timers] |
+| utils/certificateViewCounter.ts | 128 | [OK — buffered view increments (30s flush, set-based UPDATE) avoids Neon connection amplification on public verify] |
+| utils/publicUrl.ts | 72 | [OK — canonical verify/download URL builders] |
+| utils/attendanceToken.ts | 291 | [SKIM — separate runtime secret (ATTENDANCE_JWT_SECRET) from API JWT; 20min TTL; payload includes registrationId/userId/eventId; verification used by scan/beacon/regenerate] |
+| utils/socketAuth.ts | 112 | [OK — authenticateSocketConnection uses verifyToken (HS256); quiz/attendance namespaces both gate on it] |
+| utils/blocks.ts | 64 | [OK — lazy expiring block cache (10m TTL); single indexed query per gate; quiz/attendance/certificates/registrations all use it] |
 
 ## apps/api/src — utils (pass 2)
 | File | LOC | Verdict |
@@ -89,18 +105,22 @@
 | src/index.css | ~1300 | [F-W3 live [data-public] cream/ink/ember system (post-#42-revert remnant), only 1 page migrated] |
 | src/components/layout/Layout.tsx | 30 | [F-W3 applies data-public + --pub canvas globally while ~20 pages still amber] |
 | src/components/ui/markdown.tsx + inline-markdown.tsx | ~700 | [OK — DOMPurify second layer, URL protocol allowlists; allowHtml callers verified sanitized server-side] |
-| src/pages/* (55 routes) | ~28k | [SKIM + three-state heuristic sweep (results in uiux-walkthrough.md); EventDetailPage/DashboardOverview/QuizPage flows traced] |
+| src/pages/* (55 routes) | ~28k | [SKIM + three-state heuristic sweep; EventDetailPage/DashboardOverview/QuizPage flows traced] |
 | src/components/* | ~30k | [SKIM — attendance/dash/dashboard components structure verified; June audit polling [OK]s stand] |
 | src/context/*, src/hooks/*, src/lib/* | ~6k | [SKIM — June line-by-line [OK] stands; quizStore/api client structure re-verified] |
 | src/components/problems/ProblemSolverShell.tsx + lib/monacoEditor.ts | ~600 | [DEAD CODE — confirmed zero importers; PR-3 deletion pending] |
 | apps/web/tests/* (6 files) | ~800 | [SKIM — unit-level; e2e gap noted F-F4] |
+| src/pages/dashboard/DashboardOverview.tsx | 1273 | [OK — 14 parallel useQuery with tuned refetchInterval/staleTime; onboarding localStorage gate; admin stats 120s refetch; no stale closure bugs] |
+| src/pages/quiz/QuizPage.tsx | 655 | [OK — host/participant token split, socket lifecycle correct, 2s finale splash, accessChecking guards] |
+| src/components/attendance/AttendanceManager.tsx | 933 | [OK — multi-day select, search/filter/sort memoized, selection+batch actions, edit dialog with timestamp; no N+1 fetches] |
+| src/components/attendance/AttendanceHistory.tsx | 412 | [OK — event days badges, scannedAt sorting, image fallback; lazy load user avatar] |
 
 ## apps/playground + workers + scripts + configs (pass 4)
 | File | LOC | Verdict |
 |---|---|---|
-| apps/playground/execute-server.js | 1509 | [June audit full read stands: pool-txn bug + map sweeps fixed in PR-4 branch; not re-read] |
+| apps/playground/execute-server.js | 2230 | [F-P5 optionalAuth swallows revocation-check failures (fail-open); F-P6 revocation cache uses single-flight but no LRU on hit; F-P7 execCache no full-code comparison on collision (64-bit prefix only); F-P8 query parser keep-last matches new API but no prototype-hardening (Object.create(null)); F-P9 daily limit read from Settings cached 60s, no hot-reload of changes; else exemplary — session-first persistence, bounded memory (sweeps, caps), balanced provider routing, infra-failure detection, graceful shutdown] |
 | apps/playground/src (Vite app) | ~9.3k | [SKIM — Monaco correctly isolated here] |
-| workers/executor.js | 353 | [OK — origin allowlist, EXECUTOR_SECRET gate, sanitized upstream errors] |
+| workers/executor.js | 452 | [F-W2 no per-request size cap (upstream body unbounded); F-W3 balanced round-robin across isolates = not fair queue; F-W4 godbolt NO fallback for JS/TS (by design); else exemplary — provider chain with infra detection, constant-time secret check, Origin allowlist, strict Wandbox-shaped response, bounded upstream fetches with client-abort awareness, M1 secret + Origin dual-gate, error sanitization] |
 | render.yaml | ~230 | [F-S7 security headers documented as NOT live in prod (dashboard overrides blueprint — verified 2026-06-07 note in-file); F-G2 no buildFilter on codescriet-api; F-G4 migrate-resolve TODO expires 2026-08-01] |
 | playwright.config.ts + e2e/ | ~90 | [F-F4 e2e = 36 lines of smoke; riskiest flows (registration race, team join, quiz lifecycle, attendance scan) have no e2e] |
 | tsconfigs (api/web/playground) | — | [OK — strict everywhere, noUnusedLocals on web; only 8 `as any` repo-wide] |

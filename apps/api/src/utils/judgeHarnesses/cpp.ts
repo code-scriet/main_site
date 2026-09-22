@@ -3,6 +3,8 @@ export function buildHarness(opts: {
   testCases: Array<{ id: string; input: string }>;
   approach: 'A' | 'B';
   timeLimitMs: number;
+  /** Deliberately UNUSED — the nonce arrives via stdin, never in the source. */
+  nonce: string;
 }): string {
   // The user's `int main(...)` is renamed to `__user_main` via macro. We support
   // both `int main()` and `int main(int argc, char** argv)` via templated overloads.
@@ -75,7 +77,7 @@ static string __judge_read_all_stdin() {
   return data;
 }
 
-vector<__JudgeTest> __judge_read_tests() {
+vector<__JudgeTest> __judge_read_tests(string& outNonce) {
   string data = __judge_read_all_stdin();
   size_t off = 0;
   auto readLine = [&]() -> string {
@@ -88,6 +90,9 @@ vector<__JudgeTest> __judge_read_tests() {
   };
 
   vector<__JudgeTest> tests;
+  string nonceLine = readLine();
+  if (nonceLine.rfind("__NONCE=", 0) != 0) throw runtime_error("invalid judge input");
+  outNonce = nonceLine.substr(8);
   string header = readLine();
   if (header.rfind("__N=", 0) != 0) throw runtime_error("invalid judge input");
   int total = stoi(header.substr(4));
@@ -282,16 +287,27 @@ __TestOutcome __run_one_test(const __JudgeTest& test) {
 }
 
 int main() {
+  string __judge_nonce;
   try {
-    vector<__JudgeTest> tests = __judge_read_tests();
+    vector<__JudgeTest> tests = __judge_read_tests(__judge_nonce);
     for (const auto& test : tests) {
       __TestOutcome outcome = __run_one_test(test);
-      cout << "__JUDGE:" << test.id << ":" << outcome.status
+      cout << "__JUDGE_" << __judge_nonce << ":" << test.id << ":" << outcome.status
            << ":" << outcome.runtimeMs << ":" << __judge_b64(outcome.payload) << "\\n";
       cout.flush();
     }
+    cout << "__JUDGE_" << __judge_nonce << ":__end:OK:0:" << "\\n";
+    cout.flush();
   } catch (const exception& ex) {
-    cout << "__JUDGE:__harness:FAIL:0:" << __judge_b64(ex.what()) << "\\n";
+    if (!__judge_nonce.empty()) {
+      cout << "__JUDGE_" << __judge_nonce << ":__harness:FAIL:0:" << __judge_b64(ex.what()) << "\\n";
+      cout.flush();
+    } else {
+      // No nonce yet (e.g. a missing/malformed __NONCE= first line): there is no
+      // token to stamp a frame with, so fail loudly on stderr like python.ts.
+      cerr << "judge harness: " << ex.what() << "\\n";
+      cerr.flush();
+    }
   }
   return 0;
 }

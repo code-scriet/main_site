@@ -634,8 +634,11 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
   if (judge.verdict === 'JUDGE_ERROR') {
     // Judge/infra outage is not the user's fault — give back the quota unit we
     // consumed above (mirrors the submit path's refund) so a Test Run during an
-    // upstream outage never burns the student's daily allowance.
-    await refundDailyQuota(params.user.id, 1);
+    // upstream outage never burns the student's daily allowance. A TAMPERED run
+    // is excluded: that one is the submitter's doing and keeps its cost.
+    if (!judge.tampered) {
+      await refundDailyQuota(params.user.id, 1);
+    }
     throw new ProblemHttpError(503, 'Judge error, try again', 'SERVICE_UNAVAILABLE');
   }
 
@@ -705,7 +708,11 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // manually (or the student can appeal). This restores the pre-outage behaviour
   // where a failed submit was recorded and manually gradable.
   const isJudgeFailure = judge.verdict === 'JUDGE_ERROR';
-  if (isJudgeFailure) {
+  // A tampered run is ALSO reported as JUDGE_ERROR (we cannot score it), but it
+  // is the submitter's doing, not an upstream outage — so it consumes the
+  // attempt and the daily unit like any other. Refunding it would hand a forger
+  // unlimited free attempts to probe the judge.
+  if (isJudgeFailure && !judge.tampered) {
     await releaseSubmitCap(capReservation.counterId);
     await refundDailyQuota(params.user.id, 1);
   }

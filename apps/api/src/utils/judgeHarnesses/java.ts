@@ -13,6 +13,8 @@ export function buildHarness(opts: {
   testCases: Array<{ id: string; input: string }>;
   approach: 'A' | 'B';
   timeLimitMs: number;
+  /** Deliberately UNUSED — the nonce arrives via stdin, never in the source. */
+  nonce: string;
 }): string {
   const rewritten = rewriteMainClass(opts.userCode);
   const timeLimitMs = Math.max(100, Math.floor(opts.timeLimitMs));
@@ -36,9 +38,21 @@ class Main {
     }
   }
 
-  static java.util.List<JudgeTest> readTests() throws Exception {
+  static class JudgeInput {
+    String nonce;
+    java.util.List<JudgeTest> tests;
+    JudgeInput(String nonce, java.util.List<JudgeTest> tests) {
+      this.nonce = nonce;
+      this.tests = tests;
+    }
+  }
+
+  static JudgeInput readInput() throws Exception {
     byte[] bytes = System.in.readAllBytes();
     int[] offset = new int[] { 0 };
+    String nonceLine = readLine(bytes, offset);
+    if (!nonceLine.startsWith("__NONCE=")) throw new RuntimeException("invalid judge input");
+    String nonce = nonceLine.substring(8);
     String header = readLine(bytes, offset);
     if (!header.startsWith("__N=")) throw new RuntimeException("invalid judge input");
     int total = Integer.parseInt(header.substring(4));
@@ -56,7 +70,7 @@ class Main {
       if (offset[0] < bytes.length && bytes[offset[0]] == 10) offset[0]++;
       tests.add(new JudgeTest(idLine.substring(5), body));
     }
-    return tests;
+    return new JudgeInput(nonce, tests);
   }
 
   static String readLine(byte[] bytes, int[] offset) {
@@ -102,7 +116,8 @@ class Main {
   }
 
   public static void main(String[] args) throws Exception {
-    java.util.List<JudgeTest> tests = readTests();
+    JudgeInput input = readInput();
+    java.util.List<JudgeTest> tests = input.tests;
     java.net.URL[] urls = classpathUrls();
     java.io.InputStream realIn = System.in;
     java.io.PrintStream realOut = System.out;
@@ -180,8 +195,14 @@ class Main {
         status = "FAIL";
       }
       String encoded = java.util.Base64.getEncoder().encodeToString(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-      realOut.println("__JUDGE:" + test.id + ":" + status + ":" + runtime + ":" + encoded);
+      realOut.println("__JUDGE_" + input.nonce + ":" + test.id + ":" + status + ":" + runtime + ":" + encoded);
     }
+
+    // End sentinel: proves the harness ran every test to completion. A submission
+    // that kills the JVM early (System.exit) to suppress genuine frames and let a
+    // shutdown hook forge them cannot produce this line, because it never learns
+    // the nonce — it is not in the source and not in any reflectable field.
+    realOut.println("__JUDGE_" + input.nonce + ":__end:OK:0:");
   }
 }
 `;
