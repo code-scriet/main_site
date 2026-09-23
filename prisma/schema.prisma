@@ -210,6 +210,11 @@ model Settings {
   // (or a language godbolt can't run, e.g. Node/JS). See CLAUDE.md → Execution Resilience.
   codeExecutionProvider String @default("wandbox") @map("code_execution_provider")
 
+  // Show "via CodeBox (local) / Wandbox / godbolt" badge on code-run outputs.
+  // Display-only flag (APIs always return the provider); toggled by
+  // President/super-admin via PATCH /settings/:key (that route is gated).
+  showExecutionSource Boolean @default(true) @map("show_execution_source")
+
   // S4/S6 runtime toggles (admin Settings UI). Hot paths read these via the
   // SYNCHRONOUS in-process settings-cache peek (utils/settingsCache.ts) — never a
   // per-event DB query — so toggling costs nothing at reveal/snapshot time and

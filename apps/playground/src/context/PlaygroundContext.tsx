@@ -40,6 +40,10 @@ interface PlaygroundState {
   fontSize: number;
   /** Which tier ran the last execution ('client' | 'cloud' | null) */
   executionTier: 'client' | 'cloud' | null;
+  /** Actual upstream host for cloud runs (codebox|wandbox|godbolt), null otherwise */
+  executionProvider: string | null;
+  /** Display "via X" badges on run outputs (admin toggle, default true) */
+  showExecutionSource: boolean;
   /** Status message shown during execution (e.g. "Loading Python runtime...") */
   statusMessage: string;
   /** Whether to run Python locally (Pyodide) or via cloud */
@@ -59,6 +63,7 @@ interface PlaygroundContextType extends PlaygroundState {
   setIsRunning: (isRunning: boolean) => void;
   setExecutionTime: (time: string) => void;
   setExecutionTier: (tier: 'client' | 'cloud' | null) => void;
+  setExecutionProvider: (provider: string | null) => void;
   setStatusMessage: (message: string) => void;
   resetCode: () => void;
   increaseFontSize: () => void;
@@ -109,6 +114,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
           error: '',
           executionTime: '',
           executionTier: null,
+          executionProvider: null,
           statusMessage: '',
         };
       } catch (error) {
@@ -127,6 +133,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       executionTime: '',
       fontSize: 14,
       executionTier: null,
+      executionProvider: null,
       statusMessage: '',
     };
   });
@@ -246,6 +253,33 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, executionTier }));
   };
 
+  const setExecutionProvider = (executionProvider: string | null) => {
+    setState((prev) => ({ ...prev, executionProvider }));
+  };
+
+  const [showExecutionSource, setShowExecutionSource] = useState(true);
+
+  // Display flag for "via X" badges (president/super-admin toggle, default on).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = (import.meta.env.VITE_MAIN_API_URL as string | undefined)?.replace(/\/+$/, '');
+        if (!base) return;
+        const res = await fetch(`${base}/api/settings/public`);
+        const json = await res.json();
+        if (!cancelled && json?.data && typeof json.data.showExecutionSource === 'boolean') {
+          setShowExecutionSource(json.data.showExecutionSource);
+        }
+      } catch {
+        /* offline/error: keep default true */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const setStatusMessage = (statusMessage: string) => {
     setState((prev) => ({ ...prev, statusMessage }));
   };
@@ -281,6 +315,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       error: '',
       executionTime: '',
       executionTier: null,
+      executionProvider: null,
       statusMessage: '',
     }));
   };
@@ -295,6 +330,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setIsRunning,
     setExecutionTime,
     setExecutionTier,
+    setExecutionProvider,
+    showExecutionSource,
     setStatusMessage,
     resetCode,
     increaseFontSize,

@@ -362,6 +362,36 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     return saved && saved.length > 0 ? saved : LANGUAGE_META[lang].starter;
   });
   const [lastRun, setLastRun] = useState<TestRunResult | null>(null);
+  const [showExecutionSource, setShowExecutionSource] = useState(true);
+
+  // Display flag for "via X" badges (president/super-admin toggle, default on).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = (import.meta.env.VITE_MAIN_API_URL as string | undefined)?.replace(/\/+$/, '');
+        if (!base) return;
+        const res = await fetch(`${base}/api/settings/public`);
+        const json = await res.json();
+        if (!cancelled && json?.data && typeof json.data.showExecutionSource === 'boolean') {
+          setShowExecutionSource(json.data.showExecutionSource);
+        }
+      } catch {
+        /* offline/error: keep default true */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const providerLabel = (provider?: string | null): string | null => {
+    if (!provider) return null;
+    if (provider === 'codebox') return 'CodeBox · local';
+    if (provider === 'wandbox') return 'Wandbox · cloud';
+    if (provider === 'godbolt') return 'godbolt · cloud';
+    return null;
+  };
   const [selectedPublicId, setSelectedPublicId] = useState<string | null>(null);
   const [remainingCap, setRemainingCap] = useState<number | null>(null);
   const [submitCap, setSubmitCap] = useState<number>(problem.defaultSubmitCap ?? 5);
@@ -742,6 +772,11 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
       {tab === 'tests' && (
         <div className="space-y-4">
+          {showExecutionSource && lastRun?.provider && providerLabel(lastRun.provider) && (
+            <p className="text-[11.5px] text-zinc-500 dark:text-zinc-400">
+              Ran via <span className="ml-1 rounded border border-zinc-300 px-1.5 py-0.5 align-middle dark:border-zinc-600">{providerLabel(lastRun.provider)}</span>
+            </p>
+          )}
           <div className="flex rounded border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
             <button type="button" onClick={() => setTestPanel('public')} className={`flex-1 rounded px-2 py-2 text-[13px] font-semibold transition sm:px-3 sm:text-sm ${testPanel === 'public' ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
               Public ({publicPassed}/{publicTotal})

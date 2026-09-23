@@ -39,6 +39,8 @@ export interface JudgeResult {
   }>;
   totalRuntimeMs: number;
   compilerOutput?: string;
+  /** Host that actually served this run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
   /**
    * Set when the harness output could not be trusted — duplicate frames for one
    * test id, or frames for a test that was never sent. Callers MUST NOT refund
@@ -399,6 +401,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: provider,
         compilerOutput: truncate(error instanceof Error ? error.message : String(error), COMPILER_OUTPUT_LIMIT),
       };
     } finally {
@@ -410,6 +413,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: provider,
         compilerOutput: truncate(String(workerResult.error), COMPILER_OUTPUT_LIMIT),
       };
     }
@@ -446,6 +450,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: 'Execution service is temporarily unavailable. Please try again in a moment.',
       };
     }
@@ -459,6 +464,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'COMPILATION_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: humanizeCompilerError(req.language, combinedCompilerOutput),
       };
     }
@@ -472,6 +478,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'TIME_LIMIT_EXCEEDED',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: combinedCompilerOutput,
       };
     }
@@ -490,6 +497,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: 'The judge could not verify this run. Your submission has been flagged for manual review.',
         tampered: true,
       };
@@ -518,6 +526,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: 'The program exited before the judge finished running every test. Avoid terminating the process (e.g. System.exit / sys.exit / os._exit) in your solution.',
       };
     }
@@ -527,6 +536,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: status !== 0 ? 'RUNTIME_ERROR' : 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: humanizeCompilerError(req.language, truncate([combinedCompilerOutput, stdout].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT)),
       };
     }

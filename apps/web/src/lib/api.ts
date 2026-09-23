@@ -538,6 +538,7 @@ export interface Settings {
   plagiarismCheckEnabled?: boolean;
   quizFoldRankInResult?: boolean;
   quizSnapshotEnabled?: boolean;
+  showExecutionSource?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;

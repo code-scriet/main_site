@@ -100,6 +100,8 @@ export interface TestRunResult {
   totalRuntimeMs: number;
   compilerOutput?: string;
   remainingDailyQuota: number;
+  /** Host that served the run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
 }
 
 export interface SubmissionResult extends ProblemSubmission {

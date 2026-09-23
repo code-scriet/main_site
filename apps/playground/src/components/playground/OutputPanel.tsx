@@ -123,6 +123,8 @@ export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
     statusMessage,
     executionTime,
     executionTier,
+    executionProvider,
+    showExecutionSource,
     clearOutput,
     language,
     setCode,
@@ -416,6 +418,16 @@ export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
                     failed ? 'text-red-600 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400',
                   )}>
                     {exitLine}
+                    {showExecutionSource && executionTier === 'cloud' && executionProvider && (
+                      <span className="ml-2 rounded border border-zinc-300 px-1.5 py-0.5 align-middle text-[10.5px] dark:border-zinc-600">
+                        via {executionProvider === 'codebox' ? 'CodeBox · local' : executionProvider === 'wandbox' ? 'Wandbox · cloud' : executionProvider === 'godbolt' ? 'godbolt · cloud' : 'cloud'}
+                      </span>
+                    )}
+                    {showExecutionSource && executionTier === 'client' && (
+                      <span className="ml-2 rounded border border-zinc-300 px-1.5 py-0.5 align-middle text-[10.5px] dark:border-zinc-600">
+                        via this device
+                      </span>
+                    )}
                   </p>
                 )}
 

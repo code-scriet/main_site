@@ -314,6 +314,17 @@ export default function AdminSettings() {
       {/* Code execution provider picker (writes Settings.codeExecutionProvider; honored by judge + playground) */}
       <CodeExecutionCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
 
+      <SettingsCard title="Run source badge" description="Show users which server executed their code (local CodeBox vs cloud).">
+        <ToggleRow
+          id="show-execution-source"
+          label="Show execution source"
+          description="Display a 'via CodeBox / Wandbox / godbolt' badge on code-run outputs. Only President/super-admin can change this."
+          checked={settings.showExecutionSource ?? true}
+          onCheckedChange={(checked) => void handleToggle('showExecutionSource', checked)}
+          compact
+        />
+      </SettingsCard>
+
       <RegistrationEventsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
 
       {/* Email & Notifications — half-width per design intent (compact toggles only). */}

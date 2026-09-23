@@ -100,6 +100,8 @@ export interface ProblemSubmissionResult {
   compilerOutput?: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Host that served the run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
   /**
    * True when judging itself failed (upstream outage) and the submission was
    * captured for manual review instead of graded. The attempt + daily quota are
@@ -128,6 +130,8 @@ export interface ProblemRunResult {
   totalRuntimeMs: number;
   compilerOutput?: string;
   remainingDailyQuota: number;
+  /** Host that served the run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
 }
 
 export function isAdminUser(user?: AuthUser | null): boolean {
@@ -657,6 +661,7 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
     totalRuntimeMs: judge.totalRuntimeMs,
     compilerOutput: judge.compilerOutput,
     remainingDailyQuota: daily.remaining,
+    provider: judge.provider,
   };
 }
 
@@ -880,6 +885,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     perTestVerdicts: scored.perTestVerdicts,
     totalRuntimeMs: judge.totalRuntimeMs,
     compilerOutput: judge.compilerOutput,
+    provider: judge.provider,
     // Refunded attempts/quota are reflected back so the client UI stays accurate.
     remainingSubmits: isJudgeFailure ? capReservation.remaining + 1 : capReservation.remaining,
     remainingDailyQuota: isJudgeFailure ? daily.remaining + 1 : daily.remaining,

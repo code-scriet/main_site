@@ -12,7 +12,7 @@ export interface ExecutionResult {
   /** Version string (e.g. 'browser', 'Python 3.12', 'tsc 5.6.2') */
   version: string;
   /** Which execution provider ran the code */
-  provider: 'client' | 'codescriet';
+  provider: 'client' | 'codescriet' | 'codebox' | 'wandbox' | 'godbolt';
   /** Runtime execution output */
   run: {
     stdout: string;

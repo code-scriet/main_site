@@ -229,6 +229,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       contactEmails: Array.isArray(full.contactEmails) ? full.contactEmails : [],
       accentColor: full.accentColor,
       codeExecutionProvider: full.codeExecutionProvider,
+      showExecutionSource: full.showExecutionSource,
       // Used by /about to compute the "months since inception" stat.
       siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
       // Public origin of the contest /competition socket relay (the playground execute-server),
@@ -277,6 +278,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           contactEmails: [],
           accentColor: 'rust',
           codeExecutionProvider: 'wandbox',
+          showExecutionSource: true,
           siteLaunchDate: '2026-01-01T00:00:00.000Z',
           playgroundApiUrl: getPlaygroundRelayBase(),
         },
@@ -700,6 +702,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'whatsappUrl',
       'accentColor',
       'codeExecutionProvider',
+      'showExecutionSource',
       'quizFoldRankInResult',
       'quizSnapshotEnabled',
     ];
@@ -739,6 +742,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'emailTestingMode',
       'quizFoldRankInResult',
       'quizSnapshotEnabled',
+      'showExecutionSource',
     ]);
     const urlKeys = new Set([
       'githubUrl',

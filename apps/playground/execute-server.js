@@ -168,13 +168,19 @@ app.use(cors({
 // "authorization without rate limiting" rule cannot follow an imperatively-invoked
 // limiter). Rate limiting a caller that already holds the secret would buy nothing anyway —
 // forging it requires JWT_SECRET, i.e. full compromise.
+function clientIp(req) {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim() !== '') return cf.trim().split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
 const internalAbuseLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'forbidden' },
-  keyGenerator: (req) => req.ip || req.socket?.remoteAddress || 'unknown',
+  keyGenerator: (req) => clientIp(req),
   skip: (req) => validInternalSecret(req),
 });
 app.use('/internal', internalAbuseLimiter, (req, res, next) => {
@@ -497,8 +503,8 @@ const playgroundSettingsCache = {
 // Worker so the playground honors the same primary as the judge. Cached on its
 // OWN TTL/query — kept separate from the daily-limit read so a missing column on
 // a not-yet-migrated DB can't knock the daily limit back to its default.
-const DEFAULT_CODE_PROVIDER = 'wandbox';
-const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt', 'balanced'];
+const DEFAULT_CODE_PROVIDER = 'balanced'; // VM: codebox-first via balanced (see resolve)
+const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt', 'balanced', 'codebox'];
 const providerCache = {
   expiresAt: 0,
   provider: DEFAULT_CODE_PROVIDER,
@@ -515,15 +521,23 @@ function normalizeCodeProvider(value) {
 // cannot EXECUTE them). O(1) memory; the CF Worker's per-request fallback chain
 // remains the safety net underneath.
 const PROVIDER_COOLDOWN_MS = 45_000;
-const providerCooldownUntil = { wandbox: 0, godbolt: 0 };
+const providerCooldownUntil = { wandbox: 0, godbolt: 0, codebox: 0 };
 let providerRoundRobin = 0;
 
 function providerCanRunLanguage(provider, language) {
   if (provider === 'godbolt') return language !== 'javascript' && language !== 'typescript';
+  if (provider === 'codebox') return language !== 'typescript';
   return true;
 }
 
 function resolveExecutionProvider(setting, language) {
+  // Local-first: CodeBox serves when healthy and below the inflight cap.
+  // Anything else (cooldown, saturation, TS) falls through to the CF Worker
+  // chain, which remains the final backstop - local first, never local-only.
+  if (providerCanRunLanguage('codebox', language)
+      && codeboxHealthyCached() && codeboxInflight < CODEBOX_MAX_INFLIGHT) {
+    if (setting === 'codebox' || setting === 'balanced') return 'codebox';
+  }
   const candidates = ['wandbox', 'godbolt'].filter((p) => providerCanRunLanguage(p, language));
   if (candidates.length === 1) return candidates[0];
   const now = Date.now();
@@ -923,7 +937,7 @@ const crudRateLimit = rateLimit({
   validate: { trustProxy: false, xForwardedForHeader: false },
   keyGenerator: (req) => (req.user?.id
     ? `u:${req.user.id}`
-    : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`),
+    : `ip:${clientIp(req)}`),
   message: { success: false, error: 'Too many requests. Please slow down and try again in a minute.' },
 });
 
@@ -1092,6 +1106,116 @@ function isInfraFailure(text) {
   return !!text && INFRA_FAILURE_RE.test(text);
 }
 
+// ---- CodeBox (local Judge0-compatible engine) as 4th provider ----
+// Local-first: CodeBox serves when healthy and below the inflight cap.
+// The CF Worker chain stays as the final backstop (never local-only).
+const CODEBOX_URL = process.env.CODEBOX_URL || 'http://127.0.0.1:3000';
+const CODEBOX_TOKEN = process.env.CODEBOX_TOKEN || '';
+const CODEBOX_HEALTH_TTL_MS = 30_000;
+const CODEBOX_MAX_INFLIGHT = 4; // worker concurrency is 1; queue absorbs the rest
+const CODEBOX_LANG_IDS = { cpp: 54, c: 50, java: 62, javascript: 63, python: 71 };
+let codeboxHealth = { expiresAt: 0, ok: true };
+let codeboxInflight = 0;
+
+function codeboxRefreshHealth() {
+  fetch(`${CODEBOX_URL}/health`, { signal: AbortSignal.timeout(5000) })
+    .then((r) => { codeboxHealth = { expiresAt: Date.now() + CODEBOX_HEALTH_TTL_MS, ok: r.ok }; })
+    .catch(() => { codeboxHealth = { expiresAt: Date.now() + CODEBOX_HEALTH_TTL_MS, ok: false }; });
+}
+
+function codeboxHealthyCached() {
+  if (Date.now() >= codeboxHealth.expiresAt) codeboxRefreshHealth();
+  return codeboxHealth.ok;
+}
+
+async function executeCodeBox(language, code, stdin, config, controller, timeout) {
+  // Uses the caller's AbortController/timeout (outer finally clears it).
+  // Any infra failure is tagged EXEC_INFRA_UNAVAILABLE so executeWithRetry
+  // re-resolves and spills to the CF Worker chain.
+  codeboxInflight++;
+  try {
+    let response;
+    try {
+      response = await fetch(`${CODEBOX_URL}/submissions?wait=true`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(CODEBOX_TOKEN ? { 'X-Auth-Token': CODEBOX_TOKEN } : {}),
+        },
+        body: JSON.stringify({
+          source_code: code,
+          language_id: CODEBOX_LANG_IDS[language],
+          stdin: stdin || '',
+          memory_limit: language === 'java' ? 512000 : 256000,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      reportProviderInfraFailure('codebox');
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    }
+    if (!response.ok) {
+      if (response.status >= 500) {
+        reportProviderInfraFailure('codebox');
+        const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+        infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+        throw infraErr;
+      }
+      throw new Error(`CodeBox HTTP ${response.status}`);
+    }
+    const j = await response.json();
+    const st = (j && j.status) || {};
+    const stdout = clean(j.stdout || '');
+    let exitCode = 0;
+    let compilerErr = '';
+    let runErr = '';
+    if (st.id === 3) {
+      exitCode = 0;
+    } else if (st.id === 6) {
+      exitCode = 1;
+      compilerErr = clean(j.compile_output || j.stderr || 'Compilation failed');
+    } else if (st.id === 5) {
+      exitCode = 1;
+      runErr = 'Time limit exceeded';
+    } else if (st.id === 13) {
+      reportProviderInfraFailure('codebox');
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    } else {
+      exitCode = (typeof j.exit_code === 'number' && j.exit_code !== 0) ? j.exit_code : 1;
+      runErr = clean(j.stderr || '') || `Runtime error (status ${st.description || st.id || 'unknown'})`;
+    }
+    const hasOutput = !!stdout;
+    const isCompileError = !!compilerErr && !hasOutput;
+    reportProviderSuccess('codebox');
+    return {
+      language,
+      version: config.version,
+      provider: 'codebox',
+      run: {
+        stdout,
+        stderr: isCompileError ? '' : runErr,
+        code: exitCode,
+        signal: j.exit_signal || null,
+        output: stdout || runErr,
+      },
+      compile: (compilerErr) ? {
+        stdout: '',
+        stderr: isCompileError ? sanitizeError(compilerErr) : '',
+        code: isCompileError ? 1 : 0,
+        signal: null,
+        output: isCompileError ? sanitizeError(compilerErr) : '',
+      } : undefined,
+    };
+  } finally {
+    codeboxInflight--;
+  }
+}
+
+
 async function executeCode(language, code, stdin) {
   const config = COMPILERS[language];
   if (!config) throw new Error(`Unsupported language: ${language}. Supported: ${SUPPORTED_LANGUAGES.join(', ')}`);
@@ -1102,6 +1226,9 @@ async function executeCode(language, code, stdin) {
   try {
     const providerSetting = await getCodeExecutionProvider();
     const provider = resolveExecutionProvider(providerSetting, language);
+    if (provider === 'codebox') {
+      return await executeCodeBox(language, code, stdin, config, controller, timeout);
+    }
     const body = {
       compiler: config.compiler,
       code,
@@ -1203,7 +1330,7 @@ async function executeCode(language, code, stdin) {
     return {
       language,
       version: config.version,
-      provider: 'codescriet',
+      provider: result.judge_provider || provider,
       run: {
         stdout,
         stderr: isCompileError ? '' : runStderr,
@@ -1349,7 +1476,7 @@ app.post('/internal/disconnect-user', async (req, res) => {
 app.post('/api/execute', async (req, res) => {
   try {
     const { language, code, stdin = '' } = req.body;
-    const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const requestIp = clientIp(req);
 
     if (!language || !code) {
       return res.status(400).json({ success: false, error: 'Language and code are required' });
@@ -1520,7 +1647,7 @@ app.post('/api/execute', async (req, res) => {
     return res.json({
       success: true,
       data: result,
-      meta: { durationMs, userId: req.user?.id || null, provider: 'codescriet', cached: fromCache },
+      meta: { durationMs, userId: req.user?.id || null, provider: result.provider || 'codescriet', cached: fromCache },
     });
   } catch (error) {
     console.error('[Execute] Execution error:', error);
