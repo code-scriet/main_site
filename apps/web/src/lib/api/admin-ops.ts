@@ -151,9 +151,10 @@ export const adminOpsApi = {
     request<{ request: PlaygroundLimitResetRequest | null }>('/playground/my-reset-request', { token }),
   adminGetPendingPlaygroundResetRequests: (token: string) =>
     request<{ requests: PlaygroundLimitResetRequest[] }>('/playground/admin/pending-reset-requests', { token }),
-  adminGrantPlaygroundResetRequest: (id: string, token: string) =>
+  adminGrantPlaygroundResetRequest: (id: string, token: string, extraQuota?: number) =>
     request<{ request: PlaygroundLimitResetRequest }>(`/playground/admin/reset-requests/${id}/grant`, {
       method: 'POST',
+      body: JSON.stringify(extraQuota === undefined ? {} : { extraQuota }),
       token,
     }),
   adminDenyPlaygroundResetRequest: (id: string, token: string) =>

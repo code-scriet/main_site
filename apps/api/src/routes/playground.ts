@@ -14,6 +14,7 @@ import { getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 import { getUsageDate, resetDailyQuotaAndPracticeCounters } from '../utils/dailyLimit.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
 import { auditLog } from '../utils/audit.js';
 import { requireUuid } from '../utils/idParams.js';
 import { getClientIp } from '../utils/clientIp.js';
@@ -190,6 +191,23 @@ router.get('/admin/pending-reset-requests', requireRole('ADMIN'), async (_req: R
   }
 });
 
+/** Best-effort poke: drop one user's in-memory quota/session on the playground
+ *  execute-server so a grant takes effect on their very next run instead of
+ *  waiting out the resync window. Never throws, never blocks the response. */
+function pokePlaygroundSessionInvalidate(userId: string): void {
+  try {
+    const relayBase = getPlaygroundRelayBase();
+    const secret = getInternalApiSecret();
+    if (!relayBase || !secret || !userId) return;
+    void fetch(`${relayBase}/internal/sessions/invalidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+      body: JSON.stringify({ userId }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {});
+  } catch { /* never fail the caller */ }
+}
+
 /** Admin grants a pending reset request */
 router.post('/admin/reset-requests/:id/grant', requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
@@ -210,6 +228,17 @@ router.post('/admin/reset-requests/:id/grant', requireRole('ADMIN'), async (req:
 
     const decidedAt = new Date();
     const note = normalizeResetNote(req.body?.note) ?? request.note ?? 'Granted from reset request inbox';
+    // Optional custom grant: give exactly N more runs instead of a full reset.
+    // Absent/empty ⇒ classic full reset (count back to 0).
+    let grantedRuns: number | null = null;
+    const extraQuotaRaw = req.body?.extraQuota;
+    if (extraQuotaRaw !== undefined && extraQuotaRaw !== null && extraQuotaRaw !== '') {
+      const n = Number(extraQuotaRaw);
+      if (!Number.isInteger(n) || n < 1 || n > 10000) {
+        return res.status(400).json({ success: false, error: 'extraQuota must be an integer between 1 and 10000' });
+      }
+      grantedRuns = n;
+    }
     const updated = await prisma.$transaction(async (tx) => {
       const granted = await tx.playgroundLimitResetRequest.update({
         where: { id: request.id },
@@ -227,10 +256,26 @@ router.post('/admin/reset-requests/:id/grant', requireRole('ADMIN'), async (req:
     });
 
     await resetDailyQuotaAndPracticeCounters(request.userId);
+    if (grantedRuns !== null) {
+      const limitRow = await prisma.settings.findUnique({
+        where: { id: 'default' },
+        select: { playgroundDailyLimit: true },
+      });
+      const limit = limitRow?.playgroundDailyLimit ?? 100;
+      await prisma.playgroundDailyUsage.upsert({
+        where: { userId_usageDate: { userId: request.userId, usageDate: getUsageDate() } },
+        create: { userId: request.userId, usageDate: getUsageDate(), count: Math.max(0, limit - grantedRuns) },
+        update: { count: Math.max(0, limit - grantedRuns) },
+      });
+    }
+    // Make it instant: drop the user's in-memory session on the execute-server
+    // so the next run re-reads fresh counters instead of waiting out resync.
+    pokePlaygroundSessionInvalidate(request.userId);
     await auditLog(admin.id, 'PLAYGROUND_LIMIT_RESET_REQUEST_GRANTED', 'PlaygroundLimitResetRequest', request.id, {
       userId: request.userId,
       resetDailyQuota: true,
       resetPracticeProblemCounters: true,
+      grantedRuns,
       note,
     });
 
@@ -442,6 +487,16 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
       return;
     }
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : '';
+    // Optional custom grant: give exactly N more runs instead of a full reset.
+    let grantedRuns: number | null = null;
+    const extraQuotaRaw = req.body?.extraQuota;
+    if (extraQuotaRaw !== undefined && extraQuotaRaw !== null && extraQuotaRaw !== '') {
+      const n = Number(extraQuotaRaw);
+      if (!Number.isInteger(n) || n < 1 || n > 10000) {
+        return res.status(400).json({ success: false, error: 'extraQuota must be an integer between 1 and 10000' });
+      }
+      grantedRuns = n;
+    }
 
     // Verify target user exists
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
@@ -463,9 +518,24 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
       },
     });
     await resetDailyQuotaAndPracticeCounters(userId);
+    if (grantedRuns !== null) {
+      const limitRow = await prisma.settings.findUnique({
+        where: { id: 'default' },
+        select: { playgroundDailyLimit: true },
+      });
+      const limit = limitRow?.playgroundDailyLimit ?? 100;
+      await prisma.playgroundDailyUsage.upsert({
+        where: { userId_usageDate: { userId, usageDate: getUsageDate() } },
+        create: { userId, usageDate: getUsageDate(), count: Math.max(0, limit - grantedRuns) },
+        update: { count: Math.max(0, limit - grantedRuns) },
+      });
+    }
+    // Make it instant: drop the user's in-memory session on the execute-server.
+    pokePlaygroundSessionInvalidate(userId);
     await auditLog(admin.id, 'PLAYGROUND_LIMIT_RESET', 'User', userId, {
       resetDailyQuota: true,
       resetPracticeProblemCounters: true,
+      grantedRuns,
       note,
     });
 

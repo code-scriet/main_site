@@ -2,6 +2,7 @@
 // Two queues: Playground daily-limit reset requests + Extra submit-attempt requests.
 // Pixel-port of screen-overview.jsx:450 (AdminPendingRequests).
 
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cpu, Terminal } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -39,10 +40,22 @@ export function AdminPendingRequestsCardV2() {
   });
 
   const grantPlayground = useMutation({
-    mutationFn: (id: string) => api.adminGrantPlaygroundResetRequest(id, token!),
-    onSuccess: () => { toast.success('Reset granted'); qc.invalidateQueries({ queryKey: ['admin-pending-playground-reset'] }); },
+    mutationFn: ({ id, extraQuota }: { id: string; extraQuota?: number }) =>
+      api.adminGrantPlaygroundResetRequest(id, token!, extraQuota),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.extraQuota ? `Granted ${vars.extraQuota} runs` : 'Reset granted');
+      qc.invalidateQueries({ queryKey: ['admin-pending-playground-reset'] });
+    },
     onError: () => toast.error('Failed to grant'),
   });
+  // Optional per-request custom amount ("give N runs"); empty = full reset.
+  const [grantAmounts, setGrantAmounts] = useState<Record<string, string>>({});
+  const grantAmountFor = (id: string): number | undefined => {
+    const raw = (grantAmounts[id] ?? '').trim();
+    if (raw === '') return undefined;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 1 ? n : undefined;
+  };
   const denyPlayground = useMutation({
     mutationFn: (id: string) => api.adminDenyPlaygroundResetRequest(id, token!),
     onSuccess: () => { toast.success('Denied'); qc.invalidateQueries({ queryKey: ['admin-pending-playground-reset'] }); },
@@ -96,7 +109,9 @@ export function AdminPendingRequestsCardV2() {
                 subtitle={null}
                 when={relativeTime(r.createdAt)}
                 onDeny={() => denyPlayground.mutate(r.id)}
-                onGrant={() => grantPlayground.mutate(r.id)}
+                onGrant={() => grantPlayground.mutate({ id: r.id, extraQuota: grantAmountFor(r.id) })}
+                grantAmount={grantAmounts[r.id] ?? ''}
+                onGrantAmountChange={(v) => setGrantAmounts((prev) => ({ ...prev, [r.id]: v }))}
                 disabled={denyPlayground.isPending || grantPlayground.isPending}
               />
             ))
@@ -133,7 +148,7 @@ export function AdminPendingRequestsCardV2() {
 }
 
 function Row({
-  userName, userAvatar, subtitle, note, when, onDeny, onGrant, disabled,
+  userName, userAvatar, subtitle, note, when, onDeny, onGrant, disabled, grantAmount, onGrantAmountChange,
 }: {
   userName: string;
   userAvatar: string | null;
@@ -143,6 +158,8 @@ function Row({
   onDeny: () => void;
   onGrant: () => void;
   disabled: boolean;
+  grantAmount?: string;
+  onGrantAmountChange?: (value: string) => void;
 }) {
   return (
     <div className="flex items-center gap-3 py-2.5 px-2 hover:bg-[var(--surface-soft)] -mx-2 rounded-[6px] transition-colors">
@@ -158,6 +175,18 @@ function Row({
       </div>
       <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums hidden sm:inline whitespace-nowrap">{when}</span>
       <div className="flex items-center gap-1.5 shrink-0">
+        {onGrantAmountChange && (
+          <input
+            type="number"
+            min={1}
+            max={10000}
+            value={grantAmount ?? ''}
+            onChange={(e) => onGrantAmountChange(e.target.value)}
+            placeholder="runs"
+            title="Runs to grant (empty = full reset)"
+            className="w-16 rounded border border-[var(--border-default)] bg-transparent px-1.5 py-1 text-[12px] tabular-nums"
+          />
+        )}
         <Button size="sm" variant="outline" disabled={disabled} onClick={onDeny}>Deny</Button>
         <Button size="sm" disabled={disabled} onClick={onGrant}>Grant</Button>
       </div>

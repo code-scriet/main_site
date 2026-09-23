@@ -1398,6 +1398,21 @@ app.post('/internal/flush-caches', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Internal — drop one user's in-memory quota/session state (admin grant path).
+// The next run re-reads fresh counters from the DB, so quota grants take
+// effect instantly instead of waiting out the 5-min resync. Secret-gated.
+// ---------------------------------------------------------------------------
+app.post('/internal/sessions/invalidate', (req, res) => {
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  userSessions.delete(userId);
+  userExecCounts.delete(userId);
+  return res.json({ ok: true, userId });
+});
+
+// ---------------------------------------------------------------------------
 // Internal — CPU offload from the main API (contest plagiarism). Server-to-server
 // only: gated on a shared INTERNAL_API_SECRET, never reachable by a browser. The main
 // API sends one problem's submissions per call; we run the O(N²) similarity here (this
