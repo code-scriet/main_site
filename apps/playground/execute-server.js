@@ -1616,6 +1616,13 @@ app.post('/api/execute', async (req, res) => {
       result = cached;
       fromCache = true;
       console.log(`[Execute] Cache hit for ${language} (${code.length} chars)`);
+      // Refresh the provider label: the cached result may predate a settings
+      // flip, and a stale label ("still local") is worse than no label.
+      try {
+        const liveSetting = await getCodeExecutionProvider();
+        const live = resolveExecutionProvider(liveSetting, language);
+        if (live) result = { ...result, provider: live };
+      } catch { /* keep stored label on resolver failure */ }
     } else {
       result = await executeWithRetry(language, code, stdin);
       setCachedExecution(language, code, stdin, result, cacheScope);
