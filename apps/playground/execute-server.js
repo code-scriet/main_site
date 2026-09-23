@@ -870,11 +870,13 @@ process.on('SIGINT', () => {
  * Uses a compact per-user/day counter table instead of scanning executions.
  * This makes checks O(1) and drastically reduces database load.
  */
-async function checkUserRateLimit(userId) {
+async function checkUserRateLimit(userId, preloadedSession = null) {
   const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     try {
-      const session = await getUserSession(userId);
+      // Caller may hand us a session it already bootstrapped in parallel
+      // (block gate) — saves a sequential Neon round trip on cold sessions.
+      const session = preloadedSession || await getUserSession(userId);
       const allowed = session.todayCount < dailyLimit;
       return { allowed, remaining: Math.max(0, dailyLimit - session.todayCount), dailyLimit };
     } catch (err) {
@@ -1550,14 +1552,20 @@ app.post('/api/execute', async (req, res) => {
     // when the DB hiccups. The single exception is 42P01 (relation does not
     // exist) which is the documented "pre-migration" safety net — without it
     // the playground would be unreachable until the migration runs.
+    // The gate query and the session bootstrap are independent: run them
+    // concurrently so a cold session costs one Neon RTT, not two.
     if (req.user && pool) {
-      try {
-        const blockCheck = await pool.query(
+      const [blockOutcome, sessionOutcome] = await Promise.allSettled([
+        pool.query(
           'SELECT expires_at FROM user_blocks WHERE user_id = $1 AND feature = $2 LIMIT 1',
           [req.user.id, 'PLAYGROUND'],
-        );
-        if (blockCheck.rows.length > 0) {
-          const expiresAt = blockCheck.rows[0].expires_at;
+        ),
+        getUserSession(req.user.id),
+      ]);
+      if (blockOutcome.status === 'fulfilled') {
+        const rows = blockOutcome.value.rows;
+        if (rows.length > 0) {
+          const expiresAt = rows[0].expires_at;
           if (!expiresAt || new Date(expiresAt) > new Date()) {
             return res.status(403).json({
               success: false,
@@ -1565,27 +1573,30 @@ app.post('/api/execute', async (req, res) => {
             });
           }
         }
-      } catch (err) {
-        if (err?.code === '42P01') {
-          // Pre-migration: user_blocks table not yet created. Allow the request
-          // through; once the migration runs the gate engages automatically.
-        } else {
-          console.error('[playground] block check failed; failing closed', {
-            code: err?.code,
-            message: err?.message || String(err),
-          });
-          return res.status(503).json({
-            success: false,
-            error: 'Service temporarily unavailable. Please retry shortly.',
-          });
-        }
+      } else if (blockOutcome.reason?.code === '42P01') {
+        // Pre-migration: user_blocks table not yet created. Allow the request
+        // through; once the migration runs the gate engages automatically.
+      } else {
+        console.error('[playground] block check failed; failing closed', {
+          code: blockOutcome.reason?.code,
+          message: blockOutcome.reason?.message || String(blockOutcome.reason),
+        });
+        return res.status(503).json({
+          success: false,
+          error: 'Service temporarily unavailable. Please retry shortly.',
+        });
       }
+      if (sessionOutcome.status === 'fulfilled') {
+        userSession = sessionOutcome.value;
+      }
+      // Rejected session falls through as null: checkUserRateLimit below
+      // fetches it itself exactly as before (same in-memory fallback).
     }
 
     // Rate limiting — all languages are metered
     mark('block');
     if (req.user) {
-      const limit = await checkUserRateLimit(req.user.id);
+      const limit = await checkUserRateLimit(req.user.id, userSession);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
       if (!limit.allowed) {
         const session = await getUserSession(req.user.id);
@@ -1599,7 +1610,7 @@ app.post('/api/execute', async (req, res) => {
         }
 
         userSession = session;
-      } else if (pool) {
+      } else if (pool && !userSession) {
         userSession = await getUserSession(req.user.id);
       }
 
