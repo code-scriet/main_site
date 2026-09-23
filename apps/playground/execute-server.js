@@ -515,11 +515,11 @@ function normalizeCodeProvider(value) {
 }
 
 // Balanced-mode routing (a miniature of apps/api/src/utils/executionRouting.ts):
-// each execution resolves the setting to ONE concrete provider — 'balanced'
-// alternates between healthy hosts, a host that infra-fails is deprioritized
-// for a short cooldown, and JS/TS always go to Wandbox (godbolt compiles but
-// cannot EXECUTE them). O(1) memory; the CF Worker's per-request fallback chain
-// remains the safety net underneath.
+// each execution resolves the setting to ONE concrete provider — CodeBox first
+// when healthy/under its inflight cap, else least-loaded remote; a host that
+// infra-fails is deprioritized for a short cooldown, and JS/TS never go to
+// godbolt (no JS runtime). O(1) memory; the CF Worker's per-request fallback
+// chain remains the safety net underneath.
 const PROVIDER_COOLDOWN_MS = 45_000;
 const providerCooldownUntil = { wandbox: 0, godbolt: 0, codebox: 0 };
 let providerRoundRobin = 0;
@@ -1017,7 +1017,7 @@ const COMPILER_OPTIONS_REGEX = /^[a-zA-Z0-9,+\-_. ]{0,120}$/;
 // ---------------------------------------------------------------------------
 // Execution Result Cache — avoids redundant cloud calls for identical code
 // ---------------------------------------------------------------------------
-const EXEC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const EXEC_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes (identical code => identical result; provider label refreshes live on hits)
 const EXEC_CACHE_MAX_SIZE = 500;
 const execCache = new Map(); // key → { result, expiresAt }
 
