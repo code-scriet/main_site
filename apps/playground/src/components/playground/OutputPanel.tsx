@@ -122,6 +122,7 @@ export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
     isRunning,
     statusMessage,
     executionTime,
+    serverExecutionTime,
     executionTier,
     executionProvider,
     showExecutionSource,
@@ -157,10 +158,11 @@ export function OutputPanel({ showStdin = true }: OutputPanelProps = {}) {
   const exitLine = useMemo(() => {
     if (!hasRunOutput || isRunning) return null;
     const time = executionTime || '—';
+    const server = serverExecutionTime ? ` · server ${serverExecutionTime}` : '';
     return failed
-      ? `› process exited with code 1 in ${time}`
-      : `› process exited with code 0 in ${time}`;
-  }, [hasRunOutput, isRunning, failed, executionTime]);
+      ? `› process exited with code 1 in ${time}${server}`
+      : `› process exited with code 0 in ${time}${server}`;
+  }, [hasRunOutput, isRunning, failed, executionTime, serverExecutionTime]);
 
   const isWebLanguage = language.id === 'web';
   const isDark = theme === 'dark';

@@ -13,6 +13,8 @@ export interface ExecutionResult {
   version: string;
   /** Which execution provider ran the code */
   provider: 'client' | 'codescriet' | 'codebox' | 'wandbox' | 'godbolt';
+  /** Server-measured execution ms (when the backend reports it) */
+  serverDurationMs?: number | null;
   /** Runtime execution output */
   run: {
     stdout: string;

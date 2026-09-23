@@ -37,6 +37,8 @@ interface PlaygroundState {
   error: string;
   isRunning: boolean;
   executionTime: string;
+  /** Server-measured execution time label (from backend meta), null if unknown */
+  serverExecutionTime: string | null;
   fontSize: number;
   /** Which tier ran the last execution ('client' | 'cloud' | null) */
   executionTier: 'client' | 'cloud' | null;
@@ -62,6 +64,7 @@ interface PlaygroundContextType extends PlaygroundState {
   setError: (error: string) => void;
   setIsRunning: (isRunning: boolean) => void;
   setExecutionTime: (time: string) => void;
+  setServerExecutionTime: (time: string | null) => void;
   setExecutionTier: (tier: 'client' | 'cloud' | null) => void;
   setExecutionProvider: (provider: string | null) => void;
   setStatusMessage: (message: string) => void;
@@ -113,6 +116,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
           output: '',
           error: '',
           executionTime: '',
+          serverExecutionTime: null,
           executionTier: null,
           executionProvider: null,
           statusMessage: '',
@@ -131,6 +135,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       error: '',
       isRunning: false,
       executionTime: '',
+      serverExecutionTime: null,
       fontSize: 14,
       executionTier: null,
       executionProvider: null,
@@ -248,6 +253,9 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
   const setExecutionTime = (executionTime: string) => {
     setState((prev) => ({ ...prev, executionTime }));
   };
+  const setServerExecutionTime = (serverExecutionTime: string | null) => {
+    setState((prev) => ({ ...prev, serverExecutionTime }));
+  };
 
   const setExecutionTier = (executionTier: 'client' | 'cloud' | null) => {
     setState((prev) => ({ ...prev, executionTier }));
@@ -291,6 +299,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       output: '',
       error: '',
       executionTime: '',
+      serverExecutionTime: null,
     }));
   };
 
@@ -316,6 +325,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       executionTime: '',
       executionTier: null,
       executionProvider: null,
+      serverExecutionTime: null,
       statusMessage: '',
     }));
   };
@@ -329,6 +339,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setError,
     setIsRunning,
     setExecutionTime,
+    setServerExecutionTime,
     setExecutionTier,
     setExecutionProvider,
     showExecutionSource,
