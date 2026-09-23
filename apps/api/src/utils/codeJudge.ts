@@ -594,6 +594,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       perTestVerdicts,
       totalRuntimeMs: Date.now() - totalStartedAt,
       compilerOutput: combinedCompilerOutput,
+      provider: servedProvider ?? provider,
     };
   } finally {
     release();
