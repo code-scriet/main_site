@@ -1503,6 +1503,15 @@ app.post('/api/execute', async (req, res) => {
   try {
     const { language, code, stdin = '' } = req.body;
     const requestIp = clientIp(req);
+    // Server-Timing: per-stage server costs on every execute response so
+    // slowness is attributable (block/quota/exec), not guessed.
+    const tMarks = [];
+    let tPrev = Date.now();
+    const mark = (name) => {
+      const now = Date.now();
+      tMarks.push(`${name};dur=${now - tPrev}`);
+      tPrev = now;
+    };
 
     if (!language || !code) {
       return res.status(400).json({ success: false, error: 'Language and code are required' });
@@ -1574,6 +1583,7 @@ app.post('/api/execute', async (req, res) => {
     }
 
     // Rate limiting — all languages are metered
+    mark('block');
     if (req.user) {
       const limit = await checkUserRateLimit(req.user.id);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
@@ -1623,6 +1633,7 @@ app.post('/api/execute', async (req, res) => {
 
     // Security check — deliberately AFTER admission/metering (see above): only
     // requests that passed the size cap and rate limits pay the regex scan.
+    mark('quota');
     const security = checkSecurityPatterns(code);
     if (!security.safe) {
       return res.status(400).json({
@@ -1632,6 +1643,7 @@ app.post('/api/execute', async (req, res) => {
     }
 
     const startMs = Date.now();
+    mark('sec');
     const cacheScope = req.user?.id ? `user:${req.user.id}` : `ip:${requestIp}`;
 
     // Check execution cache — return cached result if identical code was run recently
@@ -1654,6 +1666,7 @@ app.post('/api/execute', async (req, res) => {
       setCachedExecution(language, code, stdin, result, cacheScope);
     }
     const durationMs = fromCache ? 0 : (Date.now() - startMs);
+    mark(fromCache ? 'exec-cached' : 'exec');
 
     // Session-first persistence: keep history in memory and flush on session end.
     if (req.user) {
@@ -1677,6 +1690,7 @@ app.post('/api/execute', async (req, res) => {
       }
     }
 
+    res.setHeader('Server-Timing', tMarks.join(', '));
     return res.json({
       success: true,
       data: result,
