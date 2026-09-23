@@ -648,17 +648,21 @@ export default function NetworkPage() {
                       onClear={clearFilters}
                     />
                   ) : (
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex flex-wrap justify-center gap-6">
                       {industryProfessionals.map((profile, index) => (
-                        <MemberCard
+                        <div
                           key={profile.id}
-                          profile={profile}
-                          index={index}
-                          tone="professional"
-                          isMobile={isMobile}
-                          shouldReduceMotion={shouldReduceMotion}
-                          prefersReducedMotion={prefersReducedMotion}
-                        />
+                          className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
+                        >
+                          <MemberCard
+                            profile={profile}
+                            index={index}
+                            tone="professional"
+                            isMobile={isMobile}
+                            shouldReduceMotion={shouldReduceMotion}
+                            prefersReducedMotion={prefersReducedMotion}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
@@ -685,17 +689,21 @@ export default function NetworkPage() {
                       onClear={clearFilters}
                     />
                   ) : (
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex flex-wrap justify-center gap-6">
                       {alumni.map((profile, index) => (
-                        <MemberCard
+                        <div
                           key={profile.id}
-                          profile={profile}
-                          index={index}
-                          tone="alumni"
+                          className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
+                        >
+                          <MemberCard
+                            profile={profile}
+                            index={index}
+                            tone="alumni"
                           isMobile={isMobile}
                           shouldReduceMotion={shouldReduceMotion}
                           prefersReducedMotion={prefersReducedMotion}
-                        />
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
