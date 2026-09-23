@@ -1370,6 +1370,24 @@ async function executeWithRetry(language, code, stdin, attempts = 3) {
 }
 
 // ---------------------------------------------------------------------------
+// Internal — cache flush from the main API (settings PATCH/PUT). Lets admin
+// setting flips (provider, limits) take effect instantly instead of waiting
+// out the 60s settings TTLs. Secret-gated like all /internal routes.
+// ---------------------------------------------------------------------------
+app.post('/internal/flush-caches', (req, res) => {
+  const keys = Array.isArray(req.body?.keys) ? req.body.keys : [];
+  playgroundSettingsCache.expiresAt = 0;
+  providerCache.expiresAt = 0;
+  codeboxHealth.expiresAt = 0;
+  // Result cache is keyed by code only: flush it only when execution-affecting
+  // settings changed (provider pick or quota), otherwise keep warm hits.
+  if (keys.includes('*') || keys.includes('codeExecutionProvider') || keys.includes('playgroundDailyLimit')) {
+    execCache.clear();
+  }
+  return res.json({ ok: true, flushed: keys });
+});
+
+// ---------------------------------------------------------------------------
 // Internal — CPU offload from the main API (contest plagiarism). Server-to-server
 // only: gated on a shared INTERNAL_API_SECRET, never reachable by a browser. The main
 // API sends one problem's submissions per call; we run the O(N²) similarity here (this

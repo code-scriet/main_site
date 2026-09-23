@@ -12,7 +12,7 @@ import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCac
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
-import { getPlaygroundRelayBase } from '../utils/internalApi.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
 import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 
 export const settingsRouter = Router();
@@ -438,6 +438,19 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
+    // Same instant playground flush as PATCH /:key (bulk save touches everything).
+    try {
+      const relayBase = getPlaygroundRelayBase();
+      const secret = getInternalApiSecret();
+      if (relayBase && secret) {
+        void fetch(`${relayBase}/internal/flush-caches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+          body: JSON.stringify({ keys: ['*'] }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    } catch { /* never fail the save */ }
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings updated successfully' });
   } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update settings' } });
@@ -855,6 +868,20 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
+    // Push the flip to the playground instantly (it caches settings 60s).
+    // Fire-and-forget: a failed poke only costs the TTL wait, never the save.
+    try {
+      const relayBase = getPlaygroundRelayBase();
+      const secret = getInternalApiSecret();
+      if (relayBase && secret) {
+        void fetch(`${relayBase}/internal/flush-caches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+          body: JSON.stringify({ keys: [key] }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    } catch { /* never fail the save */ }
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: `Setting ${key} updated successfully` });
   } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update setting' } });
