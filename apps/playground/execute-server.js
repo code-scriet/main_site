@@ -544,12 +544,20 @@ function resolveExecutionProvider(setting, language) {
   const healthy = (p) => providerCooldownUntil[p] <= now;
 
   if (setting !== 'balanced') {
-    // Fixed primary: pre-route to the other host only while the primary is
-    // cooling down and the other is healthy (same net effect as the worker's
-    // fallback, without paying the upstream stall first).
-    const other = setting === 'wandbox' ? 'godbolt' : 'wandbox';
-    if (!healthy(setting) && healthy(other)) return other;
-    return setting;
+    // Fixed primary, but only if it can actually run the language. Junk
+    // settings fall back to wandbox. If the primary is cooling down (or
+    // unsuitable), pre-route to the first healthy candidate INCLUDING local
+    // CodeBox — same semantics the CF Worker's fallback would apply, just
+    // without burning the upstream stall first.
+    const primary = (setting === 'codebox' || setting === 'wandbox' || setting === 'godbolt')
+      ? setting
+      : 'wandbox';
+    if (providerCanRunLanguage(primary, language) && healthy(primary)) return primary;
+    const spare = ['codebox', ...candidates].find((p) =>
+      p !== primary && providerCanRunLanguage(p, language) && healthy(p)
+      && (p !== 'codebox' || codeboxInflight < CODEBOX_MAX_INFLIGHT));
+    if (spare) return spare;
+    return providerCanRunLanguage(primary, language) ? primary : candidates[0];
   }
 
   const pool = candidates.filter(healthy);
