@@ -492,7 +492,7 @@ const MAX_HISTORY_PER_USER = 15;
 // ---------------------------------------------------------------------------
 const DEFAULT_PLAYGROUND_DAILY_LIMIT = 100;
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
-const LIMIT_RESYNC_COOLDOWN_MS = 5_000;
+const LIMIT_RESYNC_COOLDOWN_MS = 5 * 60_000; // 5 min: single instance => in-memory counters are authoritative; DB resync only catches external edits (admin resets) and cold starts. Was 5s (a ~220ms Neon RTT on most active-user runs).
 
 const playgroundSettingsCache = {
   expiresAt: 0,
