@@ -505,7 +505,7 @@ export default function NetworkPage() {
                 </div>
               </div>
 
-              <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+              <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
                 {categoryFilters.map((filter) => (
                   <Button
                     key={filter.key}
