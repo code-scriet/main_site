@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import ExcelJS from 'exceljs';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -49,6 +50,29 @@ const beaconLimiter = rateLimit({
 });
 
 const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
+
+// Fire-and-forget beacon batches run AFTER the 204 — an uncapped array would
+// hold the event loop + Neon pool indefinitely. 100 scans ≈ one full scanner
+// offline session; larger batches must be split client-side.
+const MAX_BEACON_SCANS = 100;
+
+const beaconScanItemSchema = z.object({
+  token: z.string().min(1).max(2048),
+  scannedAtLocal: z.string().max(64).optional(),
+  localId: z.string().min(1).max(128),
+  dayNumber: z.number().int().positive().max(60).optional(),
+});
+
+const beaconBodySchema = z.object({
+  // Bearer-in-body is a deliberate fallback, not laziness: navigator.sendBeacon
+  // is cross-origin (codescriet.dev → api.codescriet.dev) so it can send
+  // NEITHER cookies NOR an Authorization header. Cookie is preferred whenever
+  // present; the body token is accepted only if JWT-shaped and is never logged.
+  authToken: z.string().regex(jwtLikePattern).optional(),
+  scans: z.array(beaconScanItemSchema).min(1).max(MAX_BEACON_SCANS),
+  eventId: z.string().uuid(),
+  bypassWindow: z.boolean().optional(),
+});
 const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
@@ -200,12 +224,13 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    // Event status check: only allow scans for ONGOING events.
-    // Admins can bypass to scan UPCOMING events only when explicitly requested.
+    // Event status check: ONGOING always allowed. UPCOMING/PAST allowed when
+    // bypassWindow is explicitly enabled — the scanner UI stays mounted for all
+    // statuses so late / correction marks never lose their surface.
     const isOngoingEvent = registration.event.status === 'ONGOING';
-    const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-    if (!isOngoingEvent && !canBypassUpcoming) {
-      return ApiResponse.forbidden(res, 'Attendance scanning is allowed only for ongoing events');
+    const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+    if (!isOngoingEvent && !canBypassStatus) {
+      return ApiResponse.forbidden(res, 'Attendance scanning is allowed only for ongoing events (enable Bypass scan window for upcoming/past events)');
     }
 
     // Scan window check: allow startDate - 30min to endDate || startDate + 4h
@@ -412,9 +437,9 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       }
 
       const isOngoingEvent = registration.event.status === 'ONGOING';
-      const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-      if (!isOngoingEvent && !canBypassUpcoming) {
-        results.push({ localId: item.localId, status: 'error', message: 'Attendance scanning is allowed only for ongoing events' });
+      const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+      if (!isOngoingEvent && !canBypassStatus) {
+        results.push({ localId: item.localId, status: 'error', message: 'Attendance scanning is allowed only for ongoing events (enable Bypass scan window for upcoming/past events)' });
         errCount++;
         continue;
       }
@@ -488,39 +513,25 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
 // ────────────────────────────────────────────────────────────
 // 4. POST /scan-beacon — Fire-and-forget beacon scan (no auth header)
 // ────────────────────────────────────────────────────────────
-router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async (req: Request, res: Response) => {
+router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*', limit: '512kb' }), async (req: Request, res: Response) => {
   try {
-    let body: {
-      authToken?: string;
-      scans?: Array<{ token: string; scannedAtLocal?: string; localId: string; dayNumber?: number }>;
-      eventId?: string;
-      bypassWindow?: boolean;
-    };
+    let raw: unknown;
     try {
-      body = JSON.parse(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+      raw = JSON.parse(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     } catch {
       return res.status(400).send();
     }
 
-    const { authToken, scans, eventId, bypassWindow } = body;
-
-    if (
-      !Array.isArray(scans) ||
-      scans.length === 0 ||
-      typeof eventId !== 'string'
-    ) {
+    const parsed = beaconBodySchema.safeParse(raw);
+    if (!parsed.success) {
       return res.status(400).send();
     }
-    if (!isUuid(eventId)) {
-      return res.status(400).send();
-    }
+    const { authToken, scans, eventId, bypassWindow } = parsed.data;
 
-    // Verify the auth token manually (beacon cannot set Authorization header)
+    // Verify the auth token manually — cookie preferred (see schema comment
+    // for why the JWT-shaped body fallback exists). Never log either token.
     const cookieToken = getCookie(req, 'scriet_session');
-    const bodyToken = typeof authToken === 'string' && jwtLikePattern.test(authToken)
-      ? authToken
-      : undefined;
-    const effectiveToken = cookieToken || bodyToken;
+    const effectiveToken = cookieToken || authToken;
 
     if (!effectiveToken) {
       return res.status(401).send();
@@ -553,11 +564,7 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     let failedCount = 0;
 
     const fallbackPayloadMap = await resolveStoredAttendanceTokenPayloads(
-      scans
-        .filter((scan): scan is { token: string; scannedAtLocal?: string; localId: string; dayNumber?: number } =>
-          Boolean(scan && typeof scan === 'object' && typeof scan.token === 'string'),
-        )
-        .map((scan) => scan.token),
+      scans.map((scan) => scan.token),
     );
 
     try {
@@ -565,11 +572,6 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
       // server-side and not surfaced back to the client after the 204 response.
       for (const scan of scans) {
         try {
-          if (!scan || typeof scan !== 'object' || typeof scan.token !== 'string') {
-            failedCount++;
-            continue;
-          }
-
           const normalizedToken = scan.token.trim();
           if (!normalizedToken) {
             failedCount++;
@@ -609,8 +611,8 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
           }
 
           const isOngoingEvent = registration.event.status === 'ONGOING';
-          const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-          if (!isOngoingEvent && !canBypassUpcoming) {
+          const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+          if (!isOngoingEvent && !canBypassStatus) {
             failedCount++;
             continue;
           }
@@ -1889,6 +1891,9 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       return ApiResponse.badRequest(res, `minDays must be between 1 and ${eventDays}`);
     }
 
+    // Bounded read: real events are hundreds of rows; the cap + flag below
+    // keep one giant event from OOMing the response instead of failing loudly.
+    const RECIPIENT_LIST_CAP = 5000;
     const [registrations, guestInvitations, existingCerts] = await Promise.all([
       prisma.eventRegistration.findMany({
         // Certificate participants remain the participant lane; guests are returned in a dedicated payload below.
@@ -1909,6 +1914,8 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
             orderBy: { dayNumber: 'asc' },
           },
         },
+        orderBy: { id: 'asc' },
+        take: RECIPIENT_LIST_CAP,
       }),
       prisma.eventInvitation.findMany({
         where: {
@@ -2020,10 +2027,16 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
     const totalAttended = registrations.filter((r) => r.attended).length;
     const alreadyCertified = certsByEmail.size;
 
+    const truncated = registrations.length === RECIPIENT_LIST_CAP;
+    if (truncated) {
+      logger.warn('Certificate recipient list truncated at cap', { eventId, cap: RECIPIENT_LIST_CAP });
+    }
+
     return ApiResponse.success(res, {
       participants: recipients,
       guests,
       recipients,
+      truncated,
       stats: {
         totalRegistered,
         totalAttended,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode';
 import { useOfflineScanner } from '@/hooks/useOfflineScanner';
 import { api, type AttendanceLiveData, type AttendanceSearchResult } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { formatTime } from '@/lib/dateUtils';
-import { cn } from '@/lib/utils';
+import { cn, getApiBaseUrl } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Camera,
@@ -44,6 +44,9 @@ interface AdminScannerProps {
   eventId: string;
   token: string;
   onEndSession?: () => void;
+  // When the parent hub reports a PAST event the scanner still renders —
+  // scans are recorded as late / correction marks (bypass window on).
+  isPastEvent?: boolean;
 }
 
 type ToastStatus = 'success' | 'duplicate' | 'error';
@@ -108,7 +111,7 @@ function isBenignCameraAbort(err: unknown): boolean {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function AdminScanner({ eventId, token, onEndSession }: AdminScannerProps) {
+export default function AdminScanner({ eventId, token, onEndSession, isPastEvent }: AdminScannerProps) {
   // ---- Feature toggles (must be declared before useOfflineScanner which reads bypassWindow) ----
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [bypassWindow, setBypassWindow] = useState(true);
@@ -125,7 +128,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   } = useOfflineScanner({ eventId, authToken: token, dayNumber: selectedDay, bypassWindow });
 
   // ---- Refs ----
-  const html5QrRef = useRef<Html5Qrcode | null>(null);
+  const html5QrRef = useRef<Html5QrcodeType | null>(null);
   const recentScanMapRef = useRef<Map<string, number>>(new Map());
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -143,6 +146,9 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   const stopRequestedRef = useRef(false);
 
   // ---- Live data ----
+  // Event-driven: the server emits `attendance:marked` to the event room on the
+  // /attendance namespace for EVERY mark path (scan, batch, beacon, manual).
+  // A 60s backup poll covers missed pushes (reconnect gaps, offline stretches).
   const [liveData, setLiveData] = useState<AttendanceLiveData | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const eventDays = Math.max(1, liveData?.eventDays ?? 1);
@@ -198,11 +204,66 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
 
   useEffect(() => {
     fetchLiveData();
-    liveIntervalRef.current = setInterval(fetchLiveData, LIVE_POLL_MS);
+    // Backup poll only — live updates arrive via socket (see effect below).
+    liveIntervalRef.current = setInterval(fetchLiveData, LIVE_POLL_MS * 6);
     return () => {
       if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
     };
   }, [fetchLiveData]);
+
+  // Live attendance pushes: refresh stats the moment ANY scanner marks.
+  useEffect(() => {
+    if (!token) return;
+    let socket: { disconnect: () => void } | null = null;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { io } = await import('socket.io-client');
+        if (cancelled) return;
+        // API origin (api.codescriet.dev), not the web origin — same derivation
+        // as useNotificationsSocket.
+        const base = getApiBaseUrl().replace(/\/api\/?$/, '');
+        const s = io(`${base}/attendance`, {
+          auth: { token },
+          withCredentials: true,
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionDelay: 2000,
+          reconnectionDelayMax: 8000,
+        });
+        socket = s;
+        s.on('connect', () => {
+          // Canonical event name is `join:event` (attendanceSocket.ts).
+          s.emit('join:event', eventId);
+          // Rejoin after reconnects + refresh in case marks landed mid-gap.
+          void fetchLiveData();
+        });
+        // Any attendance mutation (mark, unmark, bulk op) from any station
+        // refreshes stats. Debounce: a bulk import fires N marks in a burst.
+        let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+        const refreshSoon = () => {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            if (navigator.onLine) void fetchLiveData();
+          }, 500);
+        };
+        s.on('attendance:marked', refreshSoon);
+        s.on('attendance:unmarked', refreshSoon);
+        s.on('attendance:bulk', refreshSoon);
+        // Transport/auth failure: refresh immediately (the mark that triggered
+        // the push may already be visible) instead of waiting for the 60s poll.
+        s.on('connect_error', refreshSoon);
+      } catch {
+        // Socket unavailable (offline/blocked) — the backup poll covers it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      socket?.disconnect();
+      socket = null;
+    };
+  }, [eventId, token, fetchLiveData]);
 
   // --------------------------------------------------------------------------
   // Toast helper
@@ -320,6 +381,10 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
 
     try {
       await ensureCameraPermission();
+
+      // Load the ~148KB decode engine on demand — the admin bundle shouldn't
+      // pay for it when just viewing stats.
+      const { Html5Qrcode } = await import('html5-qrcode');
 
       // Recreate scanner instance per start to avoid stale internal media state.
       if (html5QrRef.current) {
@@ -573,10 +638,22 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     <div
       ref={containerRef}
       className={cn(
-        'flex flex-col lg:flex-row gap-4 w-full',
+        'flex flex-col lg:flex-row flex-wrap gap-4 w-full',
         isFullscreen && 'bg-[var(--surface-soft)] dark:bg-gray-900 p-4 overflow-y-auto',
       )}
     >
+      {/* ================================================================= */}
+      {/* Past-event notice — scanner stays mounted for late/correction marks */}
+      {/* ================================================================= */}
+      {isPastEvent && (
+        <div className="w-full basis-full rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-[12.5px] text-amber-800 dark:text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            This event has ended — scanner stays available for late / correction marks.
+            Keep “Bypass scan window” on; each scan is recorded with today’s timestamp.
+          </span>
+        </div>
+      )}
       {/* ================================================================= */}
       {/* LEFT: Camera Scanner                                              */}
       {/* ================================================================= */}

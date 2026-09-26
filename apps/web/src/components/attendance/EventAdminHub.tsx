@@ -83,10 +83,12 @@ export default function EventAdminHub() {
   const isPastEvent = event?.status === 'PAST';
 
   const rawTab = searchParams.get('tab') as TabValue | null;
+  // Scanner is always visible — for UPCOMING, ONGOING and PAST events alike —
+  // so late / correction marks never lose their scanning surface. Only the
+  // certificates tab stays admin-gated.
   const activeTab: TabValue = (() => {
     if (!rawTab || !VALID_TABS.includes(rawTab)) return isPastEvent ? 'manage' : 'details';
     if (rawTab === 'certificates' && !isAdmin) return isPastEvent ? 'manage' : 'details';
-    if (rawTab === 'scanner' && isPastEvent) return 'manage';
     return rawTab;
   })();
 
@@ -166,11 +168,12 @@ export default function EventAdminHub() {
   const status = statusPillFor(event.status);
   const cover = fallbackGradient(event.title || 'event');
 
-  // Build tabs dynamically — hide Scanner on past events, hide Certificates for non-admins.
+  // Build tabs dynamically — Scanner is always shown (UPCOMING / ONGOING / PAST
+  // so attendance can be taken or corrected at any time); hide Certificates for non-admins.
   const tabs: Array<{ value: TabValue; label: string; icon?: React.ReactNode }> = [
     { value: 'details', label: 'Details', icon: <SettingsIcon className="h-3.5 w-3.5" /> },
   ];
-  if (!isPastEvent) tabs.push({ value: 'scanner', label: 'Scanner', icon: <QrCode className="h-3.5 w-3.5" /> });
+  tabs.push({ value: 'scanner', label: 'Scanner', icon: <QrCode className="h-3.5 w-3.5" /> });
   tabs.push({ value: 'manage', label: 'Manage', icon: <Users className="h-3.5 w-3.5" /> });
   if (isAdmin) tabs.push({ value: 'certificates', label: 'Certificates', icon: <Award className="h-3.5 w-3.5" /> });
 
@@ -254,12 +257,13 @@ export default function EventAdminHub() {
         />
       )}
 
-      {activeTab === 'scanner' && !isPastEvent && (
+      {activeTab === 'scanner' && (
         <ErrorBoundary resetKey={`${eventId}-scanner`}>
           <AdminScanner
             eventId={eventId}
             token={token!}
             onEndSession={handleEndSession}
+            isPastEvent={isPastEvent}
           />
         </ErrorBoundary>
       )}
@@ -318,8 +322,9 @@ function DetailsTab({
         </div>
         {isPastEvent && (
           <div className="mb-3 rounded-[8px] border border-[var(--warning-border)] bg-[var(--warning-bg)] px-3 py-2 text-[12px] text-[var(--warning)]">
-            This event has ended. Use the <span className="font-semibold">Manage</span> tab to review,
-            export, or correct attendance records.
+            This event has ended. The <span className="font-semibold">Scanner</span> tab stays available
+            for late / correction marks (keep “Bypass scan window” on), or use the{' '}
+            <span className="font-semibold">Manage</span> tab to review, export, or correct attendance records.
           </div>
         )}
         <dl className="text-[13px] grid grid-cols-2 gap-y-2.5 gap-x-6">
