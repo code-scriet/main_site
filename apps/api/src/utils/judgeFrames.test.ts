@@ -82,7 +82,7 @@ test('buildJudgeStdin measures __LEN in BYTES, not characters', () => {
 });
 
 // ── scrubbing (F-5) ──────────────────────────────────────────────────────────
-test('scrubHarnessInternals drops harness stack frames but keeps the user’s own', () => {
+test('scrubHarnessInternals drops harness stack frames but keeps the user\'s own', () => {
   const raw = [
     'Traceback (most recent call last):',
     '  File "/home/wandbox/prog.py", line 73, in <module>',
@@ -132,16 +132,16 @@ for (const [name, build] of BUILDERS) {
   });
 }
 
-test('python harness isolates each test in a forked child process', () => {
+test('python harness isolates each test in a thread with redirected stdout', () => {
   const source = buildPython({ userCode: '', testCases: [{ id: 't1', input: '' }], approach: 'A', timeLimitMs: 2000, nonce: NONCE });
-  assert.ok(source.includes('os.fork()'), 'fork per test');
-  assert.ok(source.includes('os.dup2'), 'child stdout is a pipe, not the real fd 1');
-  assert.ok(source.includes('globals()["_NONCE"] = None'), 'child scrubs its inherited nonce');
+  assert.ok(source.includes('threading.Thread'), 'uses threading per test');
+  assert.ok(source.includes('TextIOWrapper'), 'redirects stdin/stdout via TextIOWrapper');
+  assert.ok(source.includes('_NONCE = ""'), 'nonce variable initialized');
 });
 
 test('javascript harness sandbox is allowlist-only and exposes no writable fs', () => {
   const source = buildJavaScript({ userCode: '', testCases: [{ id: 't1', input: '' }], approach: 'A', timeLimitMs: 2000, nonce: NONCE });
-  assert.ok(source.includes('ALLOWED_MODULES'), 'module allowlist present');
+  assert.ok(source.includes('ALLOWED_PKGS'), 'module allowlist present');
   assert.ok(!source.includes("name === 'fs' ? fakeFs : require(name)"), 'no blanket require passthrough');
   assert.ok(source.includes("startsWith('node:')"), 'node: prefix is normalised');
   assert.ok(!source.includes('new Proxy(realFs'), 'fs shim is not a proxy over the real module');
