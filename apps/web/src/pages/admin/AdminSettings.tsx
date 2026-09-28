@@ -70,6 +70,17 @@ export default function AdminSettings() {
     emailInvitationEnabled: true,
     emailTestingMode: false,
     emailTestRecipients: null,
+    // Email provider per category
+    emailProviderWelcome: 'brevo',
+    emailProviderEventCreation: 'oci',
+    emailProviderRegistration: 'brevo',
+    emailProviderAnnouncement: 'oci',
+    emailProviderCertificate: 'brevo',
+    emailProviderReminder: 'oci',
+    emailProviderInvitation: 'brevo',
+    emailProviderAdminMail: 'brevo',
+    emailProviderPasswordReset: 'brevo',
+    emailProviderOther: 'brevo',
     playgroundDailyLimit: 100,
     githubUrl: '',
     linkedinUrl: '',
@@ -393,24 +404,44 @@ export default function AdminSettings() {
           <p className="text-[10.5px] font-semibold text-[var(--ds-text-3)] uppercase tracking-[0.06em] mb-1.5">Categories</p>
           <div className="flex flex-col">
             {[
-              { key: 'emailWelcomeEnabled' as const, label: 'Welcome', desc: 'New user registration' },
-              { key: 'emailEventCreationEnabled' as const, label: 'New event', desc: 'When an event is created' },
-              { key: 'emailRegistrationEnabled' as const, label: 'Registration confirmed', desc: 'On event registration' },
-              { key: 'emailAnnouncementEnabled' as const, label: 'Announcement digest', desc: 'New club announcements' },
-              { key: 'emailCertificateEnabled' as const, label: 'Certificate issued', desc: 'On certificate generation' },
-              { key: 'emailReminderEnabled' as const, label: 'Event reminders', desc: 'Scheduled before event start' },
-              { key: 'emailInvitationEnabled' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
-              { key: 'mailingEnabled' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
-            ].map(({ key, label, desc }) => (
-              <ToggleRow
-                key={key}
-                id={key}
-                label={label}
-                description={desc}
-                checked={settings[key] ?? true}
-                onCheckedChange={(checked) => void handleToggle(key, checked)}
-                compact
-              />
+              { key: 'emailWelcomeEnabled' as const, providerKey: 'emailProviderWelcome' as const, label: 'Welcome', desc: 'New user registration' },
+              { key: 'emailEventCreationEnabled' as const, providerKey: 'emailProviderEventCreation' as const, label: 'New event', desc: 'When an event is created' },
+              { key: 'emailRegistrationEnabled' as const, providerKey: 'emailProviderRegistration' as const, label: 'Registration confirmed', desc: 'On event registration' },
+              { key: 'emailAnnouncementEnabled' as const, providerKey: 'emailProviderAnnouncement' as const, label: 'Announcement digest', desc: 'New club announcements' },
+              { key: 'emailCertificateEnabled' as const, providerKey: 'emailProviderCertificate' as const, label: 'Certificate issued', desc: 'On certificate generation' },
+              { key: 'emailReminderEnabled' as const, providerKey: 'emailProviderReminder' as const, label: 'Event reminders', desc: 'Scheduled before event start' },
+              { key: 'emailInvitationEnabled' as const, providerKey: 'emailProviderInvitation' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
+              { key: 'mailingEnabled' as const, providerKey: 'emailProviderAdminMail' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
+              { key: 'emailPasswordResetEnabled' as const, providerKey: 'emailProviderPasswordReset' as const, label: 'Password reset', desc: 'Password reset emails' },
+              { key: null, providerKey: 'emailProviderOther' as const, label: 'Other', desc: 'Uncategorized system emails' },
+            ].map(({ key, providerKey, label, desc }) => (
+              <div key={providerKey} className="flex items-center gap-2">
+                {key ? (
+                  <ToggleRow
+                    id={key}
+                    label={label}
+                    description={desc}
+                    checked={settings[key] ?? true}
+                    onCheckedChange={(checked) => void handleToggle(key, checked)}
+                    compact
+                  />
+                ) : (
+                  <div className="flex items-center justify-between rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-raised)] p-3">
+                    <div className="pr-4">
+                      <p className="font-medium text-[var(--ds-text-1)]">{label}</p>
+                      <p className="mt-1 text-[11.5px] text-[var(--ds-text-3)]">{desc}</p>
+                    </div>
+                  </div>
+                )}
+                <select
+                  value={settings[providerKey] ?? 'brevo'}
+                  onChange={(e) => setSettings({ ...settings, [providerKey]: e.target.value as 'oci' | 'brevo' })}
+                  className="w-[130px] shrink-0 h-8 px-2 text-[11.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+                >
+                  <option value="brevo">Brevo</option>
+                  <option value="oci">OCI</option>
+                </select>
+              </div>
             ))}
           </div>
         </div>

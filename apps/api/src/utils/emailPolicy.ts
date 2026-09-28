@@ -56,6 +56,17 @@ export interface NotificationSettings {
   mailingEnabled: boolean;
   emailTestingMode: boolean;
   emailTestRecipients: string | null;
+  // Email provider per category (oci | brevo)
+  emailProviderWelcome: 'oci' | 'brevo';
+  emailProviderEventCreation: 'oci' | 'brevo';
+  emailProviderRegistration: 'oci' | 'brevo';
+  emailProviderAnnouncement: 'oci' | 'brevo';
+  emailProviderCertificate: 'oci' | 'brevo';
+  emailProviderReminder: 'oci' | 'brevo';
+  emailProviderInvitation: 'oci' | 'brevo';
+  emailProviderAdminMail: 'oci' | 'brevo';
+  emailProviderPasswordReset: 'oci' | 'brevo';
+  emailProviderOther: 'oci' | 'brevo';
 }
 
 export const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettings | null> = {
@@ -83,6 +94,17 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   mailingEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
+  // Email provider per category - defaults preserve current production behavior
+  emailProviderWelcome: 'brevo',
+  emailProviderEventCreation: 'oci',
+  emailProviderRegistration: 'brevo',
+  emailProviderAnnouncement: 'oci',
+  emailProviderCertificate: 'brevo',
+  emailProviderReminder: 'oci',
+  emailProviderInvitation: 'brevo',
+  emailProviderAdminMail: 'brevo',
+  emailProviderPasswordReset: 'brevo',
+  emailProviderOther: 'brevo',
 };
 
 // Back-compat alias. The notification view is derived from the shared Settings
@@ -110,6 +132,16 @@ type NotificationSettingsColumns = Pick<
   | 'mailingEnabled'
   | 'emailTestingMode'
   | 'emailTestRecipients'
+  | 'emailProviderWelcome'
+  | 'emailProviderEventCreation'
+  | 'emailProviderRegistration'
+  | 'emailProviderAnnouncement'
+  | 'emailProviderCertificate'
+  | 'emailProviderReminder'
+  | 'emailProviderInvitation'
+  | 'emailProviderAdminMail'
+  | 'emailProviderPasswordReset'
+  | 'emailProviderOther'
 >;
 
 // Pure projection of the Settings singleton onto the email-shaped view. A null
@@ -134,6 +166,17 @@ export function projectNotificationSettings(
     mailingEnabled: settings.mailingEnabled ?? true,
     emailTestingMode: settings.emailTestingMode ?? false,
     emailTestRecipients: settings.emailTestRecipients ?? null,
+    // Email provider per category — fall back to defaults when null/unset
+    emailProviderWelcome: (settings.emailProviderWelcome as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderEventCreation: (settings.emailProviderEventCreation as 'oci' | 'brevo') ?? 'oci',
+    emailProviderRegistration: (settings.emailProviderRegistration as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderAnnouncement: (settings.emailProviderAnnouncement as 'oci' | 'brevo') ?? 'oci',
+    emailProviderCertificate: (settings.emailProviderCertificate as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderReminder: (settings.emailProviderReminder as 'oci' | 'brevo') ?? 'oci',
+    emailProviderInvitation: (settings.emailProviderInvitation as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderAdminMail: (settings.emailProviderAdminMail as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderPasswordReset: (settings.emailProviderPasswordReset as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderOther: (settings.emailProviderOther as 'oci' | 'brevo') ?? 'brevo',
   };
 }
 
@@ -174,6 +217,16 @@ async function readNotificationColumns(): Promise<NotificationSettings | null> {
         mailingEnabled: true,
         emailTestingMode: true,
         emailTestRecipients: true,
+        emailProviderWelcome: true,
+        emailProviderEventCreation: true,
+        emailProviderRegistration: true,
+        emailProviderAnnouncement: true,
+        emailProviderCertificate: true,
+        emailProviderReminder: true,
+        emailProviderInvitation: true,
+        emailProviderAdminMail: true,
+        emailProviderPasswordReset: true,
+        emailProviderOther: true,
       },
     });
     return row ? projectNotificationSettings(row) : null;
@@ -217,6 +270,29 @@ export function shouldNotify(category: EmailCategory, ns: NotificationSettings):
   const toggleKey = CATEGORY_TOGGLE_MAP[category];
   if (!toggleKey) return true;
   return Boolean(ns[toggleKey]);
+}
+
+// Mapping from EmailCategory to provider field name in NotificationSettings
+const CATEGORY_PROVIDER_MAP: Record<EmailCategory, keyof NotificationSettings> = {
+  welcome: 'emailProviderWelcome',
+  event_creation: 'emailProviderEventCreation',
+  registration: 'emailProviderRegistration',
+  announcement: 'emailProviderAnnouncement',
+  certificate: 'emailProviderCertificate',
+  reminder: 'emailProviderReminder',
+  invitation: 'emailProviderInvitation',
+  admin_mail: 'emailProviderAdminMail',
+  password_reset: 'emailProviderPasswordReset',
+  other: 'emailProviderOther',
+};
+
+/**
+ * Returns the configured email provider for a given category.
+ * Falls back to the default provider for the category if the setting is not set.
+ */
+export function getEmailProvider(category: EmailCategory, ns: NotificationSettings): 'oci' | 'brevo' {
+  const providerKey = CATEGORY_PROVIDER_MAP[category];
+  return ns[providerKey] as 'oci' | 'brevo';
 }
 
 function parseTestRecipients(raw: string | null): string[] {

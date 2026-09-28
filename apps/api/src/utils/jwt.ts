@@ -252,3 +252,28 @@ export const verifyToken = (token: string): AccessTokenPayload => {
     tokenVersion: typeof decoded.tokenVersion === 'number' ? decoded.tokenVersion : 0,
   };
 };
+
+// Bulk-mail unsubscribe link. No expiry - the token only ever flips a boolean
+// to false, so a leaked link cannot do anything worse than unsubscribing someone
+// (who can re-subscribe from their profile).
+export interface UnsubscribeTokenPayload {
+  email: string;
+}
+
+export const signUnsubscribeToken = (payload: UnsubscribeTokenPayload): string => (
+  jwt.sign(
+    { ...payload, purpose: "unsubscribe" },
+    getJwtSecret(),
+    { algorithm: "HS256" },
+  )
+);
+
+export const verifyUnsubscribeToken = (token: string): UnsubscribeTokenPayload => {
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] }) as Partial<UnsubscribeTokenPayload> & {
+    purpose?: string;
+  };
+  if (decoded.purpose !== "unsubscribe" || typeof decoded.email !== "string" || !decoded.email) {
+    throw new Error("Invalid unsubscribe token");
+  }
+  return { email: decoded.email };
+};

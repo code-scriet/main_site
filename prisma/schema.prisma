@@ -33,6 +33,11 @@ model User {
   course           String?
   phone            String?
   profileCompleted Boolean  @default(false) @map("profile_completed")
+
+  // Bulk-email preference — announcements / reminders / event notifications
+  // (OCI Email Delivery) skip members who opted out via List-Unsubscribe.
+  emailAnnouncements Boolean @default(true) @map("email_announcements")
+
   year             String?
 
   // Login telemetry (admin-deep-control)
@@ -185,6 +190,18 @@ model Settings {
   emailInvitationEnabled    Boolean @default(true) @map("email_invitation_enabled")
   emailPasswordResetEnabled Boolean @default(true) @map("email_password_reset_enabled")
   emailPasswordResetBody    String? @map("email_password_reset_body")
+
+  // Email provider per category (oci | brevo)
+  emailProviderWelcome       String @default("brevo") @map("email_provider_welcome")
+  emailProviderEventCreation String @default("oci")   @map("email_provider_event_creation")
+  emailProviderRegistration  String @default("brevo") @map("email_provider_registration")
+  emailProviderAnnouncement  String @default("oci")   @map("email_provider_announcement")
+  emailProviderCertificate   String @default("brevo") @map("email_provider_certificate")
+  emailProviderReminder      String @default("oci")   @map("email_provider_reminder")
+  emailProviderInvitation    String @default("brevo") @map("email_provider_invitation")
+  emailProviderAdminMail     String @default("brevo") @map("email_provider_admin_mail")
+  emailProviderPasswordReset String @default("brevo") @map("email_provider_password_reset")
+  emailProviderOther         String @default("brevo") @map("email_provider_other")
 
   // Email testing mode
   emailTestingMode    Boolean @default(false) @map("email_testing_mode")

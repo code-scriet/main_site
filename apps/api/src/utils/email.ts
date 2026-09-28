@@ -10,6 +10,7 @@ import { signInvitationClaimToken } from './jwt.js';
 import {
   applyTestingMode,
   applyTestingModeBulk,
+  getEmailProvider,
   getNotificationSettings,
   invalidateNotificationSettingsCache as invalidateNotificationSettingsCacheImpl,
   shouldNotify,
@@ -23,6 +24,8 @@ import {
   type BrevoRecipient,
   type EmailAttachment,
 } from './emailTransport.js';
+import { deliverBulkViaOci, deliverSingleViaOci, isOciSmtpConfigured } from './ociSmtpTransport.js';
+import { buildUnsubscribeUrl } from './unsubscribe.js';
 
 // Re-export so existing callers (routes/settings.ts, etc.) keep working.
 export { invalidateNotificationSettingsCacheImpl as invalidateNotificationSettingsCache };
@@ -1039,6 +1042,22 @@ class EmailService {
       return false;
     }
 
+    // Route via OCI or Brevo based on configured provider for this category
+    const provider = getEmailProvider(category, ns);
+    if (provider === 'oci' && isOciSmtpConfigured()) {
+      // OCI single send (no List-Unsubscribe needed for transactional)
+      return deliverSingleViaOci({
+        to: normalizedTo.values[0],
+        subject: options.subject,
+        htmlContent: options.html,
+        textContent: options.text || htmlToPlainText(options.html),
+        replyTo: EMAIL_REPLY_TO,
+        attachments: options.attachments,
+        inlineImages: options.inlineImages,
+      });
+    }
+
+    // Default: Brevo
     const recipients: BrevoRecipient[] = normalizedTo.values.map(email => ({ email }));
     const ccRecipients: BrevoRecipient[] = normalizedCc.values.map(email => ({ email }));
     const bccRecipients: BrevoRecipient[] = normalizedBcc.values.map(email => ({ email }));
@@ -1102,7 +1121,32 @@ class EmailService {
       });
     }
 
-    const BATCH_SIZE = 1000;
+        // -- Bulk mail via OCI Email Delivery (free 3,000/month) --
+    // Route per the admin-configured provider for this category.
+    // If OCI is chosen but not configured, fall back to Brevo (never fail a send).
+    const provider = getEmailProvider(category, ns);
+    if (provider === 'oci' && isOciSmtpConfigured()) {
+      // Honor per-member opt-outs before sending.
+      const optedOut = await prisma.user.findMany({
+        where: { email: { in: normalizedEmails.values }, emailAnnouncements: false },
+        select: { email: true },
+      });
+      const optedOutSet = new Set(optedOut.map((u) => u.email.toLowerCase()));
+      const eligible = normalizedEmails.values.filter((e) => !optedOutSet.has(e));
+      if (eligible.length === 0) {
+        logger.info("Bulk email skipped: all recipients opted out", { category, subject });
+        return true;
+      }
+      return deliverBulkViaOci({
+        emails: eligible,
+        subject,
+        htmlContent: html,
+        textContent: text || htmlToPlainText(html),
+        unsubscribeUrlFor: buildUnsubscribeUrl,
+      });
+    }
+
+const BATCH_SIZE = 1000;
     const batches: string[][] = [];
     for (let i = 0; i < normalizedEmails.values.length; i += BATCH_SIZE) {
       batches.push(normalizedEmails.values.slice(i, i + BATCH_SIZE));

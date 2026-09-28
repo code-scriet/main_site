@@ -7,9 +7,44 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { emailService, EmailTemplates } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { verifyUnsubscribeToken } from '../utils/unsubscribe.js';
 import { getQueryString } from '../utils/pagination.js';
 
 export const mailRouter = Router();
+// -- Public one-click unsubscribe (RFC 8058) --
+// The signed token proves address ownership, so no login is needed - this is
+// what the Gmail native Unsubscribe button and the footer link hit.
+const handleUnsubscribe = async (req: Request, res: Response): Promise<void> => {
+  const token = getQueryString(req.query.token);
+  if (!token) {
+    res.status(400).send("Missing unsubscribe token.");
+    return;
+  }
+  let email: string;
+  try {
+    ({ email } = verifyUnsubscribeToken(token));
+  } catch {
+    res.status(400).send("This unsubscribe link is invalid or has been tampered with.");
+    return;
+  }
+  await prisma.user.updateMany({
+    where: { email: { equals: email, mode: "insensitive" } },
+    data: { emailAnnouncements: false },
+  });
+  logger.info("Member unsubscribed from bulk announcements", { email });
+  res.send(
+    "<!doctype html><html><head><meta charset=\"utf-8\"><title>Unsubscribed</title></head>" +
+      "<body style=\"font-family:system-ui,sans-serif;max-width:560px;margin:48px auto;padding:0 16px;\">" +
+      "<h2>You have been unsubscribed</h2>" +
+      "<p>You will no longer receive bulk announcements, event reminders or event notifications from Code.SCRIET.</p>" +
+      "<p>Transactional emails (registrations, certificates, password resets) are unaffected.</p>" +
+      "</body></html>",
+  );
+};
+
+mailRouter.get("/unsubscribe", handleUnsubscribe);
+mailRouter.post("/unsubscribe", handleUnsubscribe);
+
 
 /**
  * Allow safe, rich HTML while stripping anything dangerous (XSS, scripts, iframes, etc.)

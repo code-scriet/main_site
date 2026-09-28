@@ -567,8 +567,20 @@ export interface Settings {
   emailCertificateEnabled?: boolean;
   emailReminderEnabled?: boolean;
   emailInvitationEnabled?: boolean;
+  emailPasswordResetEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
+  // Email provider per category (oci | brevo)
+  emailProviderWelcome?: 'oci' | 'brevo';
+  emailProviderEventCreation?: 'oci' | 'brevo';
+  emailProviderRegistration?: 'oci' | 'brevo';
+  emailProviderAnnouncement?: 'oci' | 'brevo';
+  emailProviderCertificate?: 'oci' | 'brevo';
+  emailProviderReminder?: 'oci' | 'brevo';
+  emailProviderInvitation?: 'oci' | 'brevo';
+  emailProviderAdminMail?: 'oci' | 'brevo';
+  emailProviderPasswordReset?: 'oci' | 'brevo';
+  emailProviderOther?: 'oci' | 'brevo';
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
   // Admin-selected primary code-execution provider for the judge + playground. wandbox | godbolt.
