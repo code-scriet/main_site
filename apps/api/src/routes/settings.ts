@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import type { Request } from '../lib/http.js';
+import rateLimit from 'express-rate-limit';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -14,6 +15,18 @@ import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
 import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { getClientIp } from '../utils/clientIp.js';
+
+// Manual reminder pass fans out to Brevo per due event — dedup makes repeats
+// safe no-ops, but throttle clicks so a stuck button can't hammer the sender.
+const reminderTriggerLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many manual reminder triggers, please try again later.' } },
+  keyGenerator: (req) => getAuthUser(req)?.id ?? getClientIp(req),
+});
 
 export const settingsRouter = Router();
 
@@ -1053,7 +1066,7 @@ settingsRouter.post('/event-status/sync-now', authMiddleware, requireRole('ADMIN
 // Manually run the event-reminder pass (admin "send reminders now"). Honours the
 // same global toggle, testing mode, per-event opt-out and dedup as the scheduler,
 // so clicking this while reminders are disabled is a safe no-op.
-settingsRouter.post('/reminders/trigger', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+settingsRouter.post('/reminders/trigger', authMiddleware, requireRole('ADMIN'), reminderTriggerLimiter, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

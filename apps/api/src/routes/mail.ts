@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
 import { prisma } from '../lib/prisma.js';
@@ -8,6 +9,7 @@ import { auditLog } from '../utils/audit.js';
 import { emailService, EmailTemplates } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { verifyUnsubscribeToken } from '../utils/unsubscribe.js';
+import { getClientIp } from '../utils/clientIp.js';
 import { getQueryString } from '../utils/pagination.js';
 
 export const mailRouter = Router();
@@ -45,6 +47,17 @@ const handleUnsubscribe = async (req: Request, res: Response): Promise<void> => 
 mailRouter.get("/unsubscribe", handleUnsubscribe);
 mailRouter.post("/unsubscribe", handleUnsubscribe);
 
+
+// Bulk fan-out (all_users / 500-address lists) per send — cap sends per admin
+// so a compromised token can't relay arbitrary volume through the club sender.
+const mailSendLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many bulk sends, please try again later.' } },
+  keyGenerator: (req) => getAuthUser(req)?.id ?? getClientIp(req),
+});
 
 /**
  * Allow safe, rich HTML while stripping anything dangerous (XSS, scripts, iframes, etc.)
@@ -154,7 +167,7 @@ mailRouter.get('/recipients', authMiddleware, requireRole('ADMIN'), async (req: 
 });
 
 // Send email (ADMIN + PRESIDENT only; Super Admin always allowed)
-mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), mailSendLimiter, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

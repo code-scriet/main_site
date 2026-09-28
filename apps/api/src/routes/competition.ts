@@ -110,7 +110,7 @@ const createRoundSchema = z.object({
   eventId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  duration: z.number().int().min(300).max(7200),
+  duration: z.number().int().min(300).max(14400),
   roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
@@ -128,7 +128,7 @@ const createRoundSchema = z.object({
 const updateRoundSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
-  duration: z.number().int().min(300).max(7200).optional(),
+  duration: z.number().int().min(300).max(14400).optional(),
   roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
