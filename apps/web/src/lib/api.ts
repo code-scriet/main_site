@@ -1584,6 +1584,7 @@ export interface AttendanceCertificateRecipientsResponse {
   };
   eventDays?: number;
   dayLabels?: string[];
+  truncated?: boolean;
 }
 
 export interface AttendanceSearchResult {

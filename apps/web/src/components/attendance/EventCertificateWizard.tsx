@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { processImageUrl } from '@/lib/imageUtils';
+import { mapWithConcurrency } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -195,6 +196,7 @@ export default function EventCertificateWizard({
   const [recipients, setRecipients] = useState<CertificateRecipient[]>([]);
   const [guestRecipients, setGuestRecipients] = useState<GuestCertificateRecipient[]>([]);
   const [stats, setStats] = useState({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
+  const [recipientsTruncated, setRecipientsTruncated] = useState(false);
   const [attendanceEventDays, setAttendanceEventDays] = useState(1);
   const [attendanceDayLabels, setAttendanceDayLabels] = useState<string[]>([]);
   const [minAttendanceDays, setMinAttendanceDays] = useState<number | null>(null);
@@ -371,6 +373,7 @@ export default function EventCertificateWizard({
       }
       setAttendanceEventDays(eventDays);
       setAttendanceDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
+      setRecipientsTruncated(data.truncated === true);
       setRecipients(data.participants ?? data.recipients);
       setGuestRecipients(data.guests ?? []);
       setStats({
@@ -392,6 +395,7 @@ export default function EventCertificateWizard({
     } catch {
       setRecipients([]);
       setGuestRecipients([]);
+      setRecipientsTruncated(false);
       setStats({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
       setAttendanceEventDays(1);
       setAttendanceDayLabels([]);
@@ -799,12 +803,15 @@ export default function EventCertificateWizard({
 
   async function handleBulkResend() {
     const ids = Array.from(managementSelected);
+    let completed = 0;
     let failed = 0;
 
     setBulkResending(true);
     setBulkResendProgress({ completed: 0, total: ids.length, failed: 0 });
 
-    for (const certId of ids) {
+    // Bounded concurrency (5 in flight): sequential was O(N) latency,
+    // all-at-once trips the resend cooldown + rate limiters.
+    await mapWithConcurrency(ids, 5, async (certId: string) => {
       try {
         await api.resendCertificateEmail(certId, token);
         setGeneratedCerts((current) =>
@@ -813,13 +820,12 @@ export default function EventCertificateWizard({
       } catch {
         failed += 1;
       } finally {
-        setBulkResendProgress((current) => ({
-          ...current,
-          completed: Math.min(current.completed + 1, ids.length),
-          failed,
-        }));
+        completed += 1;
+        const done = completed;
+        const failCount = failed;
+        setBulkResendProgress({ completed: Math.min(done, ids.length), total: ids.length, failed: failCount });
       }
-    }
+    });
 
     setBulkResending(false);
     setManagementSelected(new Set());
@@ -1022,6 +1028,12 @@ export default function EventCertificateWizard({
             </CardContent>
           </Card>
         </div>
+
+        {recipientsTruncated && (
+          <div className="mb-3 rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            Showing the first 5,000 recipients — counts below undercount and bulk actions skip the rest. Split certificates by day filter or contact support for larger events.
+          </div>
+        )}
 
         {attendanceEventDays > 1 && (
           <div className="mb-4 flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between">
@@ -2340,6 +2352,11 @@ export default function EventCertificateWizard({
             <h3 className="text-lg font-semibold">Generated Certificates ({generatedCerts.length})</h3>
             <p className="text-sm text-[var(--ds-text-3)]">Manage the certificates generated for {eventName}</p>
           </div>
+          {recipientsTruncated && (
+            <div className="mb-3 rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              Showing the first 5,000 recipients — counts below undercount and bulk actions skip the rest. Split certificates by day filter or contact support for larger events.
+            </div>
+          )}
           <div className="flex gap-2">
             {managementSelected.size > 0 && (
               <div className="space-y-1 text-right">

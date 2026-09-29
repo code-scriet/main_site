@@ -68,6 +68,18 @@ const certificateDownloadLimiter = rateLimit({
   keyGenerator: (req) => getClientIp(req),
 });
 
+// Bulk generation renders a PDF + Cloudinary upload + email PER recipient
+// (up to 200). Without a limiter, one compromised admin token (or a stuck
+// retry loop) can burn the Cloudinary/Brevo budget in minutes.
+const certificateBulkLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many bulk generations, please try again later.' } },
+  keyGenerator: (req) => getAuthUser(req)?.id ?? getClientIp(req),
+});
+
 const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
 const certificateSources = ['attendance', 'competition', 'generic'] as const;
@@ -696,13 +708,14 @@ certificatesRouter.get('/verify/:certId/download', certificateDownloadLimiter, a
 });
 
 // ──────────────────────────────────────────────────────────────────
-// PRIVATE: Admin list all certificates with pagination + filters
+// PRIVATE: Admin list all certificates with cursor pagination + filters
 // GET /api/certificates
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    // Support both legacy page/limit and new cursor pagination
+    const cursor = typeof req.query.cursor === 'string' && req.query.cursor.length > 0 ? req.query.cursor : null;
+    const take = Math.min(100, Math.max(1, Number(req.query.take) || 50));
     const type = req.query.type as string | undefined;
     const search = req.query.search as string | undefined;
     const eventId = req.query.eventId as string | undefined;
@@ -721,12 +734,14 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
       ];
     }
 
-    const [certificates, total] = await Promise.all([
+    // Use cursor pagination (like users) — take+1 to detect hasMore
+    const [total, certificates] = await Promise.all([
+      prisma.certificate.count({ where }),
       prisma.certificate.findMany({
         where,
         orderBy: { issuedAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         select: {
           id: true,
           certId: true,
@@ -744,10 +759,22 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
           viewCount: true,
         },
       }),
-      prisma.certificate.count({ where }),
     ]);
 
-    return ApiResponse.success(res, { certificates, total, page, totalPages: Math.ceil(total / limit) });
+    const hasMore = certificates.length > take;
+    const slice = hasMore ? certificates.slice(0, take) : certificates;
+    const nextCursor = hasMore ? slice[slice.length - 1]?.id ?? null : null;
+
+    return ApiResponse.success(res, {
+      certificates: slice,
+      meta: {
+        totalCertificates: total,
+        returned: slice.length,
+        nextCursor,
+        hasMore,
+        mode: 'cursor',
+      },
+    });
   } catch (error) {
     logger.error('Failed to list certificates', { error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to fetch certificates', status: 500 });
@@ -996,7 +1023,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 // PRIVATE: Bulk certificate generation
 // POST /api/certificates/bulk
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), certificateBulkLimiter, async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
 
   // Check feature toggle
