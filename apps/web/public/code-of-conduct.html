@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code of Conduct — code.scriet</title>
+<meta name="description" content="The code of conduct of code.scriet, the student-run coding society of SCRIET, CCSU Meerut.">
+<link rel="icon" type="image/jpeg" href="/logo.jpg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--brown:#4a1410;--orange:#d2762a;--gold:#f2b23e;--paper:#fdf3da;--line:#e8cf9b;--ink:#3a1a14}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 "IBM Plex Sans",system-ui,sans-serif}
+h1,h2,h3{font-family:"Zilla Slab",Georgia,serif;color:var(--brown);line-height:1.15}
+a{color:var(--orange)}
+a:focus-visible{outline:3px solid var(--brown);outline-offset:2px}
+.hero{display:flex;align-items:center;gap:2rem;max-width:1040px;margin:0 auto;padding:3rem 1.25rem 2rem}
+.hero img{width:170px;height:170px;object-fit:contain;mix-blend-mode:multiply;flex:none}
+.hero h1{font-size:clamp(2.2rem,6vw,3.6rem);margin:0 0 .5rem}
+.hero p{margin:0;max-width:52ch}
+.wrap{max-width:1040px;margin:0 auto;padding:0 1.25rem 4rem;display:grid;grid-template-columns:210px 1fr;gap:3rem}
+nav{position:sticky;top:1rem;align-self:start;font-size:.95rem}
+nav a{display:block;padding:.3rem 0 .3rem .8rem;border-left:3px solid var(--line);color:var(--brown);text-decoration:none}
+nav a:hover{border-color:var(--orange);background:rgba(242,178,62,.25)}
+main{counter-reset:art}
+section{scroll-margin-top:1rem;margin-bottom:2.5rem}
+h2{font-size:2rem;margin:0 0 1rem;padding-bottom:.4rem;border-bottom:4px solid var(--gold)}
+article{counter-increment:art;counter-reset:cl;background:#fff9ea;border:1px solid var(--line);border-left:6px solid var(--orange);padding:1rem 1.25rem;margin-bottom:1rem;border-radius:4px}
+h3{font-size:1.3rem;margin:0 0 .5rem}
+h3::before{content:"{ " counter(art) " } ";color:var(--orange)}
+article ol{list-style:none;margin:0;padding:0}
+article li{counter-increment:cl;padding-left:2.6rem;position:relative;margin:.45rem 0}
+article li::before{content:counter(art) "." counter(cl);position:absolute;left:0;font-weight:600;color:var(--orange)}
+.chain{list-style:none;margin:1rem 0 1.5rem;padding:0;border-left:4px solid var(--brown)}
+.chain li{margin:0 0 .6rem -4px;padding:.4rem 1rem;border-left:4px solid var(--orange);background:var(--gold);color:var(--brown);border-radius:0 4px 4px 0}
+.chain li:nth-child(n+2){background:#f6c968}.chain li:nth-child(n+3){background:#f9d98f}.chain li:nth-child(n+4){background:#fbe5b0}.chain li:nth-child(n+5){background:#fdefce}
+.chain li{counter-increment:none}.chain li::before{content:none}
+.chain b{font-family:"Zilla Slab",serif;font-size:1.1rem}
+.note{font-size:.95rem;border:1px dashed var(--orange);padding:.7rem 1rem;border-radius:4px}
+footer{background:var(--brown);color:var(--paper);padding:2rem 1.25rem;text-align:center;font-size:.95rem}
+footer a{color:var(--gold)}
+@media(max-width:800px){.wrap{grid-template-columns:1fr}nav{position:static;display:flex;flex-wrap:wrap;gap:.3rem}nav a{border:1px solid var(--line);padding:.3rem .7rem;border-radius:99px}.hero{flex-direction:column;text-align:center}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <img src="/logo.jpg" alt="code.scriet logo: Community of Developers and Engineers, SCRIET">
+  <div>
+    <h1>Code of Conduct</h1>
+    <p>The rules we write for ourselves. code.scriet is the student-run coding society of SCRIET, CCSU Meerut. This code explains how we lead, how we treat each other, and how we keep the society in student hands.</p>
+  </div>
+</header>
+
+<div class="wrap">
+<nav aria-label="Sections">
+  <a href="#p1">Autonomy</a><a href="#p2">Structure</a><a href="#p3">Respect</a><a href="#p4">Commitment</a><a href="#p5">Discipline</a><a href="#p6">Leadership</a><a href="#p7">Integrity</a><a href="#p8">Recognition</a><a href="#p9">Amendments</a>
+</nav>
+<main>
+
+<section id="p1"><h2>Student autonomy</h2>
+<article><h3>A society run by students</h3><ol>
+<li>code.scriet is a student autonomous club. Students hold every post, run every meeting, and make every decision.</li>
+<li>Faculty, professors, and staff are welcome to share their point of view and we value it. Their view is advice, not authority.</li>
+<li>No teacher, professor, or staff member may appoint, remove, or overrule an office-bearer, or change the structure of the society.</li>
+<li>If the institute requires a faculty coordinator for permissions, venues, or funds, the coordinator supports the society in those matters only.</li>
+</ol></article></section>
+
+<section id="p2"><h2>Structure and hierarchy</h2>
+<article><h3>Chain of command</h3>
+<ol class="chain" aria-label="Chain of command, highest to lowest">
+<li><b>President</b> &nbsp;leads the society and represents it</li>
+<li><b>Vice President</b> &nbsp;supports the President and runs operations</li>
+<li><b>Convener</b> &nbsp;coordinates teams, meetings, and events</li>
+<li><b>Team Lead</b> &nbsp;leads a track: Technical, DSA, Design, Social Media, or Management</li>
+<li><b>Member</b> &nbsp;learns, builds, and contributes</li>
+</ol>
+<ol>
+<li>Every member listens to and follows the next level above them in matters of work, deadlines, and events. Work is passed up the chain, and instructions come down it.</li>
+<li>Authority covers the work only. It never covers a person's dignity, time outside the club, or personal life.</li>
+<li>No one has to follow an instruction that is unethical, unsafe, humiliating, or against this code. Report it under Article 6.</li>
+<li>The President, VP, Convener, and Team Leads together form the Executive Committee, which takes the society's decisions.</li>
+</ol></article>
+<article><h3>Duties of office-bearers</h3><ol>
+<li>Team Leads plan their track's activities, guide their members, and report progress to the Convener.</li>
+<li>The Convener keeps teams aligned, keeps minutes of every meeting, and tracks attendance.</li>
+<li>Higher posts carry more responsibility, not more privilege.</li>
+</ol></article></section>
+
+<section id="p3"><h2>Respect and safety</h2>
+<article><h3>Zero tolerance for humiliation</h3><ol>
+<li>No person may insult, mock, shout at, threaten, shame, or publicly embarrass another. This applies equally to the President, the VP, and every other member, and to the faculty who visit us.</li>
+<li>Ragging, discrimination, and harassment are prohibited. This includes bias based on gender, caste, religion, region, language, branch, year, appearance, or skill level.</li>
+<li>Feedback on work is encouraged. It must be specific, about the work and not the person, and given privately unless it is praise.</li>
+<li>The same rules apply in WhatsApp, Discord, GitHub, social media, and every other online space of the society.</li>
+</ol></article>
+<article><h3>A welcoming place to learn</h3><ol>
+<li>No question is stupid. Seniors mentor and do not gatekeep.</li>
+<li>Opportunities, projects, and roles go by merit and willingness to work, never by friendship or seniority alone.</li>
+<li>Members from every branch and year belong here, from first-years writing their first program to final-years preparing for placements.</li>
+</ol></article>
+<article><h3>Raising a concern</h3><ol>
+<li>Anyone can raise a concern about conduct with their Team Lead, the Convener, the VP, or the President.</li>
+<li>If the concern is about someone in that chain, go to the next level above them. If it is about the President, go to the Alumni Council.</li>
+<li>Concerns are kept confidential, and no one may retaliate against a person who raises one in good faith.</li>
+<li>Deliberately false complaints are a breach of this code.</li>
+</ol></article></section>
+
+<section id="p4"><h2>Commitment and attendance</h2>
+<article><h3>Attendance</h3><ol>
+<li>Attending every offline meet is expected of every member and office-bearer.</li>
+<li>Missing three consecutive offline meets without a valid reason puts the person's post under formal review. It does not mean automatic removal.</li>
+<li>Illness, exams, family emergencies, and official college duties are valid reasons. Tell your Team Lead before the meet, or within 48 hours if it was an emergency.</li>
+<li>The Convener records attendance and shares it with the Executive Committee each month.</li>
+</ol></article>
+<article><h3>Exclusive leadership</h3><ol>
+<li>The President and the VP may not hold an executive or leadership post in any other club or society during their term.</li>
+<li>Ordinary membership in other clubs is fine for everyone.</li>
+<li>Any office-bearer with a personal interest in a decision, such as a friend or relative involved, must say so and step out of that decision.</li>
+</ol></article></section>
+
+<section id="p5"><h2>Discipline</h2>
+<article><h3>A fair process</h3><ol>
+<li>No one loses a post or membership without a warning and a chance to explain.</li>
+<li>The steps are a verbal warning, a written warning, a hearing before the Executive Committee, and then a decision.</li>
+<li>A decision to remove a member or Team Lead needs a two-thirds vote of the Executive Committee. People involved in the matter do not vote.</li>
+<li>Removing the Convener, VP, or President needs a two-thirds vote of the Executive Committee and the consent of the Alumni Council.</li>
+<li>Serious breaches, such as harassment, ragging, or misuse of funds, may skip the warning steps and go straight to a hearing.</li>
+<li>Anyone removed may appeal once to the Alumni Council within 7 days. Its decision is final.</li>
+</ol></article></section>
+
+<section id="p6"><h2>Leadership and succession</h2>
+<article><h3>Annual selection</h3><ol>
+<li>Every year, all posts are filled through open applications and proper interviews, with tracks matching our Join Us process.</li>
+<li>Every eligible member may apply. Selection is based on skill, contribution, attitude, and reliability.</li>
+<li>The panel has the outgoing President or VP, the Convener, a Team Lead who is not applying, and one member of the Alumni Council. Panelists with a personal tie to a candidate step aside.</li>
+<li>A post term is one year. A person may hold the same top post for at most two terms.</li>
+</ol></article>
+<article><h3>Alumni Council</h3><ol>
+<li>Former Presidents and founding members form the Alumni Council of three to five people, who take part in appointing each new President.</li>
+<li>The Council advises, helps settle serious disputes, and hears appeals. It does not run day-to-day work.</li>
+<li>Members of the Council may serve for up to two years after leaving their post, so that no single batch controls the society for good.</li>
+</ol></article>
+<article><h3>Succession</h3><ol>
+<li>If the President resigns or cannot continue, the Vice President becomes President.</li>
+<li>The Convener then becomes Vice President.</li>
+<li>The vacant Convener post is filled by selection or election from the Executive Committee.</li>
+<li>Outgoing office-bearers hand over accounts, repositories, credentials, and records to their successors within 14 days.</li>
+</ol></article>
+<article><h3>No confidence</h3><ol>
+<li>One-third of all members can sign a motion of no confidence against any office-bearer.</li>
+<li>The motion passes with two-thirds of members present at a meeting with a quorum of half the members, and it is confirmed by the Alumni Council.</li>
+</ol></article></section>
+
+<section id="p7"><h2>Integrity and ethics</h2>
+<article><h3>Honest code, honest money</h3><ol>
+<li>Plagiarism is not allowed. Credit your sources, follow open-source licences, and name every teammate in group work.</li>
+<li>No hacking, scraping, or security testing of any system without written permission. Do not misuse college networks, servers, or other people's data.</li>
+<li>Meeting minutes, decisions, and event budgets are recorded and open to every member. Every rupee the society handles is documented.</li>
+<li>Members' personal data, such as phone numbers and IDs, is used only for society work and kept safe.</li>
+<li>The name and logo of code.scriet may be used for society activity only.</li>
+</ol></article></section>
+
+<section id="p8"><h2>Recognition</h2>
+<article><h3>Credit where it is due</h3><ol>
+<li>Every year, each member who contributed to code.scriet receives a Certificate of Appreciation.</li>
+<li>Outstanding work, such as best project, best mentor, and most consistent member, gets special recognition.</li>
+<li>Contributors are credited on our public credits page.</li>
+</ol></article></section>
+
+<section id="p9"><h2>Amendments</h2>
+<article><h3>Changing this code</h3><ol>
+<li>Any member may propose an amendment to the Executive Committee.</li>
+<li>An amendment needs a two-thirds vote of the Executive Committee, ratification by a general body meeting, and consultation with the Alumni Council.</li>
+<li>No amendment may give faculty or staff control over the society, and Article 1 is protected in that sense.</li>
+<li>By joining code.scriet, every member agrees to follow this code.</li>
+</ol></article>
+<p class="note">Questions or concerns? Write to us through the <a href="https://codescriet.dev/contact/">contact page</a>. Version 1.0, adopted 2026.</p>
+</section>
+</main>
+</div>
+<footer><p style="margin:0 0 .6rem;font-family:'Zilla Slab',Georgia,serif;font-size:1.15rem;color:var(--gold)">Code of Conduct by <a href="https://github.com/princeguptaa13" target="_blank" rel="noopener noreferrer">Prince Gupta</a>, Founder, code.scriet</p>code.scriet · Community of Developers &amp; Engineers · <a href="https://codescriet.dev/">codescriet.dev</a></footer>
+</body>
+</html>

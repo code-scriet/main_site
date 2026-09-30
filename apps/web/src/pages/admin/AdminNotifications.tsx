@@ -303,8 +303,9 @@ export default function AdminNotifications() {
         ) : broadcasts.length === 0 ? (
           <DSCard padded><EmptyState icon={<History size={18} />} title="No broadcasts yet" body="Your sent notifications + auto-generated event/problem broadcasts appear here." /></DSCard>
         ) : (
-          <div className="divide-y divide-[var(--border-subtle)]">
-            {broadcasts.map((b) => (
+          <DSCard padded={false}>
+            <div className="divide-y divide-[var(--border-subtle)]">
+              {broadcasts.map((b) => (
                 <div key={b.id} className="px-4 py-3 flex items-start gap-3">
                   {b.createdBy ? <Avatar name={b.createdBy.name} src={b.createdBy.avatar} size={28} /> : <div className="size-7 rounded-[8px] bg-[var(--surface-soft)] flex items-center justify-center"><Bell size={13} className="text-[var(--ds-text-3)]" /></div>}
                   <div className="flex-1 min-w-0">

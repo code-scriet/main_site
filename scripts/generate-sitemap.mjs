@@ -23,6 +23,7 @@ const STATIC_PAGES = [
   { path: '/contact/', priority: '0.5', changefreq: 'monthly' },
   { path: '/join-us/', priority: '0.8', changefreq: 'weekly' },
   { path: '/privacy-policy/', priority: '0.3', changefreq: 'yearly' },
+  { path: '/code-of-conduct/', priority: '0.6', changefreq: 'monthly' },
 ];
 
 function buildStaticSitemap() {
