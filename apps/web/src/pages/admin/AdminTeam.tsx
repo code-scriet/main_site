@@ -122,7 +122,7 @@ export default function AdminTeam() {
       setEditOpen(false);
       qc.invalidateQueries({ queryKey: ['admin-team'] });
     },
-    onError: () => toast.error('Save failed'),
+    onError: (e: unknown) => toast.error(e instanceof Error && e.message ? e.message : 'Save failed'),
   });
 
   const deleteMut = useMutation({
@@ -132,7 +132,15 @@ export default function AdminTeam() {
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ['admin-team'] });
     },
-    onError: () => toast.error('Delete failed'),
+    onError: (e: unknown) => {
+      // 404 = the row was already gone server-side (stale list); refresh instead of alarming.
+      if (e instanceof Error && (e as { status?: number }).status === 404) {
+        qc.invalidateQueries({ queryKey: ['admin-team'] });
+        toast.error('Team member was already removed — list refreshed');
+        return;
+      }
+      toast.error(e instanceof Error && e.message ? e.message : 'Delete failed');
+    },
   });
 
   const openCreate = () => {
@@ -428,7 +436,7 @@ export default function AdminTeam() {
                 {TEAM_GROUPS.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
-            <Field label="Image URL" className="sm:col-span-2" badge={syncBadge(edit.imageUrl, linkUserId, syncedFrom.imageUrl)}>
+            <Field label="Image URL" required className="sm:col-span-2" badge={syncBadge(edit.imageUrl, linkUserId, syncedFrom.imageUrl)}>
               <Input value={edit.imageUrl} onChange={(e) => setEdit({ ...edit, imageUrl: e.target.value })} placeholder={linkUser?.avatar || 'https://…'} />
             </Field>
             <Field label="GitHub" badge={syncBadge(edit.github, linkUserId, syncedFrom.github)}>

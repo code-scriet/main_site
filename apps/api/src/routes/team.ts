@@ -645,10 +645,20 @@ teamRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
       return;
     }
     const authUser = getAuthUser(req)!;
+    // Guardrail: deleting a member that no longer exists (stale UI row, double
+    // submit) used to throw P2025 and surface as a misleading 500.
+    const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
+    }
     await prisma.teamMember.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'team_member', req.params.id);
     res.json({ success: true, message: 'Team member removed successfully' });
-  } catch {
+  } catch (error) {
+    logger.error('Failed to delete team member', {
+      error: error instanceof Error ? error.message : String(error),
+      id: req.params.id,
+    });
     res.status(500).json({ success: false, error: { message: 'Failed to delete team member' } });
   }
 });
