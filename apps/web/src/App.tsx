@@ -63,6 +63,7 @@ const NetworkStatusPage = lazy(() => import('@/pages/network/NetworkStatusPage')
 const NetworkProfilePage = lazy(() => import('@/pages/network/NetworkProfilePage'));
 const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
+const CodeOfConductPage = lazy(() => import('@/pages/CodeOfConductPage'));
 const CreditsPage = lazy(() => import('@/pages/CreditsPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 const QOTDSolvePage = lazy(() => import('@/pages/QOTDSolvePage'));
@@ -179,6 +180,7 @@ function App() {
                   <Route path="/network/:slug" element={withRouteBoundary(<NetworkProfilePage />)} />
                   <Route path="/join-our-network" element={withRouteBoundary(<JoinOurNetworkPage />)} />
                   <Route path="/privacy-policy" element={withRouteBoundary(<PrivacyPolicyPage />)} />
+                  <Route path="/code-of-conduct" element={withRouteBoundary(<CodeOfConductPage />)} />
                   <Route path="/credits" element={withRouteBoundary(<CreditsPage />)} />
                   <Route path="/qotd/leaderboard" element={withRouteBoundary(<QOTDLeaderboardPage />)} />
                   <Route path="/competition/:roundId/results" element={withRouteBoundary(<CompetitionResults />)} />

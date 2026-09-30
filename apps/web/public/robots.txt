@@ -19,6 +19,8 @@ Allow: /join-our-network
 Allow: /contact
 Allow: /privacy-policy
 Allow: /credits
+Allow: /code-of-conduct
+Allow: /code-of-conduct/
 Allow: /verify
 Allow: /verify/
 

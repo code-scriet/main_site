@@ -537,6 +537,7 @@ const FOOTER_LINKS = [
   { href: '/contact/', label: 'Contact' },
   { href: '/join-us/', label: 'Join Us' },
   { href: '/privacy-policy/', label: 'Privacy Policy' },
+  { href: '/code-of-conduct/', label: 'Code of Conduct' },
 ];
 
 function footerStub() {
@@ -803,6 +804,14 @@ function buildListingTasks({ team, network, events, achievements, announcements,
       intro: 'codescriet is the work of many people across many batches. This page credits the founders who started the club, the developers who built and maintain this platform, the designers who shaped its identity, the content creators who document our work, and the special-thanks contributors and faculty advisors who made everything possible. The platform itself is an open-source, student-built project — every feature, from event registration and QR attendance to the live quiz engine, coding playground, and certificate system, was designed and shipped by club members. We believe in recognising effort openly, so contributors are listed by the area they helped with rather than by seniority.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfCredits(credits),
+    }),
+    listingTask({
+      route: '/code-of-conduct',
+      title: 'Code of Conduct — code.scriet',
+      description: 'The code of conduct of code.scriet, the student-run coding society of SCRIET, CCSU Meerut.',
+      intro: 'The rules we write for ourselves. code.scriet is the student-run coding society of SCRIET, CCSU Meerut. This code explains how we lead, how we treat each other, and how we keep the society in student hands.',
+      jsonLdType: 'WebPage',
+      listHtml: '',
     }),
   ];
 }
