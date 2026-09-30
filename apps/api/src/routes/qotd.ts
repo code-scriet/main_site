@@ -67,8 +67,17 @@ const problemInputSchema = z.object({
   isPublished: z.boolean().default(false),
 });
 
+// Strict date schema: only accepts YYYY-MM-DD strings (the format the frontend sends
+// via toIsoDate). Rejects ambiguous formats like "01/10/2026" which z.coerce.date()
+// would silently parse as Jan 10 (US) or Oct 1 (no standard) depending on the engine.
+// Parsed as UTC midnight so formatUsageDate/toIstDateKey can convert to IST.
+const qotdDateSchema = z.string({ invalid_type_error: 'date must be a YYYY-MM-DD string' })
+  .min(1, 'date is required')
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD (e.g. 2026-10-01)')
+  .transform((s) => new Date(`${s}T00:00:00.000Z`));
+
 const createQotdSchema = z.object({
-  date: z.coerce.date(),
+  date: qotdDateSchema,
   problemId: z.string().uuid().optional(),
   newProblem: problemInputSchema.optional(),
   question: z.string().trim().min(5).max(2000).optional(),
@@ -87,7 +96,7 @@ const updateQotdSchema = z.object({
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   problemId: z.string().uuid().nullable().optional(),
-  date: z.coerce.date().optional(),
+  date: qotdDateSchema.optional(),
   // IST wall-clock go-live time (HH:mm). Only meaningful for a SCHEDULED QOTD
   // (re-arms its publish timer). Ignored for a bare proposal (publishAt null).
   publishTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'publishTime must be HH:mm (24h)').optional(),
@@ -755,7 +764,7 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
   try {
     const authUser = getAuthUser(req)!;
     const parsed = createQotdSchema.safeParse(req.body);
-    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.issues[0]?.message || 'Invalid QOTD payload');
 
     // Author authority — computed up-front because it gates BOTH the QOTD publish
     // state (below) AND the inline-problem publish state (next): a CORE_MEMBER can
@@ -786,7 +795,8 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       };
     } else if (problemId) {
       const problem = await prisma.problem.findUnique({ where: { id: problemId } });
-      if (!problem) return ApiResponse.notFound(res, 'Problem not found');
+      if (!problem) return ApiResponse.notFound(res, 'Selected problem not found');
+      if (!problem.isPublished) return ApiResponse.badRequest(res, 'Selected problem is not published — publish it first or use the inline creation mode to draft a proposal');
       legacyFields = {
         question: problem.title,
         difficulty: problem.difficulty,
@@ -796,6 +806,18 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
 
     const now = new Date();
     const dateKey = formatUsageDate(parsed.data.date);
+    // Guardrail: fail on duplicate date BEFORE the DB write so we return a 4xx
+    // (not a P2002 → 500). The QOTD.date column has a @unique constraint, but
+    // relying on it alone means a duplicate produces an opaque 500 with no
+    // human-readable hint. This pre-check turns it into a 409 with a clear message.
+    // (A race is still possible — the catch block below also handles P2002.)
+    const existingDate = await prisma.qOTD.findUnique({ where: { date: parsed.data.date } });
+    if (existingDate) {
+      return ApiResponse.conflict(
+        res,
+        `A QOTD already exists for ${dateKey} — unpublish or change the date`,
+      );
+    }
     // publishAt = the chosen IST wall-clock time on the QOTD's IST date.
     // Building from the IST date key + "+05:30" offset yields the correct UTC
     // instant regardless of the server's timezone. Falls back to IST midnight
@@ -848,7 +870,17 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     }
     await auditLog(authUser.id, isAdmin ? 'CREATE' : 'QOTD_PROPOSED', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
     return ApiResponse.created(res, qotd, isAdmin ? 'QOTD created successfully' : 'QOTD proposed — an admin will review and publish it');
-  } catch {
+  } catch (error) {
+    logger.error('POST /api/qotd failed', {
+      error: error instanceof Error ? error.message : String(error),
+      code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
+      body: req.body,
+    });
+    // Race-condition safety net: if the pre-check above was bypassed (concurrent
+    // request for the same date), Prisma throws P2002 on the unique constraint.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return ApiResponse.conflict(res, 'A QOTD already exists for this date');
+    }
     return ApiResponse.internal(res, 'Failed to create QOTD');
   }
 });
@@ -1016,7 +1048,7 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
   try {
     const authUser = getAuthUser(req)!;
     const parsed = updateQotdSchema.safeParse(req.body);
-    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.issues[0]?.message || 'Invalid QOTD payload');
 
     const existingQotd = await prisma.qOTD.findUnique({
       where: { id: req.params.id },
