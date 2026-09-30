@@ -96,6 +96,19 @@ export default function AdminTeam() {
     return m;
   }, [members]);
 
+  // Team options follow the data, not a hardcoded list: the distinct teams
+  // already in use (sorted). The dropdown always contains every real group,
+  // so it can never display a wrong value for members outside the old list.
+  const teamOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      const t = (m.team || '').trim();
+      if (t) set.add(t);
+    }
+    const opts = [...set].sort((a, b) => a.localeCompare(b));
+    return opts.length ? opts : TEAM_GROUPS;
+  }, [members]);
+
   const saveMut = useMutation({
     mutationFn: async () => {
       const payload: Partial<TeamMember> & { userId?: string | null } = {
@@ -144,7 +157,7 @@ export default function AdminTeam() {
   });
 
   const openCreate = () => {
-    setEdit({ ...EMPTY, order: members.length });
+    setEdit({ ...EMPTY, order: members.length, team: teamOptions[0] ?? EMPTY.team });
     setEditTarget(null);
     setRichOpen(false);
     setLinkUserId(null);
@@ -433,7 +446,11 @@ export default function AdminTeam() {
                 onChange={(e) => setEdit({ ...edit, team: e.target.value })}
                 className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
               >
-                {TEAM_GROUPS.map((t) => <option key={t} value={t}>{t}</option>)}
+                {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                {/* Keep the staged value selectable when the list is momentarily stale. */}
+                {!teamOptions.includes(edit.team) && edit.team.trim() !== '' && (
+                  <option key={edit.team} value={edit.team}>{edit.team}</option>
+                )}
               </select>
             </Field>
             <Field label="Image URL" required className="sm:col-span-2" badge={syncBadge(edit.imageUrl, linkUserId, syncedFrom.imageUrl)}>
