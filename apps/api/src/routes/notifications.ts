@@ -362,15 +362,24 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
   }
 });
 
-// List admin-authored broadcasts (history view).
-notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+// List admin-authored broadcasts (history view). Paged fetch-all support
+// (limit/offset + exact total) so the history never silently truncates.
+notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const rows = await prisma.notificationFeed.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { createdBy: { select: { id: true, name: true, email: true, avatar: true } } },
-    });
-    return ApiResponse.success(res, rows.map(r => ({
+    const rawLimit = Number.parseInt(req.query.limit as string, 10);
+    const rawOffset = Number.parseInt(req.query.offset as string, 10);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 100;
+    const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+    const [rows, total] = await Promise.all([
+      prisma.notificationFeed.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        include: { createdBy: { select: { id: true, name: true, email: true, avatar: true } } },
+      }),
+      prisma.notificationFeed.count(),
+    ]);
+    const broadcasts = rows.map(r => ({
       id: r.id,
       source: r.source,
       audience: r.audience,
@@ -386,7 +395,8 @@ notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt?.toISOString() ?? null,
       createdBy: r.createdBy,
-    })));
+    }));
+    return ApiResponse.success(res, { broadcasts, total });
   } catch (error) {
     logger.error('Failed to list broadcasts', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to load broadcasts');

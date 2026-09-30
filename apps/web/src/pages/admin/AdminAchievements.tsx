@@ -54,10 +54,25 @@ export default function AdminAchievements() {
 
   const q = useQuery({
     queryKey: ['admin-achievements'],
-    queryFn: () => api.getAchievements({ limit: 200, includeContent: true }),
+    // Fetch-all: walk every server page (max 200/page) so nothing truncates.
+    queryFn: async () => {
+      const mine: Achievement[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 200;
+      while (mine.length < total) {
+        const r = await api.getAchievementsWithTotal({ limit: LIMIT, offset, includeContent: true });
+        mine.push(...r.achievements);
+        total = r.total;
+        if (r.achievements.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { achievements: mine, total };
+    },
   });
 
-  const items = useMemo(() => (q.data ?? []).slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [q.data]);
+  const items = useMemo(() => (q.data?.achievements ?? []).slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [q.data]);
+  const serverTotal = q.data?.total ?? items.length;
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -148,6 +163,10 @@ export default function AdminAchievements() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Achievements</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Curated milestones shown on the public site.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${serverTotal} total`}
+            {items.length ? ` · ${items.length} loaded` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild>

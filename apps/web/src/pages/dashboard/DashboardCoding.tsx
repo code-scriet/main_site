@@ -98,7 +98,21 @@ function PracticeTab() {
   const enabled = settings?.problemsEnabled !== false;
   const problemsQ = useQuery({
     queryKey: ['problems', 'practice'],
-    queryFn: () => api.getProblems({ published: true, limit: 100 }),
+    // Fetch-all: walk every server page (max 50/page) so no problem truncates.
+    queryFn: async () => {
+      const mine: Problem[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 50;
+      while (mine.length < total) {
+        const r = await api.getProblems({ published: true, limit: LIMIT, offset });
+        mine.push(...r.problems);
+        total = r.total ?? r.problems.length;
+        if (r.problems.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { problems: mine, total };
+    },
     enabled,
   });
 

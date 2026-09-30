@@ -93,6 +93,7 @@ export default function AdminProblems({ embedded = false }: { embedded?: boolean
   // useMemo, not a bare `?? []`: a fresh array literal every render gives every
   // downstream useMemo a changed dependency, so they recompute on each render.
   const all: Problem[] = useMemo(() => q.data?.problems ?? [], [q.data?.problems]);
+  const serverTotal = q.data?.total ?? all.length;
   const filtered = useMemo(() => {
     return all
       .filter((p) => (publishedOnly ? p.isPublished : true))
@@ -277,6 +278,10 @@ export default function AdminProblems({ embedded = false }: { embedded?: boolean
             <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
             <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
             <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
+            <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+              {q.isLoading ? 'Loading…' : `${serverTotal} total`}
+              {all.length ? ` · ${all.length} loaded` : ''}
+            </p>
           </div>
         )}
         <div className="flex items-center gap-2">

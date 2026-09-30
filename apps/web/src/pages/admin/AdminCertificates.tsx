@@ -4,8 +4,8 @@
 // Design source: screen-admin2.jsx:456 (AdminCertificatesScreen) and brief §7.18.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Award, Plus, Search, Download, Mail, Trash2, Ban, Loader2, ExternalLink, Pencil, FileUp, Users } from 'lucide-react';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { Award, Plus, Search, Download, Mail, Trash2, Ban, Loader2, ExternalLink, Pencil, FileUp, Users, ChevronDown, ListPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CertType, type CertificateEmailTemplate, type CertificateDetail, type CertificateUpdateInput } from '@/lib/api';
 import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs, Section } from '@/components/dash';
@@ -75,6 +75,10 @@ const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
   APPRECIATION: 'info',
 };
 
+// Per-request page size (backend max 100). 20 keeps each page snappy while
+// "Load all" pages through the rest — same pattern as AdminUsersPage.
+const CERT_PAGE_SIZE = 20;
+
 function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAULTS): GenerateFormData {
   return {
     recipientName: '',
@@ -104,12 +108,12 @@ export default function AdminCertificates() {
   const { token } = useAuth();
   const qc = useQueryClient();
 
-  // Filters + pagination
+  // Filters (server) + client status filter. List pages through every result
+  // like AdminUsersPage: incremental "Load more" + a "Load all" option.
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all-type');
-  const [page, setPage] = useState(1);
 
   // Dialogs
   const [revokeTarget, setRevokeTarget] = useState<CertRow | null>(null);
@@ -173,21 +177,19 @@ export default function AdminCertificates() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Reset to page 1 on filter change
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, typeFilter, status]);
-
-  // ─── Queries
-  const q = useQuery({
-    queryKey: ['admin-certificates', { page, debouncedSearch, status, typeFilter }],
-    queryFn: () => api.getCertificates(token!, {
-      page,
-      limit: 20,
+  // ─── Queries (infinite: page through every certificate like Users)
+  const listQuery = useInfiniteQuery({
+    queryKey: ['admin-certificates', { debouncedSearch, typeFilter }],
+    queryFn: ({ pageParam }) => api.getCertificates(token!, {
+      page: pageParam,
+      limit: CERT_PAGE_SIZE,
       search: debouncedSearch || undefined,
       type: typeFilter !== 'all-type' ? typeFilter : undefined,
-    }) as Promise<{ certificates: CertRow[]; total: number }>,
+    }) as Promise<{ certificates: CertRow[]; total: number; page: number; totalPages: number }>,
     enabled: Boolean(token),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
 
   const sigQ = useQuery({
@@ -198,7 +200,10 @@ export default function AdminCertificates() {
 
   // useMemo, not a bare `?? []`: a fresh array literal every render gives every
   // downstream useMemo a changed dependency, so they recompute on each render.
-  const all = useMemo(() => q.data?.certificates ?? [], [q.data?.certificates]);
+  const all = useMemo(() => listQuery.data?.pages.flatMap((p) => p.certificates) ?? [], [listQuery.data]);
+  const loadedPages = listQuery.data?.pages;
+  const total = loadedPages?.[loadedPages.length - 1]?.total;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = listQuery;
   const filtered = useMemo(() => {
     return all.filter((c) => {
       if (status === 'active' && c.isRevoked) return false;
@@ -206,6 +211,28 @@ export default function AdminCertificates() {
       return true;
     });
   }, [all, status]);
+
+  // "Load all" — page through every remaining page in one go. Driven by a
+  // promise loop in an event handler (not an effect) so it can never trigger
+  // cascading re-renders; each fetchNextPage resolves before the next fires.
+  const [loadingAll, setLoadingAll] = useState(false);
+  const loadAll = async () => {
+    // Don't start while one is running, or while a "Load more" fetch is already
+    // in flight — overlapping fetchNextPage() calls cause redundant requests
+    // and make paging order timing-dependent.
+    if (loadingAll || isFetchingNextPage) return;
+    setLoadingAll(true);
+    try {
+      let result = await fetchNextPage();
+      while (result.hasNextPage && !result.isError) {
+        result = await fetchNextPage();
+      }
+    } catch {
+      // fetchNextPage surfaces failures on the query itself; nothing to do here.
+    } finally {
+      setLoadingAll(false);
+    }
+  };
 
   const activeSignatories: ActiveSignatory[] = useMemo(() => {
     return (sigQ.data ?? [])
@@ -547,6 +574,11 @@ export default function AdminCertificates() {
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">
             Issue, revoke, and verify certs. Each is verifiable at /verify/{`{certId}`}.
           </p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {total != null ? `${total} total` : 'Loading…'}
+            {all.length ? ` · ${all.length} loaded` : ''}
+            {hasNextPage ? ' · more available' : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" onClick={() => setShowBulk(true)}>
@@ -595,7 +627,7 @@ export default function AdminCertificates() {
       </div>
 
       <DSCard padded={false}>
-        {q.isLoading ? (
+        {listQuery.isLoading ? (
           <div className="p-6 animate-pulse space-y-2">
             {[0, 1, 2, 3].map((i) => <div key={i} className="h-10 bg-[var(--surface-soft)] rounded" />)}
           </div>
@@ -722,14 +754,38 @@ export default function AdminCertificates() {
         )}
       </Section>
 
-      {/* Pagination */}
-      {q.data && q.data.total > 20 && (
-        <div className="flex items-center justify-between text-[12.5px] text-[var(--ds-text-3)]">
-          <span>Page {page} · {q.data.total} total</span>
-          <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
-            <Button size="sm" variant="ghost" disabled={page * 20 >= q.data.total} onClick={() => setPage((p) => p + 1)}>Next</Button>
-          </div>
+      {/* Fetch-all controls — incremental "Load more" + a "Load all" option */}
+      {filtered.length > 0 && (hasNextPage || loadingAll) && (
+        <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchNextPage()}
+            disabled={!hasNextPage || isFetchingNextPage || loadingAll}
+          >
+            {isFetchingNextPage && !loadingAll ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ChevronDown className="mr-2 h-3.5 w-3.5" />
+            )}
+            Load more
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadAll()}
+            disabled={!hasNextPage || loadingAll || isFetchingNextPage}
+            className="text-[var(--ds-text-3)]"
+          >
+            {loadingAll ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ListPlus className="mr-2 h-3.5 w-3.5" />
+            )}
+            {loadingAll
+              ? `Loading all… (${all.length}${total != null ? `/${total}` : ''})`
+              : 'Load all certificates'}
+          </Button>
         </div>
       )}
 

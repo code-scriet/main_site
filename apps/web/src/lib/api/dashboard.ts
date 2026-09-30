@@ -200,8 +200,13 @@ export const dashboardApi = {
       body: JSON.stringify(input),
       token,
     }),
-  listAdminBroadcasts: (token: string) =>
-    request<BroadcastRow[]>('/notifications/admin/broadcasts', { token }),
+  listAdminBroadcasts: (token: string, params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{ broadcasts: BroadcastRow[]; total: number }>(`/notifications/admin/broadcasts${query}`, { token });
+  },
   deleteAdminBroadcast: (id: string, token: string) =>
     request<{ id: string }>(`/notifications/admin/broadcasts/${id}`, { method: 'DELETE', token }),
 

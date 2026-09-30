@@ -49,11 +49,12 @@ export default function AttendancePage() {
 
   const eventsQ = useQuery({
     queryKey: ['events', 'attendance-picker'],
-    queryFn: () => api.getEvents(),
+    queryFn: () => api.getEventsWithTotal({ limit: 500 }),
     enabled: Boolean(token),
   });
 
-  const all = useMemo(() => (eventsQ.data ?? []).slice().sort(compareAttendanceEvents), [eventsQ.data]);
+  const all = useMemo(() => (eventsQ.data?.events ?? []).slice().sort(compareAttendanceEvents), [eventsQ.data]);
+  const serverTotal = eventsQ.data?.total ?? all.length;
   const filtered = useMemo(
     () => all.filter((e) => e.title.toLowerCase().includes(search.toLowerCase())),
     [all, search],
@@ -70,6 +71,9 @@ export default function AttendancePage() {
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Take attendance</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1 max-w-prose">
             Pick an event to open its scanner. Scans queue offline and sync automatically when you reconnect.
+          </p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {eventsQ.isLoading ? 'Loading…' : `${serverTotal} total`}
           </p>
         </div>
         <div className="relative w-full sm:w-[260px]">

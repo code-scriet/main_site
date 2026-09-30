@@ -304,6 +304,9 @@ export default function AdminTeam() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Team</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The public Team page renders this list, grouped by team.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${members.length} total`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild>

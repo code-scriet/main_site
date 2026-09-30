@@ -55,6 +55,9 @@ type SortMode = 'name' | 'scanTime' | 'registrationTime';
 export default function AttendanceManager({ eventId, token }: AttendanceManagerProps) {
   const { user } = useAuth();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  // Server total — exact even when the table below truncates at the 5000-row
+  // server cap. Best-effort: falls back to the loaded count while loading.
+  const [serverTotal, setServerTotal] = useState<number | null>(null);
   const [eventDays, setEventDays] = useState(1);
   const [dayLabels, setDayLabels] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState(1);
@@ -94,6 +97,11 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
       const normalizedEventDays = Math.min(Math.max(data.eventDays ?? 1, 1), 10);
       setEventDays(normalizedEventDays);
       setDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
+      // Server total rides along separately so a truncated table can't skew it.
+      api.getAttendanceSummary(eventId, token).then(
+        (s) => setServerTotal(typeof s.total === 'number' ? s.total : null),
+        () => setServerTotal(null),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load attendance data';
       setLoadError(message);
@@ -448,7 +456,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
       {/* Stat strip — compact StatTiles instead of giant Cards. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile label="Registered" value={summary.total} icon={<Users size={14} />} />
+        <StatTile label="Registered" value={serverTotal ?? summary.total} icon={<Users size={14} />} />
         <StatTile
           label="Present"
           value={summary.present}
@@ -787,8 +795,11 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
       {/* Showing count */}
       <p className="text-sm text-muted-foreground">
-        Showing {filteredRecords.length} of {records.length} registrations
+        Showing {filteredRecords.length} of {serverTotal ?? records.length} registrations
         {eventDays > 1 ? ` for ${selectedDayLabel}` : ''}
+        {serverTotal != null && serverTotal > records.length
+          ? ` · table capped at ${records.length} — use search or Export for the rest`
+          : ''}
       </p>
 
       {/* Edit Timestamp Dialog */}

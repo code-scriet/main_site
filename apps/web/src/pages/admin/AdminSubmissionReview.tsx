@@ -209,6 +209,7 @@ export default function AdminSubmissionReview({ embedded = false }: { embedded?:
   });
 
   const submissions = useMemo(() => data?.submissions ?? [], [data]);
+  const serverTotal = data?.total ?? submissions.length;
   const counts = useMemo(
     () => ({
       all: submissions.length,
@@ -236,6 +237,10 @@ export default function AdminSubmissionReview({ embedded = false }: { embedded?:
             <h1 className="text-xl font-semibold" style={{ color: 'var(--ds-text-1)' }}>Submission Review</h1>
             <p className="text-sm" style={{ color: 'var(--ds-text-3)' }}>
               Captures made while judging was unavailable, student appeals, and late solves of reopened QOTDs awaiting your acceptance.
+            </p>
+            <p className="text-[12.5px] tabular-nums mt-1" style={{ color: 'var(--ds-text-3)' }}>
+              {isLoading ? 'Loading…' : `${serverTotal} total`}
+              {submissions.length ? ` · ${submissions.length} loaded` : ''}
             </p>
           </div>
         )}

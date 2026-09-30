@@ -142,6 +142,13 @@ export default function AdminEventRegistrationDetail() {
     queryFn: () => api.getEventRegistrations(eventId!, token!),
     enabled: Boolean(eventId && token),
   });
+  // Server totals — exact even when the table below truncates at the 5000-row
+  // server cap. Falls back to client counts while loading.
+  const statsQ = useQuery({
+    queryKey: ['admin-event-regs-stats', eventId],
+    queryFn: () => api.getEventRegistrationStats(eventId!, token!),
+    enabled: Boolean(eventId && token),
+  });
   const teamsQ = useQuery({
     queryKey: ['admin-event-teams', eventId],
     queryFn: () => api.getEventTeams(eventId!, token!),
@@ -173,12 +180,15 @@ export default function AdminEventRegistrationDetail() {
   }, [regs, search, status, typeF]);
 
   const stats = useMemo(() => {
+    if (statsQ.data) return statsQ.data;
     const total = regs.length;
     const participants = regs.filter((r) => r.registrationType === 'PARTICIPANT').length;
     const guests = regs.filter((r) => r.registrationType === 'GUEST').length;
     const attended = regs.filter(isAttended).length;
     return { total, participants, guests, attended };
-  }, [regs]);
+  }, [statsQ.data, regs]);
+  // Server caps the table at 5000 rows — say so instead of silently truncating.
+  const tableTruncated = regs.length >= 5000;
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.id));
   const toggleAll = () => {
@@ -394,13 +404,17 @@ export default function AdminEventRegistrationDetail() {
           </div>
         ))}
       </div>
+      {tableTruncated && (
+        <p className="text-[12px] text-[var(--warning)] tabular-nums">
+          Showing first 5000 rows — use search, filters, or Export for the full list ({stats.total} total).
+        </p>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative max-w-[300px] flex-1 min-w-[200px]">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, branch…" className="pl-8 h-8 text-[13px]" />
-        </div>
-        <SegmentedTabs
+        </div>        <SegmentedTabs
           items={[
             { value: 'all', label: 'All' },
             { value: 'attended', label: 'Attended' },

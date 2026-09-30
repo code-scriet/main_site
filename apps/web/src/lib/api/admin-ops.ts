@@ -59,8 +59,13 @@ export const adminOpsApi = {
         joinedMidQuiz: boolean;
       }>;
     }>('/quiz/my-dashboard', { token }),
-  getQuizAdminList: (token: string) =>
-    request<QuizAdminSummary[]>('/quiz/admin/list', { token }),
+  getQuizAdminList: (token: string, params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{ quizzes: QuizAdminSummary[]; total: number }>(`/quiz/admin/list${query}`, { token });
+  },
   importQuizFile: async (file: File, token: string) => {
     const formData = new FormData();
     formData.append('file', file);

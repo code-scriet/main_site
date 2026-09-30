@@ -82,10 +82,12 @@ export default function EventsPage() {
   // React Query so the public events list + the user's registrations ride the
   // app's 5-min cache (back-navigation doesn't re-hit the free-tier API). The
   // two fetches stay parallel; registrations are auth-gated.
-  const { data: events = [], isLoading: loading, error: queryError } = useQuery({
+  const { data: eventsData, isLoading: loading, error: queryError } = useQuery({
     queryKey: ['events'],
-    queryFn: () => api.getEvents(),
+    queryFn: () => api.getEventsWithTotal({ limit: 500 }),
   });
+  const events = eventsData?.events ?? [];
+  const serverTotal = eventsData?.total ?? events.length;
   const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load events') : null;
 
   const registrationsQuery = useQuery({
@@ -275,6 +277,9 @@ export default function EventsPage() {
                 <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/70 backdrop-blur border border-stone-200 text-stone-600 text-[12.5px] font-medium dark:bg-[#0d1017]/70 dark:border-zinc-800 dark:text-zinc-400">
                   <CalendarRange className="h-3.5 w-3.5" />
                   {counts.PAST} in the archive
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/70 backdrop-blur border border-stone-200 text-stone-600 text-[12.5px] font-medium tabular-nums dark:bg-[#0d1017]/70 dark:border-zinc-800 dark:text-zinc-400">
+                  {serverTotal} total
                 </span>
               </div>
             )}

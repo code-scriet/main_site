@@ -35,12 +35,23 @@ export default function DashboardCertificates() {
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [page, setPage] = useState(1);
 
+  // Fetch-all: walk every server page (backend caps 50/page) so no
+  // certificate is ever silently truncated — same guarantee as Users.
   const q = useQuery({
     queryKey: ['my-certificates'],
     queryFn: async () => {
-      const r = await api.getMyCertificates(token!);
-      const list = Array.isArray(r) ? r : (r as { certificates: unknown[] }).certificates;
-      return (list ?? []) as CertificateCardData[];
+      const mine: CertificateCardData[] = [];
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+      while (mine.length < total) {
+        const r = await api.getMyCertificates(token!, { page, limit: 50 });
+        const list = (Array.isArray(r) ? r : r.certificates ?? []) as CertificateCardData[];
+        mine.push(...list);
+        total = Array.isArray(r) ? list.length : (r.total ?? list.length);
+        if (list.length === 0) break;
+        page += 1;
+      }
+      return mine;
     },
     enabled: Boolean(token),
     refetchOnWindowFocus: true,
@@ -94,6 +105,9 @@ export default function DashboardCertificates() {
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight">My certificates</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">All certificates are verifiable on a public URL.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${allSorted.length} total`}
+          </p>
         </div>
         <Button size="sm" variant="outline" asChild>
           <a href="/verify" target="_blank" rel="noreferrer">

@@ -45,9 +45,25 @@ export default function AdminNotifications() {
 
   const historyQ = useQuery({
     queryKey: ['admin-broadcasts'],
-    queryFn: () => api.listAdminBroadcasts(token!),
+    // Fetch-all: walk every server page (max 200/page) so history never truncates.
+    queryFn: async () => {
+      const mine: BroadcastRow[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 200;
+      while (mine.length < total) {
+        const r = await api.listAdminBroadcasts(token!, { limit: LIMIT, offset });
+        mine.push(...r.broadcasts);
+        total = r.total;
+        if (r.broadcasts.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { broadcasts: mine, total };
+    },
     enabled: Boolean(token),
   });
+  const broadcasts = historyQ.data?.broadcasts ?? [];
+  const broadcastTotal = historyQ.data?.total ?? broadcasts.length;
 
   const sendMut = useMutation({
     mutationFn: async () => {
@@ -281,15 +297,14 @@ export default function AdminNotifications() {
       </div>
 
       {/* History */}
-      <Section eyebrow="History" title={historyQ.isLoading ? 'Loading…' : `${historyQ.data?.length ?? 0} broadcasts`}>
+      <Section eyebrow="History" title={historyQ.isLoading ? 'Loading…' : `${broadcastTotal} broadcasts`}>
         {historyQ.isLoading ? (
           <div className="h-24 bg-[var(--surface-soft)] rounded animate-pulse" />
-        ) : (historyQ.data?.length ?? 0) === 0 ? (
+        ) : broadcasts.length === 0 ? (
           <DSCard padded><EmptyState icon={<History size={18} />} title="No broadcasts yet" body="Your sent notifications + auto-generated event/problem broadcasts appear here." /></DSCard>
         ) : (
-          <DSCard padded={false}>
-            <div className="divide-y divide-[var(--border-subtle)]">
-              {(historyQ.data ?? []).map((b) => (
+          <div className="divide-y divide-[var(--border-subtle)]">
+            {broadcasts.map((b) => (
                 <div key={b.id} className="px-4 py-3 flex items-start gap-3">
                   {b.createdBy ? <Avatar name={b.createdBy.name} src={b.createdBy.avatar} size={28} /> : <div className="size-7 rounded-[8px] bg-[var(--surface-soft)] flex items-center justify-center"><Bell size={13} className="text-[var(--ds-text-3)]" /></div>}
                   <div className="flex-1 min-w-0">

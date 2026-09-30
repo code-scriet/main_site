@@ -27,19 +27,20 @@ import type {
 
 export const codingApi = {
   // Problems
-  getProblems: (filters?: { published?: boolean; difficulty?: string; tag?: string; search?: string; limit?: number; cursor?: string }, token?: string) => {
+  getProblems: (filters?: { published?: boolean; difficulty?: string; tag?: string; search?: string; limit?: number; offset?: number; cursor?: string }, token?: string) => {
     const params = new URLSearchParams();
     if (filters?.published !== undefined) params.set('published', String(filters.published));
     if (filters?.difficulty) params.set('difficulty', filters.difficulty);
     if (filters?.tag) params.set('tag', filters.tag);
     if (filters?.search) params.set('search', filters.search);
     if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
     if (filters?.cursor) params.set('cursor', filters.cursor);
     const query = params.toString();
-    return request<{ problems: Problem[] }>(`/problems${query ? `?${query}` : ''}`, { token });
+    return request<{ problems: Problem[]; total?: number }>(`/problems${query ? `?${query}` : ''}`, { token });
   },
   adminGetProblems: (token: string) =>
-    request<{ problems: Problem[] }>('/problems/admin/all', { token }),
+    request<{ problems: Problem[]; total?: number }>('/problems/admin/all', { token }),
   getProblem: (idOrSlug: string, options?: { contextType?: ProblemContextType; contextKey?: string; token?: string }) => {
     const params = new URLSearchParams();
     if (options?.contextType) params.set('contextType', options.contextType);
@@ -89,7 +90,7 @@ export const codingApi = {
   appealSubmission: (problemId: string, input: { contextType: ProblemContextType; contextKey: string; note?: string }, token: string) =>
     request<{ submission: ProblemSubmission }>(`/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(input), token }),
   adminGetReviewQueue: (token: string, limit = 100) =>
-    request<{ submissions: ProblemSubmission[] }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
+    request<{ submissions: ProblemSubmission[]; total?: number }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
   // Accept / reject a held reopened-past-QOTD solve (verdict PENDING + reopenPending).
   adminAcceptReopenSubmission: (submissionId: string, token: string) =>
     request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/accept`, { method: 'POST', token }),
@@ -132,11 +133,12 @@ export const codingApi = {
   // pagination.total (which the plain getQOTDHistory unwrap discards) so the list
   // can stop exactly at total instead of probing one empty page when the row count
   // is an exact multiple of pageSize.
-  getQOTDHistoryPage: (limit: number, offset: number, options?: { includeUnpublished?: boolean; token?: string }) => {
+  getQOTDHistoryPage: (limit: number, offset: number, options?: { includeUnpublished?: boolean; proposals?: boolean; token?: string }) => {
     const params = new URLSearchParams();
     params.append('limit', String(limit));
     if (offset) params.append('offset', String(offset));
     if (options?.includeUnpublished) params.append('includeUnpublished', 'true');
+    if (options?.proposals) params.append('proposals', 'true');
     return requestEnvelope<QOTDHistoryEntry[]>(
       `/qotd/history?${params.toString()}`,
       options?.token ? { token: options.token } : undefined,

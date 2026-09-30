@@ -273,24 +273,20 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       },
     } satisfies Prisma.EventSelect;
 
+    // No explicit limit → default cap of 100 rows so the list can't grow
+    // unbounded with event history. Explicit limit capped at 500 per request
+    // (fetch-all walks pages with limit+offset); always return the exact total
+    // so every consumer can show "{total} total" and know when to fetch more.
+    const cappedLimit = limitValue ? Math.min(limitValue, 500) : undefined;
     const queryOptions: Prisma.EventFindManyArgs = {
       where,
       orderBy: { startDate: 'desc' },
       select: eventListSelect,
-      // No explicit limit → default cap of 100 rows so the list can't grow
-      // unbounded with event history. Explicit-limit behavior unchanged.
-      ...(limitValue ? { take: limitValue, skip: offsetValue } : { take: 100 }),
+      ...(cappedLimit ? { take: cappedLimit, skip: offsetValue } : { take: 100 }),
     };
 
     const events = await prisma.event.findMany(queryOptions);
-    const shouldCount =
-      Boolean(limitValue) &&
-      !(offsetValue === 0 && events.length < (limitValue as number));
-    const total = shouldCount
-      ? await prisma.event.count({ where })
-      : limitValue
-        ? events.length + offsetValue
-        : events.length;
+    const total = await prisma.event.count({ where });
 
     const authUser = getAuthUser(req);
     let registeredEventIds = new Set<string>();
@@ -317,7 +313,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
     res.json({
       success: true,
       data: eventsWithRegistration,
-      pagination: { total, limit: limitValue ?? total, offset: limitValue ? offsetValue : 0 },
+      pagination: { total, limit: cappedLimit ?? total, offset: cappedLimit ? offsetValue : 0 },
     });
   } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch events' } });

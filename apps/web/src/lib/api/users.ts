@@ -266,13 +266,17 @@ export const usersApi = {
   // Network (admin)
   getNetworkPending: (token: string) =>
     request<NetworkProfile[]>('/network/admin/pending', { token }),
-  getNetworkAll: (token: string, status?: NetworkStatus) => {
-    const params = status ? `?status=${status}` : '';
+  getNetworkAll: (token: string, status?: NetworkStatus, options?: { page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
+    const query = params.toString() ? `?${params.toString()}` : '';
     return request<{
       profiles: NetworkProfile[];
       counts: { PENDING: number; VERIFIED: number; REJECTED: number };
       total: number;
-    }>(`/network/admin/all${params}`, { token });
+    }>(`/network/admin/all${query}`, { token });
   },
   getNetworkPendingUsers: (token: string) =>
     request<{ users: PendingNetworkUser[]; total: number }>('/network/admin/pending-users', { token }),

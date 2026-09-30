@@ -127,7 +127,7 @@ export default function ActiveQuizList() {
 
     try {
       const data = await api.getQuizAdminList(token);
-      setAdminQuizzes(data);
+      setAdminQuizzes(data.quizzes ?? []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load your quizzes');
     }

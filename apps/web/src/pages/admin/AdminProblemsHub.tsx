@@ -182,9 +182,23 @@ export default function AdminProblemsHub() {
 
   // Single proposals query — drives both the badge count and the ProposalsPanel list.
   // Passed as a prop to ProposalsPanel so both consumers stay on the same subscription.
+  // Fetch-all: walks every server page so the badge is the true total, not the first 100.
   const proposalsQ = useQuery({
     queryKey: ['qotd-proposals'],
-    queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, proposals: true, token: token! }),
+    queryFn: async (): Promise<QOTDHistoryEntry[]> => {
+      const mine: QOTDHistoryEntry[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 100;
+      while (mine.length < total) {
+        const r = await api.getQOTDHistoryPage(LIMIT, offset, { includeUnpublished: true, proposals: true, token: token! });
+        mine.push(...r.entries);
+        total = r.total ?? r.entries.length;
+        if (r.entries.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return mine;
+    },
     enabled: Boolean(token),
   });
   const proposalsCount = useMemo(

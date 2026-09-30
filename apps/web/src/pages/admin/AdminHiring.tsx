@@ -71,28 +71,84 @@ export default function AdminHiring() {
   const [downloading, setDownloading] = useState(false);
   const [applicationToDelete, setApplicationToDelete] = useState<HiringApplication | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Fetch-all: the board pages through every application like Users.
+  const [total, setTotal] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
+
+  const fetchPage = useCallback(async (page: number): Promise<{ rows: HiringApplication[]; total: number }> => {
+    if (!token) return { rows: [], total: 0 };
+    const params = new URLSearchParams();
+    if (roleFilter !== 'all') params.append('role', roleFilter);
+    if (statusFilter) params.append('status', statusFilter);
+    if (cycleFilter) params.append('cycle', cycleFilter);
+    params.append('limit', '100');
+    params.append('page', String(page));
+    const res = await fetch(`${API_URL}/hiring/applications?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error('Failed to load applications');
+    const data = await res.json();
+    const rows = (data.data ?? []) as HiringApplication[];
+    return { rows, total: typeof data.meta?.total === 'number' ? data.meta.total : rows.length };
+  }, [token, roleFilter, statusFilter, cycleFilter]);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true); setError(null);
     try {
-      const params = new URLSearchParams();
-      if (roleFilter !== 'all') params.append('role', roleFilter);
-      if (statusFilter) params.append('status', statusFilter);
-      if (cycleFilter) params.append('cycle', cycleFilter);
-      params.append('limit', '100');
-      const res = await fetch(`${API_URL}/hiring/applications?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error('Failed to load applications');
-      const data = await res.json();
-      setApps(data.data ?? []);
+      const { rows, total: serverTotal } = await fetchPage(1);
+      setApps(rows);
+      setTotal(serverTotal);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [token, roleFilter, statusFilter, cycleFilter]);
+  }, [token, fetchPage]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const hasMore = total != null && apps.length < total;
+
+  const loadMore = async () => {
+    if (loadingMore || loadingAll || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = Math.floor(apps.length / 100) + 1;
+      const { rows } = await fetchPage(nextPage);
+      setApps((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        return [...prev, ...rows.filter((a) => !seen.has(a.id))];
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Load more failed');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // "Load all" — page through every remaining page in one go.
+  const loadAll = async () => {
+    if (loadingAll || loadingMore || !hasMore) return;
+    setLoadingAll(true);
+    try {
+      let page = Math.floor(apps.length / 100) + 1;
+      for (;;) {
+        const { rows, total: serverTotal } = await fetchPage(page);
+        if (rows.length === 0) break;
+        setApps((prev) => {
+          const seen = new Set(prev.map((a) => a.id));
+          return [...prev, ...rows.filter((a) => !seen.has(a.id))];
+        });
+        setTotal(serverTotal);
+        if (rows.length < 100) break;
+        page += 1;
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Load all failed');
+    } finally {
+      setLoadingAll(false);
+    }
+  };
 
   // Load the distinct-cycles list once for the filter dropdown.
   useEffect(() => {
@@ -190,6 +246,11 @@ export default function AdminHiring() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Hiring applications</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Drag the status pill to move; click a card for the full form.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {loading ? 'Loading…' : `${total ?? apps.length} total`}
+            {apps.length ? ` · ${apps.length} loaded` : ''}
+            {hasMore ? ' · more available' : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={exportCsv} disabled={downloading}>
@@ -315,6 +376,26 @@ export default function AdminHiring() {
         <DSCard padded>
           <EmptyState icon={<Briefcase size={18} />} title="No applications match" body="Try clearing filters or check back later." />
         </DSCard>
+      )}
+
+      {/* Fetch-all controls — incremental "Load more" + a "Load all" option */}
+      {apps.length > 0 && (hasMore || loadingAll) && (
+        <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={!hasMore || loadingMore || loadingAll}>
+            {loadingMore ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+            Load more
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadAll()}
+            disabled={!hasMore || loadingAll || loadingMore}
+            className="text-[var(--ds-text-3)]"
+          >
+            {loadingAll ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+            {loadingAll ? `Loading all… (${apps.length}${total != null ? `/${total}` : ''})` : 'Load all applications'}
+          </Button>
+        </div>
       )}
 
       <AlertDialog open={Boolean(applicationToDelete)} onOpenChange={(o) => !o && setApplicationToDelete(null)}>

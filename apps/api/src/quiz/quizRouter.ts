@@ -2102,9 +2102,18 @@ quizRouter.get('/admin/list', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     const isAdmin = user.role === 'ADMIN' || user.role === 'PRESIDENT';
 
-    const quizzes = await prisma.quiz.findMany({
-      where: isAdmin ? {} : { createdBy: user.id },
-      select: {
+    // Paged fetch-all support (default 50, max 200/page) + exact total so the
+    // manager can show "{total} total" and know when to fetch more.
+    const rawLimit = Number.parseInt(req.query.limit as string, 10);
+    const rawOffset = Number.parseInt(req.query.offset as string, 10);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+    const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+    const where = isAdmin ? {} : { createdBy: user.id };
+
+    const [rows, total] = await Promise.all([
+      prisma.quiz.findMany({
+        where,
+        select: {
         id: true,
         title: true,
         status: true,
@@ -2116,20 +2125,26 @@ quizRouter.get('/admin/list', authMiddleware, requireRole('CORE_MEMBER'), async 
         _count: { select: { participants: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+      skip: offset,
+      take: limit,
+    }),
+      prisma.quiz.count({ where }),
+    ]);
 
-    return ApiResponse.success(res, quizzes.map((q) => ({
-      id: q.id,
-      title: q.title,
-      status: q.status,
-      questionCount: q.questionCount,
-      participantCount: q._count.participants,
-      createdBy: q.creator,
-      createdAt: q.createdAt,
-      startedAt: q.startedAt,
-      endedAt: q.endedAt,
-    })));
+    return ApiResponse.success(res, {
+      quizzes: rows.map((q) => ({
+        id: q.id,
+        title: q.title,
+        status: q.status,
+        questionCount: q.questionCount,
+        participantCount: q._count.participants,
+        createdBy: q.creator,
+        createdAt: q.createdAt,
+        startedAt: q.startedAt,
+        endedAt: q.endedAt,
+      })),
+      total,
+    });
   } catch (error) {
     logger.error('GET /api/quiz/admin/list error', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res);

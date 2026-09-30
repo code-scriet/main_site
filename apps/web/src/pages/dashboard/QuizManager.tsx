@@ -34,13 +34,28 @@ export default function QuizManager() {
 
   const q = useQuery({
     queryKey: ['quiz-admin-list'],
-    queryFn: () => api.getQuizAdminList(token!),
+    // Fetch-all: walk every server page (max 200/page) so no quiz truncates.
+    queryFn: async () => {
+      const mine: QuizAdminSummary[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 100;
+      while (mine.length < total) {
+        const r = await api.getQuizAdminList(token!, { limit: LIMIT, offset });
+        mine.push(...r.quizzes);
+        total = r.total;
+        if (r.quizzes.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { quizzes: mine, total };
+    },
     enabled: Boolean(token),
   });
 
   // useMemo, not a bare `?? []`: a fresh array literal every render gives every
   // downstream useMemo a changed dependency, so they recompute on each render.
-  const quizzes = useMemo(() => q.data ?? [], [q.data]);
+  const quizzes = useMemo(() => q.data?.quizzes ?? [], [q.data]);
+  const serverTotal = q.data?.total ?? quizzes.length;
   const counts = useMemo(() => ({
     active: quizzes.filter((q) => q.status === 'ACTIVE').length,
     waiting: quizzes.filter((q) => q.status === 'WAITING').length,
@@ -52,9 +67,9 @@ export default function QuizManager() {
     mutationFn: (quizId: string) => api.deleteQuiz(quizId, token!),
     onMutate: async (quizId: string) => {
       await qc.cancelQueries({ queryKey: ['quiz-admin-list'] });
-      const prev = qc.getQueryData<QuizAdminSummary[]>(['quiz-admin-list']);
+      const prev = qc.getQueryData<{ quizzes: QuizAdminSummary[]; total: number }>(['quiz-admin-list']);
       if (prev) {
-        qc.setQueryData<QuizAdminSummary[]>(['quiz-admin-list'], prev.filter((quiz) => quiz.id !== quizId));
+        qc.setQueryData(['quiz-admin-list'], { ...prev, quizzes: prev.quizzes.filter((quiz) => quiz.id !== quizId), total: Math.max(0, prev.total - 1) });
       }
       return { prev };
     },
@@ -98,6 +113,10 @@ export default function QuizManager() {
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Quizzes</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1 max-w-prose">
             Run live Kahoot-style quiz sessions. Quizzes are private — joined by PIN only.
+          </p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${serverTotal} total`}
+            {quizzes.length ? ` · ${quizzes.length} loaded` : ''}
           </p>
         </div>
         <Button size="sm" onClick={() => navigate('/quiz/create')}>

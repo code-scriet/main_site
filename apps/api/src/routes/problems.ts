@@ -165,27 +165,35 @@ problemsRouter.get('/', async (req: Request, res: Response) => {
     const tag = typeof req.query.tag === 'string' ? req.query.tag.toLowerCase() : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
 
-    const problems = await withRetry(() => prisma.problem.findMany({
-      where: {
-        ...(admin
-          ? (published !== undefined ? { isPublished: published } : {})
-          : { isPublished: true }),
-        ...(difficulty ? { difficulty } : {}),
-        ...(tag ? { tags: { has: tag } } : {}),
-        ...(search ? {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { slug: { contains: search, mode: 'insensitive' } },
-          ],
-        } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: problemSummarySelect,
-    }));
+    // Paged fetch-all support (offset + exact total) so no problem truncates.
+    const whereClause: Prisma.ProblemWhereInput = {
+      ...(admin
+        ? (published !== undefined ? { isPublished: published } : {})
+        : { isPublished: true }),
+      ...(difficulty ? { difficulty } : {}),
+      ...(tag ? { tags: { has: tag } } : {}),
+      ...(search ? {
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { slug: { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
 
-    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
+    const [problems, total] = await Promise.all([
+      withRetry(() => prisma.problem.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        select: problemSummarySelect,
+      })),
+      withRetry(() => prisma.problem.count({ where: whereClause })),
+    ]);
+
+    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary), total });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to list problems');
   }
@@ -193,11 +201,14 @@ problemsRouter.get('/', async (req: Request, res: Response) => {
 
 problemsRouter.get('/admin/all', authMiddleware, requireRole('ADMIN'), async (_req, res) => {
   try {
-    const problems = await prisma.problem.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: problemSummarySelect,
-    });
-    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
+    const [problems, total] = await Promise.all([
+      prisma.problem.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: problemSummarySelect,
+      }),
+      prisma.problem.count(),
+    ]);
+    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary), total });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to list admin problems');
   }
@@ -840,16 +851,20 @@ problemsRouter.post('/:id/appeal', authMiddleware, async (req: Request, res: Res
 problemsRouter.get('/admin/review-queue', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
-    const submissions = await prisma.problemSubmission.findMany({
-      where: { needsReview: true },
-      orderBy: [{ appealedAt: 'desc' }, { updatedAt: 'desc' }],
-      take: limit,
-      include: {
-        user: { select: { id: true, name: true, email: true, avatar: true } },
-        problem: { select: { id: true, slug: true, title: true, difficulty: true } },
-      },
-    });
-    return ApiResponse.success(res, { submissions });
+    const where = { needsReview: true };
+    const [submissions, total] = await Promise.all([
+      prisma.problemSubmission.findMany({
+        where,
+        orderBy: [{ appealedAt: 'desc' }, { updatedAt: 'desc' }],
+        take: limit,
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+          problem: { select: { id: true, slug: true, title: true, difficulty: true } },
+        },
+      }),
+      prisma.problemSubmission.count({ where }),
+    ]);
+    return ApiResponse.success(res, { submissions, total });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to fetch review queue');
   }

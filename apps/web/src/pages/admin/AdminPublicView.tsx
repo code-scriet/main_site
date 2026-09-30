@@ -61,7 +61,21 @@ export default function AdminPublicView() {
 
   const listQ = useQuery({
     queryKey: ['admin-polls', { search }],
-    queryFn: () => api.getAdminPolls(token!, { search: search || undefined, status: 'ALL' }),
+    // Fetch-all: walk every server page (max 100/page) so no poll truncates.
+    queryFn: async () => {
+      const mine: AdminPollListItem[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 100;
+      while (mine.length < total) {
+        const r = await api.getAdminPolls(token!, { search: search || undefined, status: 'ALL', limit: LIMIT, offset });
+        mine.push(...r.polls);
+        total = r.total;
+        if (r.polls.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { polls: mine, total };
+    },
     enabled: Boolean(token),
   });
 
@@ -315,7 +329,7 @@ export default function AdminPublicView() {
 
       <Section
         eyebrow="Active polls"
-        title={listQ.isLoading ? 'Loading…' : `${activePolls.length} polls`}
+        title={listQ.isLoading ? 'Loading…' : `${listQ.data?.total ?? activePolls.length} polls`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
             <SegmentedTabs
