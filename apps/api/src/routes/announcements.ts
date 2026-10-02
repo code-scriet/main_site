@@ -16,6 +16,7 @@ import { getQueryString, parsePaginationNumber } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { hashSlotToken } from '../utils/interviewSlotToken.js';
+import { selectCohortEmails } from '../utils/interviewReminders.js';
 
 // Interview-cohort visibility: only live interview-pipeline applications grant
 // cohort access — rejection hides instantly.
@@ -379,12 +380,31 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
     if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
 
     if (audience === 'HIRING_COHORT') {
-      // Phase 2: cohort email
+      // Cohort mail is default-ON (notifyCohort !== false). The post is already
+      // published at this point — email failures only shrink the counts, never
+      // the 201 ("notified 40/42" semantics).
+      if (data.notifyCohort === false) {
+        return res.status(201).json({
+          success: true,
+          data: announcement,
+          message: 'Announcement created successfully',
+          notifiedCount: 0,
+          totalCount: 0,
+          failedCount: 0,
+        });
+      }
+      const cohortResult = await sendCohortAnnouncementEmails({
+        id: announcement.id,
+        title: announcement.title,
+        body: announcement.body,
+        slug: announcement.slug,
+        audienceCycle: audienceCycle as string,
+      });
       return res.status(201).json({
         success: true,
         data: announcement,
         message: 'Announcement created successfully',
-        notifiedCount: 0,
+        ...cohortResult,
       });
     }
 
@@ -457,6 +477,93 @@ async function sendAnnouncementEmailsAsync(announcement: {
     logger.error('Failed to send announcement emails', {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
+  }
+}
+
+// Cohort email fan-out for HIRING_COHORT announcements (Phase 2). Targets the
+// DISTINCT applicant emails holding live interview-pipeline applications in the
+// announcement's cycle — rejection hides instantly, PENDING/SELECTED/REJECTED
+// are never mailed. Per-address try/catch with failure logging; a partial
+// failure still resolves with real counts ("notified 40/42" semantics) and the
+// post itself is unaffected (it was created before this runs).
+async function sendCohortAnnouncementEmails(announcement: {
+  id: string;
+  title: string;
+  body: string;
+  slug: string | null;
+  audienceCycle: string;
+}): Promise<{ notifiedCount: number; totalCount: number; failedCount: number }> {
+  const zero = { notifiedCount: 0, totalCount: 0, failedCount: 0 };
+  try {
+    const applications = (await prisma.hiringApplication.findMany({
+      where: {
+        cycle: announcement.audienceCycle,
+        status: { in: [...COHORT_VISIBLE_STATUSES] as never },
+      },
+      select: { email: true, status: true },
+    })) as unknown as Array<{ email: string; status: string }>;
+
+    const emails = selectCohortEmails(applications);
+    if (emails.length === 0) {
+      logger.info('No in-pipeline applicants to notify for hiring cohort announcement', {
+        announcementId: announcement.id,
+        audienceCycle: announcement.audienceCycle,
+      });
+      return zero;
+    }
+
+    const frontendBase = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
+    const link = `${frontendBase}/announcements/${announcement.slug || announcement.id}`;
+    const subject = `Hiring update · ${announcement.title}`;
+    const plainBody = announcement.body
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const html = [
+      `<p>Hi,</p>`,
+      `<p>There is a new update for hiring cycle <strong>${announcement.audienceCycle}</strong>:</p>`,
+      `<h2>${announcement.title}</h2>`,
+      `<div>${announcement.body}</div>`,
+      `<p><a href="${link}">Read the full announcement</a></p>`,
+    ].join('');
+    const text = `New update for hiring cycle ${announcement.audienceCycle}: ${announcement.title}\n\n${plainBody}\n\nRead more: ${link}`;
+
+    let notifiedCount = 0;
+    let failedCount = 0;
+    for (const email of emails) {
+      try {
+        const ok = await emailService.send({ to: email, subject, html, text, category: 'recruitment' });
+        if (ok) notifiedCount += 1;
+        else {
+          failedCount += 1;
+          logger.error('Cohort announcement email send returned false', {
+            announcementId: announcement.id,
+            email,
+          });
+        }
+      } catch (error) {
+        failedCount += 1;
+        logger.error('Cohort announcement email send failed', {
+          announcementId: announcement.id,
+          email,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    logger.info('Cohort announcement emails complete', {
+      announcementId: announcement.id,
+      notifiedCount,
+      totalCount: emails.length,
+      failedCount,
+    });
+    return { notifiedCount, totalCount: emails.length, failedCount };
+  } catch (error) {
+    logger.error('Failed to send cohort announcement emails', {
+      announcementId: announcement.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return zero;
   }
 }
 

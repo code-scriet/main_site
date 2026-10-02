@@ -46,6 +46,7 @@ const defaultSettings: Settings = {
   emailCertificateEnabled: true,
   emailReminderEnabled: true,
   emailInvitationEnabled: true,
+  emailRecruitmentEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
   // Email provider per category
@@ -58,6 +59,7 @@ const defaultSettings: Settings = {
   emailProviderInvitation: 'brevo',
   emailProviderAdminMail: 'brevo',
   emailProviderPasswordReset: 'brevo',
+  emailProviderRecruitment: 'brevo',
   emailProviderOther: 'brevo',
   githubUrl: '',
   linkedinUrl: '',

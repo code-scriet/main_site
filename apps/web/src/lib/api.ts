@@ -568,6 +568,7 @@ export interface Settings {
   emailReminderEnabled?: boolean;
   emailInvitationEnabled?: boolean;
   emailPasswordResetEnabled?: boolean;
+  emailRecruitmentEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
   // Email provider per category (oci | brevo)
@@ -580,6 +581,7 @@ export interface Settings {
   emailProviderInvitation?: 'oci' | 'brevo';
   emailProviderAdminMail?: 'oci' | 'brevo';
   emailProviderPasswordReset?: 'oci' | 'brevo';
+  emailProviderRecruitment?: 'oci' | 'brevo';
   emailProviderOther?: 'oci' | 'brevo';
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;

@@ -68,6 +68,7 @@ export default function AdminSettings() {
     emailCertificateEnabled: true,
     emailReminderEnabled: true,
     emailInvitationEnabled: true,
+    emailRecruitmentEnabled: true,
     emailTestingMode: false,
     emailTestRecipients: null,
     // Email provider per category
@@ -80,6 +81,7 @@ export default function AdminSettings() {
     emailProviderInvitation: 'brevo',
     emailProviderAdminMail: 'brevo',
     emailProviderPasswordReset: 'brevo',
+    emailProviderRecruitment: 'brevo',
     emailProviderOther: 'brevo',
     playgroundDailyLimit: 100,
     githubUrl: '',
@@ -413,6 +415,7 @@ export default function AdminSettings() {
               { key: 'emailInvitationEnabled' as const, providerKey: 'emailProviderInvitation' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
               { key: 'mailingEnabled' as const, providerKey: 'emailProviderAdminMail' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
               { key: 'emailPasswordResetEnabled' as const, providerKey: 'emailProviderPasswordReset' as const, label: 'Password reset', desc: 'Password reset emails' },
+              { key: 'emailRecruitmentEnabled' as const, providerKey: 'emailProviderRecruitment' as const, label: 'Recruitment', desc: 'Interview slot emails' },
               { key: null, providerKey: 'emailProviderOther' as const, label: 'Other', desc: 'Uncategorized system emails' },
             ].map(({ key, providerKey, label, desc }) => (
               <div key={providerKey} className="flex items-center gap-2">

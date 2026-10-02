@@ -16,7 +16,7 @@ import { getClientIp } from '../utils/clientIp.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { isValidTransition } from '../utils/interviewSlots.js';
 import { issueSlotToken, revokeSlotToken } from '../utils/interviewSlotToken.js';
-import { buildSlotMagicLink, formatDeadlineIST, sendSlotPickEmail } from '../utils/interviewEmail.js';
+import { buildSlotMagicLink, formatDeadlineIST, notifyInterviewScheduledBell, sendSlotPickEmail } from '../utils/interviewEmail.js';
 
 export const hiringRouter = Router();
 
@@ -429,6 +429,15 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
           error: err instanceof Error ? err.message : String(err),
         });
       });
+      // In-app bell only on the true scheduling transition (PENDING →), for
+      // linked accounts — fire-and-forget, never breaks the request.
+      if (from === 'PENDING') {
+        notifyInterviewScheduledBell({
+          userId: (application as { userId?: string | null }).userId ?? null,
+          deadlineIST,
+          applicationId: id,
+        });
+      }
       emailSent = true;
     }
 

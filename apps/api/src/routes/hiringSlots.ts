@@ -23,6 +23,7 @@ import {
 import {
   buildSlotMagicLink,
   formatDeadlineIST,
+  notifyInterviewScheduledBell,
   sendSlotPickEmail,
   sendSlotConfirmedEmail,
 } from '../utils/interviewEmail.js';
@@ -532,6 +533,7 @@ hiringSlotsRouter.post(
         applyingRole: string;
         status: string;
         cycle: string;
+        userId: string | null;
       }>;
       const byId = new Map(apps.map((a) => [a.id, a]));
 
@@ -585,6 +587,12 @@ hiringSlotsRouter.post(
               applicationId: appId,
               error: err instanceof Error ? err.message : String(err),
             });
+          });
+          // In-app bell for linked accounts — fire-and-forget, never breaks the request.
+          notifyInterviewScheduledBell({
+            userId: app.userId ?? null,
+            deadlineIST,
+            applicationId: appId,
           });
           await auditLog(authUser.id, 'INTERVIEW_SCHEDULED', 'HiringApplication', appId, {
             cycle: app.cycle,
