@@ -1818,6 +1818,16 @@ export interface HomePageData {
 }
 
 import { dashboardApi } from './api/dashboard';
+import { hiringSlotsApi } from './api/hiring-slots';
+export type {
+  CandidateSlot,
+  CandidateBooking,
+  CandidateBookingSlot,
+  MyInterviewBookingResult,
+  BookInterviewSlotResult,
+  SlotAuth,
+} from './api/hiring-slots';
+export { SlotApiError } from './api/hiring-slots';
 export type {
   NotifItem,
   NotificationsPayload,
@@ -1858,4 +1868,7 @@ export const api = {
 
   // Dashboard v2 — notifications, global search, admin insights, recent subs, leaderboard slice, teams, upload history.
   ...dashboardApi,
+
+  // Candidate interview slots — token-or-session aware (magic link + logged-in).
+  ...hiringSlotsApi,
 };

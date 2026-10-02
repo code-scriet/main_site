@@ -4,19 +4,23 @@
 // Design source: code-scriet-innerdashboard/project/js/screen-overview.jsx.
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Zap, Calendar, Trophy, Terminal, Inbox, Briefcase,
   ChevronRight, ArrowRight, Flame, Check, Bookmark, Activity, TrendingUp,
   Circle, User, Info,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api, type OnboardingStatus } from '@/lib/api';
+import { api, SlotApiError, type OnboardingStatus } from '@/lib/api';
+import { slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
+import { downloadICS } from '@/lib/calendar';
 import {
-  Avatar, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
+  Avatar, Banner, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
 } from '@/components/dash';
+import { InterviewBookingCard } from '@/components/hiring/InterviewBookingCard';
 import { Button } from '@/components/ui/button';
 import { AdminPendingRequestsCardV2 } from '@/components/dashboard/AdminPendingRequestsCardV2';
 import { CertificateCard, getCertificateCover, type CertificateCardData } from '@/components/dashboard/CertificateCard';
@@ -89,7 +93,9 @@ export default function DashboardOverview() {
   });
   const announcementsQ = useQuery({
     queryKey: ['announcements'],
-    queryFn: () => api.getAnnouncements(),
+    // Session-aware so pipeline candidates also see their hiring-cohort posts
+    // in this feed (anonymous visitors still get ALL-audience posts only).
+    queryFn: () => api.getCandidateAnnouncements({ sessionToken: token ?? undefined }),
     refetchOnWindowFocus: true,
   });
   const pollsQ = useQuery({
@@ -1061,17 +1067,129 @@ function EarnedSection({
   );
 }
 
-// ─── Hiring status
+// ─── Hiring status (candidate interview scheduling)
 function HiringStatusSection({
   application,
 }: {
   application: { id: string; applyingRole: string; status: string; createdAt: string };
 }) {
   const navigate = useNavigate();
+  const { token } = useAuth();
+  const qc = useQueryClient();
   const status = application.status;
+  const needsSlots = status === 'INTERVIEW_SCHEDULED' || status === 'SLOT_BOOKED';
+
+  const bookingQ = useQuery({
+    queryKey: ['interview-my-booking', 'session'],
+    queryFn: () => api.getMyInterviewBooking({ sessionToken: token ?? undefined }),
+    enabled: Boolean(token) && needsSlots,
+    retry: false,
+  });
+  const bookingData = bookingQ.data;
+  const hasBooking = Boolean(bookingData && bookingData.hasBooking);
+  const booking = bookingData && bookingData.hasBooking ? bookingData.booking : null;
+
+  const cancelMut = useMutation({
+    mutationFn: () => api.cancelMyInterviewBooking({ sessionToken: token ?? undefined }),
+    onSuccess: () => {
+      toast.success('Booking cancelled. Pick a new slot whenever you are ready.');
+      void qc.invalidateQueries({ queryKey: ['interview-my-booking'] });
+      void qc.invalidateQueries({ queryKey: ['interview-slots-available'] });
+    },
+    onError: (e: unknown) => {
+      const errorType = e instanceof SlotApiError ? e.errorType : undefined;
+      toast.error(slotBookErrorCopy(errorType));
+    },
+  });
+
+  const handleDownloadICS = () => {
+    if (!booking) return;
+    downloadICS(
+      {
+        title: 'Interview — code.scriet',
+        description: `Interview booking reference ${booking.id.replace(/-/g, '').slice(0, 8).toUpperCase()}. Arrive 5 minutes early with a valid college ID.`,
+        location: booking.slot.venue?.trim() ? booking.slot.venue : undefined,
+        startDate: booking.slot.startsAt,
+        endDate: booking.slot.endsAt,
+        url: typeof window !== 'undefined' ? `${window.location.origin}/dashboard/hiring/slots` : undefined,
+      },
+      'interview-slot.ics',
+    );
+  };
+
+  const pickSlotCTA = (
+    <Button
+      size="sm"
+      onClick={() => navigate('/dashboard/hiring/slots')}
+      className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25"
+    >
+      Pick your slot <ArrowRight size={13} className="ml-1" />
+    </Button>
+  );
+
+  // No deadline field exists on the hiring APIs (the pick window lives in the
+  // invitation email), so the banner names no date rather than inventing one.
+  if (status === 'INTERVIEW_SCHEDULED' && !hasBooking) {
+    return (
+      <Section eyebrow="Application" title="Hiring status">
+        {bookingQ.isLoading ? (
+          <div className="h-20 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
+        ) : (
+          <Banner
+            tone="info"
+            icon={<Briefcase size={15} />}
+            title="Your interview is scheduled — pick a slot"
+            action={pickSlotCTA}
+          >
+            Slots fill on a first-come-first-served basis. All times are IST.
+          </Banner>
+        )}
+      </Section>
+    );
+  }
+
+  if ((status === 'SLOT_BOOKED' && booking) || (status === 'INTERVIEW_SCHEDULED' && booking)) {
+    return (
+      <Section eyebrow="Application" title="Hiring status">
+        <InterviewBookingCard
+          booking={booking}
+          cancelling={cancelMut.isPending}
+          onChangeSlot={() => navigate('/dashboard/hiring/slots')}
+          onConfirmCancel={() => cancelMut.mutate()}
+          onDownloadICS={handleDownloadICS}
+        />
+      </Section>
+    );
+  }
+
+  // SLOT_BOOKED without a booking (e.g. an admin released it) falls back to picking again.
+  if (status === 'SLOT_BOOKED' && !bookingQ.isLoading && !hasBooking) {
+    return (
+      <Section eyebrow="Application" title="Hiring status">
+        <Banner
+          tone="info"
+          icon={<Briefcase size={15} />}
+          title="Your interview is scheduled — pick a slot"
+          action={pickSlotCTA}
+        >
+          Your previous booking was released. Pick a fresh slot below. All times are IST.
+        </Banner>
+      </Section>
+    );
+  }
+
+  if (needsSlots && bookingQ.isLoading) {
+    return (
+      <Section eyebrow="Application" title="Hiring status">
+        <div className="h-20 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
+      </Section>
+    );
+  }
+
   const tone: 'warning' | 'info' | 'success' | 'danger' =
     status === 'PENDING' ? 'warning'
     : status === 'INTERVIEW_SCHEDULED' ? 'info'
+    : status === 'SLOT_BOOKED' ? 'success'
     : status === 'SELECTED' ? 'success'
     : 'danger';
   return (

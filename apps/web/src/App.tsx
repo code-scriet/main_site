@@ -88,6 +88,7 @@ const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfi
 const DashboardCertificates = lazy(() => import('@/pages/dashboard/DashboardCertificates'));
 const DashboardInvitations = lazy(() => import('@/pages/dashboard/DashboardInvitations'));
 const AttendancePage = lazy(() => import('@/pages/dashboard/AttendancePage'));
+const InterviewSlotsPage = lazy(() => import('@/pages/hiring/InterviewSlotsPage'));
 const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage'));
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
@@ -190,6 +191,9 @@ function App() {
                   <Route path="/quiz" element={withRouteBoundary(<ActiveQuizList />)} />
                   <Route path="/quiz/join" element={withRouteBoundary(<QuizJoinPage />)} />
 
+                  {/* Candidate interview slots via magic link (?token=). Same component as the dashboard route below. */}
+                  <Route path="/hiring/slots" element={withRouteBoundary(<InterviewSlotsPage />)} />
+
                   {/* Network edit route (separate from dashboard to avoid role-guard conflicts) */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
                     <Route path="/network/edit/:id?" element={withRouteBoundary(<EditNetworkProfile />)} />
@@ -213,6 +217,7 @@ function App() {
                       <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
                       <Route path="invitations" element={withRouteBoundary(<DashboardInvitations />)} />
                       <Route path="invitations/:invitationId" element={withRouteBoundary(<DashboardInvitations />)} />
+                      <Route path="hiring/slots" element={withRouteBoundary(<InterviewSlotsPage />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
                         <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
                         <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
