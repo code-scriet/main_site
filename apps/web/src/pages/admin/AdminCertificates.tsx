@@ -94,6 +94,7 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     sendEmail: false,
     emailTemplate: 'default',
     emailSignerName: 'PRINCE GUPTA',
+    emailCustomBody: '',
   };
 }
 
@@ -145,6 +146,7 @@ export default function AdminCertificates() {
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
   const [bulkEmailTemplate, setBulkEmailTemplate] = useState<CertificateEmailTemplate>('default');
   const [bulkEmailSignerName, setBulkEmailSignerName] = useState('PRINCE GUPTA');
+  const [bulkEmailCustomBody, setBulkEmailCustomBody] = useState('');
   const [bulkDescription, setBulkDescription] = useState('');
   const [bulkDomain, setBulkDomain] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
@@ -346,6 +348,7 @@ export default function AdminCertificates() {
         sendEmail: form.sendEmail,
         emailTemplate: form.emailTemplate,
         emailSignerName: form.emailTemplate === 'faculty_distribution' ? (form.emailSignerName.trim() || undefined) : undefined,
+        emailCustomBody: form.emailTemplate === 'custom' ? (form.emailCustomBody.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: form.signatoryId,
@@ -480,6 +483,7 @@ export default function AdminCertificates() {
         sendEmail: bulkSendEmail,
         emailTemplate: bulkEmailTemplate,
         emailSignerName: bulkEmailTemplate === 'faculty_distribution' ? (bulkEmailSignerName.trim() || undefined) : undefined,
+        emailCustomBody: bulkEmailTemplate === 'custom' ? (bulkEmailCustomBody.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: bulkSignatoryId,
@@ -506,6 +510,7 @@ export default function AdminCertificates() {
       setBulkFacultyImageUrl('');
       setBulkEmailTemplate('default');
       setBulkEmailSignerName('PRINCE GUPTA');
+      setBulkEmailCustomBody('');
       qc.invalidateQueries({ queryKey: ['admin-certificates'] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');
@@ -516,7 +521,7 @@ export default function AdminCertificates() {
     token, bulkCsv, bulkSignatoryId, bulkSignatory, bulkSignatoryTitle, bulkSignatoryImageUrl,
     bulkFacultySignatoryId, bulkFacultyName, bulkFacultyTitle, bulkFacultyImageUrl,
     bulkEventName, bulkType, bulkDomain, bulkDescription, bulkSendEmail,
-    bulkEmailTemplate, bulkEmailSignerName, parseBulkCsv, qc,
+    bulkEmailTemplate, bulkEmailSignerName, bulkEmailCustomBody, parseBulkCsv, qc,
   ]);
 
   // Primary/faculty signatory picker callbacks for the bulk dialog
@@ -785,6 +790,8 @@ export default function AdminCertificates() {
           onEmailTemplateChange={setBulkEmailTemplate}
           emailSignerName={bulkEmailSignerName}
           onEmailSignerNameChange={setBulkEmailSignerName}
+          emailCustomBody={bulkEmailCustomBody}
+          onEmailCustomBodyChange={setBulkEmailCustomBody}
           generating={bulkGenerating}
           onPreview={handleBulkPreview}
           onGenerate={() => void handleBulkGenerate()}

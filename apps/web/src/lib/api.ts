@@ -1142,9 +1142,10 @@ export interface CertificateBulkGenerateInput {
   sendEmail?: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
 }
 
-export type CertificateEmailTemplate = 'default' | 'faculty_distribution';
+export type CertificateEmailTemplate = 'default' | 'faculty_distribution' | 'custom';
 
 export interface CertificateUpdateInput {
   recipientName?: string;
@@ -1156,6 +1157,7 @@ export interface CertificateUpdateInput {
   type?: CertType;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
 }
 
 export interface CertificateDetail {
@@ -1175,6 +1177,7 @@ export interface CertificateDetail {
   isRevoked: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
 }
 
 export interface CertificateBulkGenerateResponse {

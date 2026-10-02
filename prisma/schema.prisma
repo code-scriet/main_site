@@ -1290,8 +1290,9 @@ model Certificate {
   lastEmailResentAt DateTime? @map("last_email_resent_at")
 
   // Email delivery template chosen at generation time, so resend replays the same one.
-  emailTemplate   String  @default("default") @map("email_template") // default | faculty_distribution
+  emailTemplate   String  @default("default") @map("email_template") // default | faculty_distribution | custom
   emailSignerName String? @map("email_signer_name") // signer name for the faculty_distribution email
+  emailCustomBody String? @map("email_custom_body") // custom body text when email_template is 'custom'
 
   isRevoked     Boolean   @default(false) @map("is_revoked")
   revokedAt     DateTime? @map("revoked_at")

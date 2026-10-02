@@ -38,6 +38,7 @@ export function EditCertificateDialog({ open, onOpenChange, cert, saving, onSave
   const [description, setDescription] = useState(cert?.description ?? '');
   const [emailTemplate, setEmailTemplate] = useState<CertificateEmailTemplate>(cert?.emailTemplate ?? 'default');
   const [emailSignerName, setEmailSignerName] = useState(cert?.emailSignerName || 'PRINCE GUPTA');
+  const [emailCustomBody, setEmailCustomBody] = useState(cert?.emailCustomBody ?? '');
 
   const handleSave = () => {
     const name = recipientName.trim();
@@ -60,6 +61,7 @@ export function EditCertificateDialog({ open, onOpenChange, cert, saving, onSave
       type,
       emailTemplate,
       emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : undefined,
+      emailCustomBody: emailTemplate === 'custom' ? emailCustomBody : undefined,
     });
   };
 
@@ -113,12 +115,19 @@ export function EditCertificateDialog({ open, onOpenChange, cert, saving, onSave
               >
                 <option value="default">Default (code.scriet)</option>
                 <option value="faculty_distribution">Faculty Certificate Distribution</option>
+                <option value="custom">Custom Email Body / Description</option>
               </select>
             </div>
             {emailTemplate === 'faculty_distribution' && (
               <div className="col-span-full">
                 <label htmlFor="edit-cert-signer" className={labelClass}>Email signer name</label>
                 <Input id="edit-cert-signer" className="mt-1" value={emailSignerName} onChange={e => setEmailSignerName(e.target.value)} placeholder="PRINCE GUPTA" />
+              </div>
+            )}
+            {emailTemplate === 'custom' && (
+              <div className="col-span-full">
+                <label htmlFor="edit-cert-custom-body" className={labelClass}>Custom Email Body / Description</label>
+                <Textarea id="edit-cert-custom-body" className="mt-1 min-h-[96px]" value={emailCustomBody} onChange={e => setEmailCustomBody(e.target.value)} placeholder="Write your custom email message here..." />
               </div>
             )}
           </div>

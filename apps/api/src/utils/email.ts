@@ -1549,6 +1549,56 @@ class EmailService {
     });
   }
 
+  async sendCertificateCustom(params: {
+    email: string;
+    name: string;
+    eventName: string;
+    certId: string;
+    downloadUrl: string;
+    customBody: string;
+    subject?: string | null;
+  }): Promise<boolean> {
+    const safeName = sanitizeText(params.name);
+    const safeEventName = sanitizeText(params.eventName);
+    const safeCertId = sanitizeText(params.certId);
+    const verifyUrl = `${SITE_URL}/verify/${params.certId}`;
+
+    let bodyHtml = params.customBody
+      .replace(/{{name}}/g, safeName)
+      .replace(/{{eventName}}/g, safeEventName)
+      .replace(/{{certId}}/g, safeCertId)
+      .replace(/{{downloadUrl}}/g, params.downloadUrl)
+      .replace(/{{verifyUrl}}/g, verifyUrl);
+
+    if (!/<[a-z][\s\S]*>/i.test(bodyHtml)) {
+      bodyHtml = bodyHtml
+        .split('\n\n')
+        .map((p) => `<p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${p.replace(/\n/g, '<br/>')}</p>`)
+        .join('');
+    }
+
+    const template = {
+      subject: params.subject || `🎓 Certificate for ${safeEventName}`,
+      html: generateEmailTemplate({
+        preheader: `Hello ${safeName}, your certificate for ${safeEventName} is ready.`,
+        accentColor: '#fbbf24',
+        badge: { text: 'Certificate Issued', icon: '🎓' },
+        title: `Hello ${safeName},`,
+        subtitle: safeEventName ? `Regarding ${safeEventName}` : undefined,
+        infoCards: [
+          { icon: '🆔', label: 'Certificate ID', value: safeCertId },
+          { icon: '📅', label: 'Issued On', value: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
+        ],
+        body: bodyHtml,
+        cta: { text: '⬇ Download Certificate PDF', url: params.downloadUrl },
+        secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
+        footer: 'This certificate is permanently verifiable at codescriet.dev',
+      }),
+      text: `Hi ${safeName},\n\n${params.customBody.replace(/<[^>]*>/g, '')}\n\nCertificate ID: ${safeCertId}\nDownload PDF: ${params.downloadUrl}\nVerify at: ${verifyUrl}`,
+    };
+    return this.send({ to: params.email, ...template, category: 'certificate' });
+  }
+
   async sendPasswordReset(
     email: string,
     name: string,
