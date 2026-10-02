@@ -179,8 +179,13 @@ export default function EventsPage() {
     return { ALL: events.length, ...byStatus };
   }, [events]);
 
+  // If the Upcoming tab is hidden (no upcoming events), never leave the
+  // filter stuck on it — fall back to ALL.
+  const effectiveTab: FilterKey =
+    !loading && activeTab === 'UPCOMING' && counts.UPCOMING === 0 ? 'ALL' : activeTab;
+
   const filteredEvents = useMemo(() => {
-    const base = activeTab === 'ALL' ? events : events.filter(e => e.status === activeTab);
+    const base = effectiveTab === 'ALL' ? events : events.filter(e => e.status === effectiveTab);
     const q = query.trim().toLowerCase();
     if (!q) return base;
     return base.filter(e => {
@@ -195,14 +200,14 @@ export default function EventsPage() {
       ].filter(Boolean).join(' ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [activeTab, events, query]);
+  }, [effectiveTab, events, query]);
 
   // Featured spotlight: a single featured upcoming/ongoing event, only on ALL tab and when no search
   const spotlight = useMemo(() => {
-    if (activeTab !== 'ALL' || query.trim()) return null;
+    if (effectiveTab !== 'ALL' || query.trim()) return null;
     const featured = events.find(e => e.featured && (e.status === 'UPCOMING' || e.status === 'ONGOING'));
     return featured || null;
-  }, [activeTab, events, query]);
+  }, [effectiveTab, events, query]);
 
   return (
     <Layout>
@@ -264,10 +269,12 @@ export default function EventsPage() {
             {/* Stat strip */}
             {!loading && (
               <div className="mt-7 flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/70 backdrop-blur border border-amber-200 text-stone-700 text-[12.5px] font-medium dark:bg-[#0d1017]/70 dark:border-amber-900/40 dark:text-zinc-300">
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  {counts.UPCOMING} upcoming
-                </span>
+                {counts.UPCOMING > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/70 backdrop-blur border border-amber-200 text-stone-700 text-[12.5px] font-medium dark:bg-[#0d1017]/70 dark:border-amber-900/40 dark:text-zinc-300">
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    {counts.UPCOMING} upcoming
+                  </span>
+                )}
                 {counts.ONGOING > 0 && (
                   <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/70 backdrop-blur border border-emerald-200 text-emerald-800 text-[12.5px] font-medium dark:bg-[#0d1017]/70 dark:border-emerald-900/40 dark:text-emerald-300">
                     <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -293,8 +300,8 @@ export default function EventsPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             {/* Segmented filter pills */}
             <div className="no-scrollbar -mx-1 flex flex-nowrap items-center gap-1 overflow-x-auto bg-amber-50 rounded-full p-1 ring-1 ring-amber-200/70 dark:bg-[#1a140b] dark:ring-amber-900/40 sm:mx-0">
-              {TAB_DEFS.map((tab) => {
-                const isActive = activeTab === tab.key;
+              {TAB_DEFS.filter((tab) => loading || tab.key !== 'UPCOMING' || counts.UPCOMING > 0).map((tab) => {
+                const isActive = effectiveTab === tab.key;
                 const count = counts[tab.key];
                 return (
                   <button
@@ -365,9 +372,9 @@ export default function EventsPage() {
               <h3 className="text-lg font-semibold text-stone-900">
                 {query.trim()
                   ? 'No events match that search'
-                  : activeTab === 'ALL'
+                  : effectiveTab === 'ALL'
                     ? 'No events yet'
-                    : `No ${activeTab.toLowerCase()} events`}
+                    : `No ${effectiveTab.toLowerCase()} events`}
               </h3>
               <p className="text-stone-500 text-sm mt-1.5">
                 {query.trim()

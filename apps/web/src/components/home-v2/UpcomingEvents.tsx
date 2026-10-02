@@ -66,6 +66,12 @@ export function UpcomingEvents() {
   const animationY = shouldReduceMotion ? 15 : 30;
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.15;
 
+  // Only show the "Upcoming Events" section when there is at least one
+  // upcoming event — otherwise the homepage stays clean.
+  if (!isLoading && events.length === 0) {
+    return null;
+  }
+
   return (
     <section className="hsec hsec-mist relative overflow-hidden py-24">
       <div className="container mx-auto px-4 relative">
@@ -100,18 +106,6 @@ export function UpcomingEvents() {
           <div className="flex justify-center py-20">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600 dark:text-amber-300" />
           </div>
-        ) : events.length === 0 ? (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-20"
-          >
-            <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 dark:bg-zinc-900">
-              <Calendar className="h-10 w-10 text-amber-500 dark:text-amber-300" />
-            </div>
-            <h3 className="mb-2 text-xl font-semibold text-gray-900 dark:text-zinc-100">No upcoming events</h3>
-            <p className="text-gray-500 dark:text-zinc-400">Check back soon for exciting new events!</p>
-          </motion.div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {events.map((event, index) => {
