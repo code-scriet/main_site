@@ -10,6 +10,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
+import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailPreview';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
 import type { BulkEntry } from '@/lib/certificatesCsv';
@@ -304,6 +305,7 @@ export function BulkGenerateDialog({
                   <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
                     Supported placeholders: <code>{'{{name}}'}</code>, <code>{'{{eventName}}'}</code>, <code>{'{{certId}}'}</code>, <code>{'{{downloadUrl}}'}</code>, <code>{'{{verifyUrl}}'}</code>.
                   </p>
+                  <CustomEmailPreview customBody={emailCustomBody} eventName={eventName} />
                 </div>
               )}
             </div>

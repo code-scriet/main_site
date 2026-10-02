@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailPreview';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
@@ -287,6 +288,11 @@ export function GenerateCertificateDialog({
                     <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
                       Supported placeholders: <code>{'{{name}}'}</code>, <code>{'{{eventName}}'}</code>, <code>{'{{certId}}'}</code>, <code>{'{{downloadUrl}}'}</code>, <code>{'{{verifyUrl}}'}</code>.
                     </p>
+                    <CustomEmailPreview
+                      customBody={form.emailCustomBody}
+                      recipientName={form.recipientName}
+                      eventName={form.eventName}
+                    />
                   </div>
                 )}
               </div>

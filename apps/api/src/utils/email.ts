@@ -1563,12 +1563,14 @@ class EmailService {
     const safeCertId = sanitizeText(params.certId);
     const verifyUrl = `${SITE_URL}/verify/${params.certId}`;
 
-    let bodyHtml = params.customBody
+    const substitutedBody = params.customBody
       .replace(/{{name}}/g, safeName)
       .replace(/{{eventName}}/g, safeEventName)
       .replace(/{{certId}}/g, safeCertId)
       .replace(/{{downloadUrl}}/g, params.downloadUrl)
       .replace(/{{verifyUrl}}/g, verifyUrl);
+
+    let bodyHtml = substitutedBody;
 
     if (!/<[a-z][\s\S]*>/i.test(bodyHtml)) {
       bodyHtml = bodyHtml
@@ -1594,7 +1596,7 @@ class EmailService {
         secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
         footer: 'This certificate is permanently verifiable at codescriet.dev',
       }),
-      text: `Hi ${safeName},\n\n${params.customBody.replace(/<[^>]*>/g, '')}\n\nCertificate ID: ${safeCertId}\nDownload PDF: ${params.downloadUrl}\nVerify at: ${verifyUrl}`,
+      text: `Hi ${safeName},\n\n${substitutedBody.replace(/<[^>]*>/g, '')}\n\nCertificate ID: ${safeCertId}\nDownload PDF: ${params.downloadUrl}\nVerify at: ${verifyUrl}`,
     };
     return this.send({ to: params.email, ...template, category: 'certificate' });
   }

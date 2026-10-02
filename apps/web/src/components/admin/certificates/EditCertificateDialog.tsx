@@ -12,6 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
+import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailPreview';
 import type { CertificateDetail, CertificateEmailTemplate, CertificateUpdateInput } from '@/lib/api';
 
 interface EditCertificateDialogProps {
@@ -128,6 +129,7 @@ export function EditCertificateDialog({ open, onOpenChange, cert, saving, onSave
               <div className="col-span-full">
                 <label htmlFor="edit-cert-custom-body" className={labelClass}>Custom Email Body / Description</label>
                 <Textarea id="edit-cert-custom-body" className="mt-1 min-h-[96px]" value={emailCustomBody} onChange={e => setEmailCustomBody(e.target.value)} placeholder="Write your custom email message here..." />
+                <CustomEmailPreview customBody={emailCustomBody} recipientName={recipientName} eventName={eventName} certId={cert?.certId} />
               </div>
             )}
           </div>
