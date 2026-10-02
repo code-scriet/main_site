@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api, SlotApiError, type OnboardingStatus } from '@/lib/api';
-import { slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
+import { formatPickByLine, slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
 import { downloadICS } from '@/lib/calendar';
 import {
   Avatar, Banner, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
@@ -1088,6 +1088,9 @@ function HiringStatusSection({
   const bookingData = bookingQ.data;
   const hasBooking = Boolean(bookingData && bookingData.hasBooking);
   const booking = bookingData && bookingData.hasBooking ? bookingData.booking : null;
+  // Slot-pick deadline from the application token (null when the application
+  // holds no token) — named in the banner when present, generic copy otherwise.
+  const pickLine = formatPickByLine(bookingData?.pickDeadline ?? null);
 
   const cancelMut = useMutation({
     mutationFn: () => api.cancelMyInterviewBooking({ sessionToken: token ?? undefined }),
@@ -1127,8 +1130,9 @@ function HiringStatusSection({
     </Button>
   );
 
-  // No deadline field exists on the hiring APIs (the pick window lives in the
-  // invitation email), so the banner names no date rather than inventing one.
+  // The pick window comes from the application's slot token (pickDeadline on
+  // the booking payload); the banner names it when present and falls back to
+  // the generic line when null rather than inventing a date.
   if (status === 'INTERVIEW_SCHEDULED' && !hasBooking) {
     return (
       <Section eyebrow="Application" title="Hiring status">
@@ -1141,7 +1145,9 @@ function HiringStatusSection({
             title="Your interview is scheduled — pick a slot"
             action={pickSlotCTA}
           >
-            Slots fill on a first-come-first-served basis. All times are IST.
+            {pickLine
+              ? `${pickLine}. Slots fill on a first-come-first-served basis. All times are IST.`
+              : 'Slots fill on a first-come-first-served basis. All times are IST.'}
           </Banner>
         )}
       </Section>
@@ -1172,7 +1178,9 @@ function HiringStatusSection({
           title="Your interview is scheduled — pick a slot"
           action={pickSlotCTA}
         >
-          Your previous booking was released. Pick a fresh slot below. All times are IST.
+          {pickLine
+            ? `${pickLine}. Your previous booking was released. Pick a fresh slot below. All times are IST.`
+            : 'Your previous booking was released. Pick a fresh slot below. All times are IST.'}
         </Banner>
       </Section>
     );

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -9,7 +10,7 @@ import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
 import { zodFieldErrors } from '../utils/zodErrors.js';
 import { logger } from '../utils/logger.js';
-import { getClientIp } from '../utils/clientIp.js';
+import { resolveRateLimitKey, isUserRateLimitKey } from '../utils/rateLimitKey.js';
 import { getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
@@ -42,15 +43,51 @@ async function getCurrentHiringCycle(): Promise<string> {
   }
 }
 
-// Basic per-IP limiter for candidate magic-link endpoints.
-// Strict tuning happens in Phase 5 — this only stops trivial abuse.
-const slotCandidateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { success: false, error: { message: 'Too many requests. Please try again later.' } },
+// Strict per-candidate limiters for the magic-link endpoints (Phase 5).
+// Two budgets: writes (book/cancel — a human retries a handful of times) and
+// reads (the picker polls GET available every 30s = 30 req/15min per open tab,
+// so 60 leaves 2x headroom; my-booking is fetched once per mount plus retries).
+// Keys are per-IP AND per-application where identifiable: a verified session
+// takes its unmintable per-user bucket (resolveRateLimitKey verifies the JWT —
+// garbage sessions stay pinned to IP), otherwise the opaque slot token
+// contributes a SHA-256 prefix. Only the hash prefix ever enters the key, so
+// keys (and any limiter logs) can never leak the raw token.
+export const SLOT_WRITE_LIMIT_MAX = 10;
+export const SLOT_READ_LIMIT_MAX = 60;
+export const SLOT_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+export function resolveSlotRateLimitKey(req: Request): string {
+  const base = resolveRateLimitKey(req);
+  if (isUserRateLimitKey(base)) return base;
+  const fromQuery = getQueryString(req.query.token);
+  const body = req.body as { token?: unknown } | undefined;
+  const fromBody = typeof body?.token === 'string' && body.token ? body.token : undefined;
+  const raw = fromQuery ?? fromBody;
+  if (!raw) return base;
+  const prefix = createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 16);
+  return `${base}:slot:${prefix}`;
+}
+
+function slotTooManyHandler(_req: Request, res: Response) {
+  return ApiResponse.rateLimited(res, 'Too many requests. Please try again later.');
+}
+
+const slotWriteLimiter = rateLimit({
+  windowMs: SLOT_LIMIT_WINDOW_MS,
+  max: SLOT_WRITE_LIMIT_MAX,
+  handler: slotTooManyHandler,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => getClientIp(req),
+  keyGenerator: (req) => resolveSlotRateLimitKey(req as Request),
+});
+
+const slotReadLimiter = rateLimit({
+  windowMs: SLOT_LIMIT_WINDOW_MS,
+  max: SLOT_READ_LIMIT_MAX,
+  handler: slotTooManyHandler,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => resolveSlotRateLimitKey(req as Request),
 });
 
 const applyingRoleEnum = z.enum(['TECHNICAL', 'DSA_CHAMPS', 'DESIGNING', 'SOCIAL_MEDIA', 'MANAGEMENT']);
@@ -117,6 +154,16 @@ function handleSlotTokenError(res: Response, error: unknown) {
     return ApiResponse.unauthorized(res, error.message);
   }
   throw error;
+}
+
+async function getPickDeadline(applicationId: string): Promise<string | null> {
+  const row = (await prisma.interviewSlotToken.findUnique({
+    where: { applicationId },
+    select: { expiresAt: true },
+  })) as unknown as { expiresAt: Date } | null;
+  if (!row) return null;
+  const at = new Date(row.expiresAt);
+  return Number.isFinite(at.getTime()) ? at.toISOString() : null;
 }
 
 class BookingHttpError extends Error {
@@ -691,10 +738,68 @@ hiringSlotsRouter.delete(
   },
 );
 
+// ─── ADMIN: POST /slots/reconcile — repair bookedCount drift ────────────────
+// bookedCount is maintained by increment/decrement inside serializable booking
+// transactions, but admin seat releases (REJECT paths, manual fixes) can leave
+// it drifted from the real InterviewSlotBooking row count. For every slot in
+// the required ?cycle=, recount and fix drifted counters. Fully read-only when
+// drift-free: no slot writes and no audit row, so a clean check is a safe
+// no-op admins can run any time.
+hiringSlotsRouter.post(
+  '/slots/reconcile',
+  authMiddleware,
+  requireRole('ADMIN'),
+  async (req: Request, res: Response) => {
+    try {
+      const authUser = getAuthUser(req)!;
+      const cycle = getQueryString(req.query.cycle)?.trim();
+      if (!cycle) {
+        return ApiResponse.badRequest(res, 'cycle query parameter is required');
+      }
+
+      const slots = (await prisma.interviewSlot.findMany({
+        where: { cycle },
+        select: { id: true, bookedCount: true },
+      })) as unknown as Array<{ id: string; bookedCount: number }>;
+
+      const counts = (await prisma.interviewSlotBooking.groupBy({
+        by: ['slotId'],
+        where: { slotId: { in: slots.map((s) => s.id) } },
+        _count: { _all: true },
+      })) as unknown as Array<{ slotId: string; _count: { _all: number } }>;
+      const actual = new Map(counts.map((c) => [c.slotId, c._count._all]));
+
+      const fixed: Array<{ slotId: string; was: number; now: number }> = [];
+      for (const slot of slots) {
+        const now = actual.get(slot.id) ?? 0;
+        if (now !== slot.bookedCount) {
+          await prisma.interviewSlot.update({ where: { id: slot.id }, data: { bookedCount: now } });
+          fixed.push({ slotId: slot.id, was: slot.bookedCount, now });
+        }
+      }
+
+      if (fixed.length > 0) {
+        await auditLog(authUser.id, 'RECONCILE_SLOTS', 'InterviewSlot', 'bulk', {
+          cycle,
+          checked: slots.length,
+          fixed,
+        });
+      }
+
+      return ApiResponse.success(res, { checked: slots.length, fixed });
+    } catch (error) {
+      logger.error('Reconcile interview slots error:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return ApiResponse.internal(res, 'Failed to reconcile interview slots');
+    }
+  },
+);
+
 // ─── CANDIDATE: GET /slots/available ──────────────────────────────────────────
 hiringSlotsRouter.get(
   '/slots/available',
-  slotCandidateLimiter,
+  slotReadLimiter,
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {
@@ -737,7 +842,10 @@ hiringSlotsRouter.get(
           venue: s.venue,
         }));
 
-      return ApiResponse.success(res, { slots: available });
+      return ApiResponse.success(res, {
+        slots: available,
+        pickDeadline: await getPickDeadline(ctx.application.id),
+      });
     } catch (error) {
       logger.error('Available slots error:', { error: error instanceof Error ? error.message : String(error) });
       return ApiResponse.internal(res, 'Failed to fetch available slots');
@@ -748,7 +856,7 @@ hiringSlotsRouter.get(
 // ─── CANDIDATE: GET /my-booking ──────────────────────────────────────────────
 hiringSlotsRouter.get(
   '/my-booking',
-  slotCandidateLimiter,
+  slotReadLimiter,
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {
@@ -762,10 +870,11 @@ hiringSlotsRouter.get(
         where: { applicationId: ctx.application.id },
         include: { slot: true },
       })) as unknown as { id: string; bookedAt: Date; slot: unknown } | null;
+      const pickDeadline = await getPickDeadline(ctx.application.id);
       if (!booking) {
-        return ApiResponse.success(res, { hasBooking: false });
+        return ApiResponse.success(res, { hasBooking: false, pickDeadline });
       }
-      return ApiResponse.success(res, { hasBooking: true, booking });
+      return ApiResponse.success(res, { hasBooking: true, booking, pickDeadline });
     } catch (error) {
       logger.error('My booking error:', { error: error instanceof Error ? error.message : String(error) });
       return ApiResponse.internal(res, 'Failed to fetch booking');
@@ -776,7 +885,7 @@ hiringSlotsRouter.get(
 // ─── CANDIDATE: POST /slots/:id/book — the serializable tx ───────────────────
 hiringSlotsRouter.post(
   '/slots/:id/book',
-  slotCandidateLimiter,
+  slotWriteLimiter,
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {
@@ -894,7 +1003,7 @@ hiringSlotsRouter.post(
 // ─── CANDIDATE: POST /my-booking/cancel — 24h cutoff ─────────────────────────
 hiringSlotsRouter.post(
   '/my-booking/cancel',
-  slotCandidateLimiter,
+  slotWriteLimiter,
   optionalAuthMiddleware,
   async (req: Request, res: Response) => {
     try {

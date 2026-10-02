@@ -11,6 +11,7 @@
 //   POST /api/hiring/slots/bulk, GET /api/hiring/slots?cycle=,
 //   PATCH /api/hiring/slots/:id, DELETE /api/hiring/slots/:id,
 //   POST /api/hiring/applications/schedule, DELETE /api/hiring/bookings/:id,
+//   POST /api/hiring/slots/reconcile?cycle=,
 //   PATCH /api/hiring/applications/:id/status?resend=true,
 //   GET /api/hiring/cycles, GET /api/hiring/applications?cycle=&limit=&page=
 // Known admin 409 `error_type` codes: slot_overlap, slot_booked,
@@ -291,6 +292,37 @@ export function cancelSlotBooking(
     method: 'DELETE',
     body: reason ? { reason } : {},
   });
+}
+
+export interface ReconcileFix {
+  slotId: string;
+  was: number;
+  now: number;
+}
+
+export interface ReconcileResult {
+  checked: number;
+  fixed: ReconcileFix[];
+}
+
+/** POST /api/hiring/slots/reconcile?cycle= — recount bookings, repair drifted counters. */
+export function reconcileSlotCounters(token: string, cycle: string): Promise<ReconcileResult> {
+  return slotsRequest<ReconcileResult>(
+    `/hiring/slots/reconcile?cycle=${encodeURIComponent(cycle)}`,
+    token,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * Result toast: `Checked 12 slots, counters already correct` when drift-free,
+ * else `Checked 12 slots, fixed 2 counters`.
+ */
+export function formatReconcileMessage(checked: number, fixedCount: number): string {
+  const slotWord = checked === 1 ? 'slot' : 'slots';
+  if (fixedCount <= 0) return `Checked ${checked} ${slotWord}, counters already correct`;
+  const fixWord = fixedCount === 1 ? 'counter' : 'counters';
+  return `Checked ${checked} ${slotWord}, fixed ${fixedCount} ${fixWord}`;
 }
 
 export function listHiringCycles(

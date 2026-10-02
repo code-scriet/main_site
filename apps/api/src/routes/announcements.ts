@@ -400,6 +400,10 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
         slug: announcement.slug,
         audienceCycle: audienceCycle as string,
       });
+      await auditLog(authUser.id, 'COHORT_NOTIFY', 'announcement', announcement.id, {
+        audienceCycle,
+        ...cohortResult,
+      });
       return res.status(201).json({
         success: true,
         data: announcement,

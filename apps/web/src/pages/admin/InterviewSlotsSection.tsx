@@ -46,10 +46,12 @@ import {
   describePreviewSlot,
   formatBulkResultMessage,
   formatIstClock,
+  formatReconcileMessage,
   formatSlotRangeIst,
   groupSlotsByIstDate,
   istDateKeyOf,
   previewSlotSeries,
+  reconcileSlotCounters,
   updateInterviewSlot,
   type AdminInterviewSlot,
   type HiringCycleInfo,
@@ -153,6 +155,7 @@ export function InterviewSlotsSection({
   const [drawerSlotId, setDrawerSlotId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminInterviewSlot | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<{ bookingId: string; name: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [mutatingSlotId, setMutatingSlotId] = useState<string | null>(null);
@@ -340,6 +343,20 @@ export function InterviewSlotsSection({
     }
   };
 
+  const handleReconcile = async () => {
+    if (!effectiveCycle || reconciling) return;
+    setReconciling(true);
+    try {
+      const result = await reconcileSlotCounters(token, effectiveCycle);
+      toast.success(formatReconcileMessage(result.checked, result.fixed.length));
+      if (result.fixed.length > 0) onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Reconcile failed');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -361,6 +378,16 @@ export function InterviewSlotsSection({
         <Button size="sm" variant="outline" onClick={onRefresh}>
           <RefreshCw size={13} className="mr-1.5" />
           Refresh
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleReconcile}
+          disabled={reconciling || !effectiveCycle}
+          title="Recount bookings per slot and repair drifted counters"
+        >
+          <RefreshCw size={13} className="mr-1.5" />
+          {reconciling ? 'Reconciling…' : 'Reconcile counters'}
         </Button>
         <span className="text-[12px] text-[var(--ds-text-3)] tabular-nums">
           {loading ? 'Loading slots…' : `${slots.length} slot${slots.length === 1 ? '' : 's'}`}

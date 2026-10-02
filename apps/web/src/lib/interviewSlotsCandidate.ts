@@ -169,6 +169,17 @@ export function isCancellableSlot(startsAt: string | Date, nowMs: number = Date.
   return d.getTime() - nowMs > 24 * 60 * 60 * 1000;
 }
 
+/**
+ * Dashboard banner lead-in naming the slot-pick deadline, e.g.
+ * "Pick a slot by 9 Jan 2026, 10:00 am IST". Returns null when no deadline is
+ * known (or it is unparseable) so callers fall back to the generic copy.
+ */
+export function formatPickByLine(pickDeadline: string | null | undefined): string | null {
+  if (!pickDeadline) return null;
+  const rendered = formatISTWithSuffix(pickDeadline);
+  return rendered ? `Pick a slot by ${rendered}` : null;
+}
+
 /** Short human reference for a booking id, e.g. "A3F9C2E1". */
 export function bookingReference(bookingId: string): string {
   const compact = bookingId.replace(/-/g, '').slice(0, 8).toUpperCase();

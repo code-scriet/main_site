@@ -32,7 +32,10 @@ export default function DashboardAnnouncements() {
 
   const announcementsQ = useQuery({
     queryKey: ['announcements'],
-    queryFn: () => api.getAnnouncementsWithTotal({ limit: 100 }),
+    // Session-aware so pipeline candidates also see their hiring-cohort posts
+    // here (mirrors the overview feed; anonymous visitors get ALL-audience
+    // posts only).
+    queryFn: () => api.getAnnouncementsWithTotal({ limit: 100 }, token ?? undefined),
   });
   const pollsQ = useQuery({
     queryKey: ['polls', 'public'],

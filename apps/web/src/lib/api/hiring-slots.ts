@@ -38,7 +38,9 @@ export interface CandidateBooking {
   slot: CandidateBookingSlot;
 }
 
-export type MyInterviewBookingResult = { hasBooking: false } | { hasBooking: true; booking: CandidateBooking };
+export type MyInterviewBookingResult =
+  | { hasBooking: false; pickDeadline: string | null }
+  | { hasBooking: true; booking: CandidateBooking; pickDeadline: string | null };
 
 export interface BookInterviewSlotResult {
   booking: { id: string; bookedAt?: string };
@@ -117,9 +119,13 @@ async function slotRequest<T>(path: string, auth: SlotAuth, init?: RequestInit):
 }
 
 export const hiringSlotsApi = {
-  /** Open slots with remaining capacity for this candidate's cycle/role. */
+  /**
+   * Open slots with remaining capacity for this candidate's cycle/role.
+   * `pickDeadline` is the ISO expiry of the application's slot-pick token
+   * (null when the application holds no token).
+   */
   getAvailableInterviewSlots: (auth: SlotAuth) =>
-    slotRequest<{ slots: CandidateSlot[] }>(
+    slotRequest<{ slots: CandidateSlot[]; pickDeadline: string | null }>(
       withTokenQuery('/hiring/slots/available', pickAuth(auth).queryToken),
       auth,
     ),
