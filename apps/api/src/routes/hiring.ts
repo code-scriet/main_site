@@ -14,6 +14,9 @@ import { parsePaginationNumber, getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { getClientIp } from '../utils/clientIp.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { isValidTransition } from '../utils/interviewSlots.js';
+import { issueSlotToken, revokeSlotToken } from '../utils/interviewSlotToken.js';
+import { buildSlotMagicLink, formatDeadlineIST, sendSlotPickEmail } from '../utils/interviewEmail.js';
 
 export const hiringRouter = Router();
 
@@ -30,7 +33,14 @@ const applyRateLimiter = rateLimit({
 });
 
 const applyingRoles = ['TECHNICAL', 'DSA_CHAMPS', 'DESIGNING', 'SOCIAL_MEDIA', 'MANAGEMENT'] as const;
-const applicationStatuses = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
+const applicationStatuses = [
+  'PENDING',
+  'INTERVIEW_SCHEDULED',
+  'SLOT_BOOKED',
+  'INTERVIEWED',
+  'SELECTED',
+  'REJECTED',
+] as const;
 
 const DEFAULT_HIRING_CYCLE = '2026';
 
@@ -305,7 +315,7 @@ hiringRouter.get('/applications/:id', authMiddleware, requireRole('ADMIN'), asyn
   }
 });
 
-// Update application status (Admin only)
+// Update application status (Admin only) — enforces the §3 interview transition table.
 hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -330,39 +340,132 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
       return ApiResponse.notFound(res, 'Application not found');
     }
 
+    const from = existingApplication.status as string;
+    const resend = (req.query as Record<string, unknown>).resend === 'true';
+
+    // Same-status → 200 no-op unless ?resend=true (regenerate token + re-send pick email).
+    if (from === status) {
+      if (resend && status === 'INTERVIEW_SCHEDULED') {
+        const rawToken = await issueSlotToken(id);
+        const magicLink = buildSlotMagicLink(rawToken);
+        const deadlineIST = formatDeadlineIST(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+        sendSlotPickEmail({
+          to: existingApplication.email,
+          name: existingApplication.name,
+          role: existingApplication.applyingRole,
+          magicLink,
+          deadlineIST,
+        }).catch((err) => {
+          logger.error('Failed to re-send slot pick email', {
+            applicationId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        if (authUser) {
+          await auditLog(authUser.id, 'HIRING_STATUS_UPDATED', 'HiringApplication', id, {
+            previousStatus: from,
+            newStatus: status,
+            emailSent: true,
+            resent: true,
+          });
+        }
+        return ApiResponse.success(res, {
+          message: 'Application status updated',
+          application: existingApplication,
+          emailSent: true,
+        });
+      }
+      return ApiResponse.success(res, {
+        message: 'Application status updated',
+        application: existingApplication,
+        emailSent: false,
+      });
+    }
+
+    if (!isValidTransition(from, status)) {
+      return ApiResponse.badRequest(res, `Invalid status transition from ${from} to ${status}`);
+    }
+
+    // Release a booking seat first when leaving SLOT_BOOKED for
+    // INTERVIEW_SCHEDULED (admin cancel) or REJECTED, and defensively when
+    // leaving INTERVIEW_SCHEDULED for REJECTED (no booking is expected there).
+    const releasesSeat =
+      (from === 'SLOT_BOOKED' && (status === 'INTERVIEW_SCHEDULED' || status === 'REJECTED')) ||
+      (from === 'INTERVIEW_SCHEDULED' && status === 'REJECTED');
+    if (releasesSeat) {
+      const booking = (await prisma.interviewSlotBooking.findUnique({
+        where: { applicationId: id },
+      })) as unknown as { id: string; slotId: string } | null;
+      if (booking) {
+        await prisma.interviewSlotBooking.delete({ where: { id: booking.id } }).catch(() => undefined);
+        await prisma.interviewSlot
+          .update({ where: { id: booking.slotId }, data: { bookedCount: { decrement: 1 } } })
+          .catch(() => undefined);
+      }
+    }
+
     const application = await prisma.hiringApplication.update({
       where: { id },
       data: { status },
     });
 
+    let emailSent = false;
+
+    // PENDING → INTERVIEW_SCHEDULED: mint a pick token + send the pick email.
+    // SLOT_BOOKED → INTERVIEW_SCHEDULED (admin cancel): fresh token + re-invite.
+    if (status === 'INTERVIEW_SCHEDULED' && (from === 'PENDING' || from === 'SLOT_BOOKED')) {
+      const rawToken = await issueSlotToken(id);
+      const magicLink = buildSlotMagicLink(rawToken);
+      const deadlineIST = formatDeadlineIST(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+      sendSlotPickEmail({
+        to: application.email,
+        name: application.name,
+        role: application.applyingRole,
+        magicLink,
+        deadlineIST,
+      }).catch((err) => {
+        logger.error('Failed to send slot pick email', {
+          applicationId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      emailSent = true;
+    }
+
+    // Token revoke on every REJECT.
+    if (status === 'REJECTED') {
+      await revokeSlotToken(id);
+    }
+
     // Send notification email in background if status changed to SELECTED or REJECTED.
-    if (existingApplication.status !== status) {
-      if (status === 'SELECTED') {
-        sendHiringStatusEmailAsync('SELECTED', {
-          email: application.email,
-          name: application.name,
-          applyingRole: application.applyingRole,
-        });
-      } else if (status === 'REJECTED') {
-        sendHiringStatusEmailAsync('REJECTED', {
-          email: application.email,
-          name: application.name,
-          applyingRole: application.applyingRole,
-        });
-      }
+    if (status === 'SELECTED') {
+      sendHiringStatusEmailAsync('SELECTED', {
+        email: application.email,
+        name: application.name,
+        applyingRole: application.applyingRole,
+      });
+      emailSent = true;
+    } else if (status === 'REJECTED') {
+      sendHiringStatusEmailAsync('REJECTED', {
+        email: application.email,
+        name: application.name,
+        applyingRole: application.applyingRole,
+      });
+      emailSent = true;
     }
 
     if (authUser) {
       await auditLog(authUser.id, 'HIRING_STATUS_UPDATED', 'HiringApplication', id, {
-        previousStatus: existingApplication.status,
+        previousStatus: from,
         newStatus: status,
-        emailSent: status === 'SELECTED' || status === 'REJECTED',
+        emailSent,
       });
     }
 
     return ApiResponse.success(res, {
       message: 'Application status updated',
       application,
+      emailSent,
     });
   } catch (error) {
     logger.error('Update application status error:', { error: error instanceof Error ? error.message : String(error) });
