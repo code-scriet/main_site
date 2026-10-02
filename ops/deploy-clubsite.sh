@@ -114,6 +114,11 @@ rsync -a --delete \
 if [ -d "$CLONE/prisma" ]; then
   rsync -a --delete "$CLONE/prisma/" "$LIVE/prisma/"
 fi
+# scripts/ holds build tooling (prerender, sitemap generators) invoked by
+# the web app prebuild/postbuild hooks — it must stay in sync too.
+if [ -d "$CLONE/scripts" ]; then
+  rsync -a --delete "$CLONE/scripts/" "$LIVE/scripts/"
+fi
 
 # ---- 4. Install + build ----------------------------------------------------
 needs_install() { # $1 = app dir; true if lockfile changed or node_modules missing
