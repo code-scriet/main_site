@@ -1,8 +1,9 @@
 import { getPlaygroundStoredToken } from './authToken';
 import { requestMainApiJson } from './utils';
 
-export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'JAVA';
+export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'C' | 'JAVA';
 export type ProblemContextType = 'QOTD' | 'CONTEST' | 'PRACTICE';
+export type ProctorViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
 export type SubmissionVerdict =
   | 'PENDING'
   | 'ACCEPTED'
@@ -66,6 +67,11 @@ export interface ProblemSubmission {
   runtimeMs?: number | null;
   compilerOutput?: string | null;
   manualOverride?: boolean;
+  needsReview?: boolean;
+  /** Held reopened-QOTD solve: judged ACCEPTED but parked at PENDING until an admin accepts it. */
+  reopenPending?: boolean;
+  appealedAt?: string | null;
+  appealNote?: string | null;
   submittedAt: string;
   updatedAt: string;
 }
@@ -94,12 +100,21 @@ export interface TestRunResult {
   totalRuntimeMs: number;
   compilerOutput?: string;
   remainingDailyQuota: number;
+  /** Host that served the run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
 }
 
 export interface SubmissionResult extends ProblemSubmission {
   submissionId: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Judging was unavailable — submission captured for manual review, attempt refunded. */
+  needsReview?: boolean;
+  /**
+   * Reopened-past-QOTD solve that judged ACCEPTED but is held for admin acceptance:
+   * nothing (streak/marks/leaderboard) counts until an admin approves it.
+   */
+  pendingAcceptance?: boolean;
 }
 
 export interface PlaygroundLimitResetRequest {
@@ -111,6 +126,48 @@ export interface PlaygroundLimitResetRequest {
   decidedAt: string | null;
   createdAt: string;
   user?: { id: string; name: string; email: string; avatar: string | null };
+}
+
+export interface ContestRoundProblem {
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: string;
+  allowedLanguages: ProblemLanguage[];
+  points: number;
+  displayOrder: number;
+  submission: { problemId: string; score: number; verdict: SubmissionVerdict; updatedAt: string } | null;
+}
+
+export interface ContestRoundDetail {
+  id: string;
+  eventId: string;
+  title: string;
+  description?: string;
+  duration: number;
+  status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  roundType?: 'IMAGE_TARGET' | 'DSA';
+  proctored?: boolean;
+  penaltyModel?: 'BEST_SCORE' | 'ICPC';
+  leaderboardFreezeMinutes?: number | null;
+  startedAt?: string;
+  lockedAt?: string;
+  serverTime?: string;
+  remainingSeconds?: number | null;
+  hasSubmitted?: boolean;
+  problems: ContestRoundProblem[];
+  myTeam?: { id: string; teamName: string; memberCount: number } | null;
+}
+
+export interface ContestLeaderboardRow {
+  rank: number;
+  userId: string;
+  userName: string;
+  avatar: string | null;
+  totalScore: number;
+  penalty: number;
+  totalRuntimeMs: number;
+  problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
 }
 
 export class ApiError extends Error {
@@ -156,6 +213,12 @@ export const mainApi = {
     if (options?.includeUnpublished) params.set('includeUnpublished', 'true');
     return call<QOTDSummary[]>(`/api/qotd/history?${params.toString()}`);
   },
+  // Resolve one specific day's QOTD by its calendar date (YYYY-MM-DD). Used by the
+  // reopen-link flow so a past day of ANY age resolves (not just the recent window).
+  getQOTDByDate: (date: string) => {
+    const params = new URLSearchParams({ date, limit: '1' });
+    return call<QOTDSummary[]>(`/api/qotd/history?${params.toString()}`).then((list) => list[0] ?? null);
+  },
   getProblems: (filters?: { difficulty?: string; tag?: string; search?: string; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.difficulty) params.set('difficulty', filters.difficulty);
@@ -172,10 +235,32 @@ export const mainApi = {
     const query = params.toString();
     return call<{ problem: ProblemDetail }>(`/api/problems/${idOrSlug}${query ? `?${query}` : ''}`);
   },
-  runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }) =>
+  // Round status + title for the DSA contest solve context (gates submit on ACTIVE,
+  // labels the solver). Mirrors the main app's GET /api/competition/:roundId, which
+  // returns the round fields at the top level of `data`.
+  getCompetitionRound: (roundId: string) =>
+    call<ContestRoundDetail>(`/api/competition/${roundId}`),
+  // Proctoring (Phase C). The client force-submits its draft then reports the violation;
+  // a proctored round locks the participant (server-enforced) until an admin unlocks.
+  reportProctorViolation: (roundId: string, body: { kind: ProctorViolationKind; detail?: string }) =>
+    // `warning` + `remaining` accompany an under-budget instant violation (counted, not locked).
+    call<{ locked: boolean; warning?: boolean; remaining?: number | null }>(`/api/competition/${roundId}/proctor/violation`, { method: 'POST', body: JSON.stringify(body) }),
+  proctorHeartbeat: (roundId: string) =>
+    call<{ locked: boolean; lockReason: string | null; violationCount: number }>(`/api/competition/${roundId}/proctor/heartbeat`, { method: 'POST' }),
+  getProctorState: (roundId: string) =>
+    call<{ locked: boolean; lockReason: string | null; violationCount: number; proctored: boolean }>(`/api/competition/${roundId}/proctor/me`),
+  // Live leaderboard + clarifications (Phase E). Leaderboard is frozen (hidden) for
+  // non-admins in the final N minutes when the round sets a freeze window.
+  getContestLeaderboard: (roundId: string) =>
+    call<{ roundType?: string; frozen: boolean; penaltyModel?: 'BEST_SCORE' | 'ICPC'; results: ContestLeaderboardRow[] }>(`/api/competition/${roundId}/leaderboard`),
+  getContestClarifications: (roundId: string) =>
+    call<{ clarifications: Array<{ id: string; message: string; createdAt: string }> }>(`/api/competition/${roundId}/clarifications`),
+  runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string; reopenToken?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
-  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number }) =>
+  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number; reopenToken?: string }) =>
     call<SubmissionResult>(`/api/problems/${problemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
+  appealSubmission: (problemId: string, body: { contextType: ProblemContextType; contextKey: string; note?: string }) =>
+    call<{ submission: ProblemSubmission }>(`/api/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(body) }),
   getMySubmission: (problemId: string, contextType: ProblemContextType, contextKey: string) =>
     call<{
       submission: ProblemSubmission | null;

@@ -186,11 +186,16 @@ function normalizeSubmissionValue(raw: unknown): string {
   return String(raw).trim();
 }
 
+export interface RegistrationFieldError {
+  fieldId: string;
+  message: string;
+}
+
 export function validateRegistrationFieldSubmissions(
   fields: EventRegistrationFieldDefinition[],
   submissions: unknown
-): { errors: string[]; responses: RegistrationFieldResponse[] } {
-  const errors: string[] = [];
+): { errors: RegistrationFieldError[]; responses: RegistrationFieldResponse[] } {
+  const errors: RegistrationFieldError[] = [];
   const responses: RegistrationFieldResponse[] = [];
   const submissionMap = new Map<string, string>();
 
@@ -211,7 +216,7 @@ export function validateRegistrationFieldSubmissions(
     const value = submissionMap.get(field.id) ?? '';
 
     if (field.required && !value) {
-      errors.push(`${field.label} is required`);
+      errors.push({ fieldId: field.id, message: `${field.label} is required` });
       continue;
     }
 
@@ -220,43 +225,43 @@ export function validateRegistrationFieldSubmissions(
     }
 
     if (field.minLength !== undefined && value.length < field.minLength) {
-      errors.push(`${field.label} must be at least ${field.minLength} characters`);
+      errors.push({ fieldId: field.id, message: `${field.label} must be at least ${field.minLength} characters` });
     }
 
     if (field.maxLength !== undefined && value.length > field.maxLength) {
-      errors.push(`${field.label} must be at most ${field.maxLength} characters`);
+      errors.push({ fieldId: field.id, message: `${field.label} must be at most ${field.maxLength} characters` });
     }
 
     if (field.type === 'NUMBER') {
       const numberValue = Number(value);
       if (!Number.isFinite(numberValue)) {
-        errors.push(`${field.label} must be a valid number`);
+        errors.push({ fieldId: field.id, message: `${field.label} must be a valid number` });
       } else {
         if (field.min !== undefined && numberValue < field.min) {
-          errors.push(`${field.label} must be >= ${field.min}`);
+          errors.push({ fieldId: field.id, message: `${field.label} must be >= ${field.min}` });
         }
         if (field.max !== undefined && numberValue > field.max) {
-          errors.push(`${field.label} must be <= ${field.max}`);
+          errors.push({ fieldId: field.id, message: `${field.label} must be <= ${field.max}` });
         }
       }
     }
 
     if (field.type === 'EMAIL' && !EMAIL_REGEX.test(value)) {
-      errors.push(`${field.label} must be a valid email address`);
+      errors.push({ fieldId: field.id, message: `${field.label} must be a valid email address` });
     }
 
     if (field.type === 'PHONE' && !PHONE_REGEX.test(value)) {
-      errors.push(`${field.label} must be a valid phone number`);
+      errors.push({ fieldId: field.id, message: `${field.label} must be a valid phone number` });
     }
 
     if (field.type === 'URL') {
       try {
         const url = new URL(value);
         if (!['http:', 'https:'].includes(url.protocol)) {
-          errors.push(`${field.label} must be a valid URL`);
+          errors.push({ fieldId: field.id, message: `${field.label} must be a valid URL` });
         }
       } catch {
-        errors.push(`${field.label} must be a valid URL`);
+        errors.push({ fieldId: field.id, message: `${field.label} must be a valid URL` });
       }
     }
 
@@ -264,10 +269,10 @@ export function validateRegistrationFieldSubmissions(
       try {
         const regex = new RegExp(field.pattern);
         if (!regex.test(value)) {
-          errors.push(`${field.label} does not match the required format`);
+          errors.push({ fieldId: field.id, message: `${field.label} does not match the required format` });
         }
       } catch {
-        errors.push(`${field.label} has an invalid validation pattern`);
+        errors.push({ fieldId: field.id, message: `${field.label} has an invalid validation pattern` });
       }
     }
 

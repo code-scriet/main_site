@@ -126,11 +126,14 @@ export default function AdminEventRegistrations() {
 
   const eventsQ = useQuery({
     queryKey: ['admin-events', 'registrations'],
-    queryFn: () => api.getEvents(),
+    queryFn: () => api.getEventsWithTotal({ limit: 500 }),
     enabled: Boolean(token),
   });
 
-  const all = eventsQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => eventsQ.data?.events ?? [], [eventsQ.data]);
+  const serverTotal = eventsQ.data?.total ?? all.length;
   const counts = useMemo(() => ({
     all: all.length,
     upcoming: all.filter((e) => e.status === 'UPCOMING').length,
@@ -149,6 +152,10 @@ export default function AdminEventRegistrations() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Event registrations</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">One stop for who registered, who showed up, and who got a cert.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {eventsQ.isLoading ? 'Loading…' : `${serverTotal} total`}
+            {all.length ? ` · ${all.length} loaded` : ''}
+          </p>
         </div>
         <Button
           size="sm"

@@ -274,8 +274,8 @@ async function requestJson(
 }
 
 test('soft-delete disables a user and restore removes the auto-blocks', async (t) => {
-  const actor = mockUser({ id: 'admin-1', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
-  const target = mockUser({ id: 'user-1', role: 'USER' });
+  const actor = mockUser({ id: '7f1c0000-0000-4000-8000-000000000001', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
+  const target = mockUser({ id: '7f1c0000-0000-4000-8000-000000000002', role: 'USER' });
   const mock = installPrismaMock({
     users: [actor, target],
     blocks: [{ userId: target.id, feature: 'QUIZ', reason: 'Manual quiz block', expiresAt: null, blockedBy: actor.id }],
@@ -298,8 +298,8 @@ test('soft-delete disables a user and restore removes the auto-blocks', async (t
 });
 
 test('force-logout increments tokenVersion and audits the action', async (t) => {
-  const actor = mockUser({ id: 'admin-1', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
-  const target = mockUser({ id: 'user-1', role: 'USER', tokenVersion: 4 });
+  const actor = mockUser({ id: '7f1c0000-0000-4000-8000-000000000001', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
+  const target = mockUser({ id: '7f1c0000-0000-4000-8000-000000000002', role: 'USER', tokenVersion: 4 });
   const mock = installPrismaMock({ users: [actor, target] });
   t.after(mock.restore);
 
@@ -312,8 +312,8 @@ test('force-logout increments tokenVersion and audits the action', async (t) => 
 });
 
 test('hard-delete returns a blocker report before touching FK-owned users', async (t) => {
-  const actor = mockUser({ id: 'admin-1', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
-  const target = mockUser({ id: 'user-1', role: 'USER' });
+  const actor = mockUser({ id: '7f1c0000-0000-4000-8000-000000000001', name: 'Root Admin', email: 'root@example.com', role: 'PRESIDENT' });
+  const target = mockUser({ id: '7f1c0000-0000-4000-8000-000000000002', role: 'USER' });
   const mock = installPrismaMock({
     users: [actor, target],
     blockers: {

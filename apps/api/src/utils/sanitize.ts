@@ -1,8 +1,14 @@
-import DOMPurify from 'isomorphic-dompurify';
+import sanitizeHtmlLib from 'sanitize-html';
 
 /**
  * Sanitize HTML content to prevent XSS attacks.
- * Uses DOMPurify with a strict configuration for user-generated content.
+ * Uses `sanitize-html` (F1: consolidated onto the one library that already
+ * powers the richer mail policy — isomorphic-dompurify dropped). sanitize-html
+ * is allowlist-based: anything not explicitly permitted below is stripped, and
+ * script/style content is discarded outright (nonTextTags) rather than kept as
+ * text — equal-or-stricter than the prior DOMPurify config. on* handlers and
+ * javascript:/data: URLs are rejected because they're absent from the
+ * attribute/scheme allowlists.
  */
 
 // Allowed HTML tags for rich content
@@ -37,8 +43,29 @@ const ALLOWED_ATTR = [
   'colspan', 'rowspan',
 ];
 
-// Allowed URL schemes - strict whitelist to prevent javascript:/data: XSS
-const ALLOWED_URI_REGEXP = /^(https?:|mailto:|tel:|\/|#)/i;
+// Allowed URL schemes — strict whitelist to prevent javascript:/data: XSS.
+// (Relative `/...` and anchor `#...` URLs are permitted by allowRelativeUrls.)
+const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel'];
+
+function buildOptions(tags: string[]): sanitizeHtmlLib.IOptions {
+  return {
+    allowedTags: tags,
+    // DOMPurify's ALLOWED_ATTR was a flat list applied to every tag; '*'
+    // reproduces that. on* handlers are excluded, so they're stripped.
+    allowedAttributes: { '*': ALLOWED_ATTR },
+    allowedSchemes: ALLOWED_SCHEMES,
+    allowedSchemesByTag: {},
+    allowProtocolRelative: false, // reject //evil.com
+    allowedSchemesAppliedToAttributes: ['href', 'src'],
+    // Strip disallowed tags but keep their text (DOMPurify KEEP_CONTENT parity);
+    // script/style/etc. remain nonTextTags so their content is discarded.
+    disallowedTagsMode: 'discard',
+  };
+}
+
+const RICH_OPTIONS = buildOptions(ALLOWED_TAGS);
+const MARKDOWN_OPTIONS = buildOptions([...ALLOWED_TAGS, 'details', 'summary']);
+const TEXT_OPTIONS: sanitizeHtmlLib.IOptions = { allowedTags: [], allowedAttributes: {} };
 
 /**
  * Sanitizes HTML content to prevent XSS attacks
@@ -49,20 +76,7 @@ export function sanitizeHtml(content: string | null | undefined): string {
   if (!content) {
     return '';
   }
-
-  return DOMPurify.sanitize(content, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    ALLOWED_URI_REGEXP,
-    // Remove any script-related elements
-    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button', 'object', 'embed', 'svg', 'math'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
-    // Additional security measures
-    ADD_ATTR: ['target'], // Allow target attribute
-    ADD_TAGS: [], // Don't add extra tags
-    KEEP_CONTENT: true, // Keep text content even if tags are stripped
-    IN_PLACE: false, // Return new string instead of modifying original
-  });
+  return sanitizeHtmlLib(content, RICH_OPTIONS);
 }
 
 /**
@@ -75,20 +89,7 @@ export function sanitizeMarkdown(content: string | null | undefined): string {
   if (!content) {
     return '';
   }
-
-  // For Markdown, we're more permissive but still remove dangerous elements
-  return DOMPurify.sanitize(content, {
-    ALLOWED_TAGS: [
-      ...ALLOWED_TAGS,
-      // Additional tags sometimes used in Markdown
-      'details', 'summary',
-    ],
-    ALLOWED_ATTR,
-    ALLOWED_URI_REGEXP,
-    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button', 'object', 'embed', 'svg', 'math'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtmlLib(content, MARKDOWN_OPTIONS);
 }
 
 /**
@@ -101,19 +102,14 @@ export function sanitizeText(content: string | null | undefined): string {
   if (!content) {
     return '';
   }
-
-  return DOMPurify.sanitize(content, {
-    ALLOWED_TAGS: [],
-    ALLOWED_ATTR: [],
-    KEEP_CONTENT: true,
-  });
+  return sanitizeHtmlLib(content, TEXT_OPTIONS);
 }
 
 /**
  * Escapes HTML-reserved characters so a value can be safely embedded
  * inside HTML text nodes OR attribute values (double-quoted).
  * Use this for every interpolation into email templates and any other
- * server-generated HTML — DOMPurify strips tags but does not escape entities.
+ * server-generated HTML — the HTML sanitizers strip tags but do not escape entities.
  * @param value - Raw string to escape
  * @returns Escaped string safe for HTML/attribute context
  */

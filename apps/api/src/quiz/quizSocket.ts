@@ -17,6 +17,7 @@ import {
   sanitizeQuestionForClient as sanitizeQuestionForClientPure,
 } from './quizEmissionPlanner.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
+import { isSyncSettingsFlagEnabled } from '../utils/settingsCache.js';
 import { isUserBlocked } from '../middleware/blocks.js';
 
 // ─── Throttle map for answer_count_update broadcasts ─────────────────────────
@@ -30,9 +31,10 @@ function scheduleAnswerCountBroadcast(quizId: string, ns: { to: (room: string) =
     const room = quizStore.getRoom(quizId);
     if (!room || room.status !== 'active') return;
 
-    const players = Array.from(room.players.values());
-    const answered = players.filter(p => p.answeredCurrentQuestion).length;
-    const total = players.filter(p => p.connected).length;
+    // O(1) room counters (maintained in quizStore on every player transition)
+    // replace the former full players-map scan per throttle tick.
+    const answered = room.answeredCount;
+    const total = room.connectedCount;
 
     ns.to(quizId).emit('answer_count_update', { answered, total });
 
@@ -50,13 +52,61 @@ function clearAnswerCountThrottle(quizId: string): void {
   }
 }
 
+// ─── Throttle map for poll_results_update broadcasts ─────────────────────────
+// Same 1000ms batch pattern as answer_count_update (Hard Constraint #8 exists
+// precisely for this class). Unthrottled, every POLL/RATING answer broadcast
+// the full distribution to the whole room — O(n²) messages per poll question,
+// ≈810k emits in one question window at the 900-player ceiling. The reveal
+// path (question_results) still carries the authoritative final distribution;
+// these live updates are cosmetic, so a ≤1s-trailing batched emit is safe.
+const pollResultsThrottles = new Map<string, NodeJS.Timeout>();
+
+function schedulePollResultsBroadcast(quizId: string, ns: { to: (room: string) => { emit: (ev: string, data: any) => void } }): void {
+  if (pollResultsThrottles.has(quizId)) return;
+
+  pollResultsThrottles.set(quizId, setTimeout(() => {
+    pollResultsThrottles.delete(quizId);
+    const room = quizStore.getRoom(quizId);
+    if (!room || room.status !== 'active') return;
+
+    ns.to(quizId).emit('poll_results_update', {
+      distribution: quizStore.getAnswerDistribution(quizId),
+      totalResponses: room.currentAnswers.size,
+    });
+  }, 1000));
+}
+
+function clearPollResultsThrottle(quizId: string): void {
+  const timer = pollResultsThrottles.get(quizId);
+  if (timer) {
+    clearTimeout(timer);
+    pollResultsThrottles.delete(quizId);
+  }
+}
+
 // Extend socket type to include our custom properties
 interface QuizSocket extends Socket {
   userId?: string;
   userDisplayName?: string;
   userRole?: string;
   currentQuizId?: string;
+  // S4 capability handshake: true when this client's bundle advertised (in its
+  // join_quiz payload) that it understands rank folded into answer_result. The
+  // fold is applied ONLY to capable sockets, so flipping QUIZ_FOLD_RANK_IN_RESULT
+  // can never freeze the rank display of a player on an older cached bundle.
+  foldedRankOk?: boolean;
 }
+
+// S4: fold rank into answer_result for capable clients (halves reveal-time
+// unicasts for players who answered). Primary switch = the admin Settings
+// toggle (Settings.quizFoldRankInResult), read per-reveal via the SYNCHRONOUS
+// in-process settings-cache peek — zero DB work on the reveal path, live
+// (no-restart) toggling, and a cold/just-invalidated cache reads as OFF (the
+// safe legacy direction). The env var remains as an emergency force-ON
+// override. Default off ⇒ pre-S4 behavior.
+const QUIZ_FOLD_RANK_ENV = process.env.QUIZ_FOLD_RANK_IN_RESULT === 'true';
+const isFoldRankEnabled = (): boolean =>
+  isSyncSettingsFlagEnabled('quizFoldRankInResult', QUIZ_FOLD_RANK_ENV);
 
 interface QuizAccessTokenPayload {
   userId: string;
@@ -163,10 +213,20 @@ export function initQuizSocket(io: SocketIOServer) {
   };
 
   const emitQuestionResults = (quizId: string, room: QuizRoom): void => {
-    const plan = planQuestionResults(quizId, room);
+    // S4: with the flag on, an answering player on a CAPABLE bundle (advertised
+    // foldedRankOk in join_quiz) gets rank inside answer_result instead of a
+    // separate my_rank_update; non-answerers and older bundles keep the residual
+    // my_rank_update push. Flag off (default) ⇒ pre-S4 two-message behavior.
+    const plan = planQuestionResults(quizId, room, {
+      foldRankInResult: isFoldRankEnabled(),
+      canFold: (socketId) => (quizNamespace.sockets.get(socketId) as QuizSocket | undefined)?.foldedRankOk === true,
+    });
     if (!plan) return;
 
     clearAnswerCountThrottle(quizId);
+    // The reveal payload below carries the final distribution — cancel any
+    // pending live-update tick so a stale post-reveal emit can't fire.
+    clearPollResultsThrottle(quizId);
 
     // Hard Constraint #7: leaderboard sliced to top-10 inside planQuestionResults.
     quizNamespace.to(quizId).emit('question_results', plan.broadcast);
@@ -191,11 +251,14 @@ export function initQuizSocket(io: SocketIOServer) {
     };
 
     // ─── join_quiz ────────────────────────────────────────────────────────
-    socket.on('join_quiz', async ({ quizId, quizAccessToken }: { quizId: string; quizAccessToken?: string }) => {
+    socket.on('join_quiz', async ({ quizId, quizAccessToken, foldedRankOk }: { quizId: string; quizAccessToken?: string; foldedRankOk?: boolean }) => {
       if (!socket.userId || !quizId || !quizAccessToken) {
         socket.emit('quiz_error', { code: 'INVALID_INPUT', message: 'Missing quizId or access token' });
         return;
       }
+      // S4 capability handshake (see QuizSocket.foldedRankOk). Absent/false for
+      // pre-S4 bundles ⇒ they keep receiving my_rank_update unconditionally.
+      socket.foldedRankOk = foldedRankOk === true;
 
       const tokenPayload = verifyQuizAccessToken(quizAccessToken, quizId, socket.userId);
       if (!tokenPayload) {
@@ -266,6 +329,13 @@ export function initQuizSocket(io: SocketIOServer) {
         }
         if (room.status === 'finished') {
           socket.emit('quiz_error', { code: 'QUIZ_ENDED', message: 'This quiz has ended' });
+          return;
+        }
+
+        // B3: kick is final for this room — the kicked player's 20-min access
+        // token stays valid, so without this check they could rejoin instantly.
+        if (room.kickedUserIds.has(socket.userId) && socket.userId !== room.adminUserId) {
+          socket.emit('quiz_error', { code: 'KICKED', message: 'You were removed from this quiz by the host' });
           return;
         }
 
@@ -432,13 +502,32 @@ export function initQuizSocket(io: SocketIOServer) {
             mediaUrl: q.mediaUrl,
           }));
 
-          room = quizStore.initQuiz(quizId, questions, socket.userId, socket.id, quiz.title);
+          // Only an open quiz may be (re)started: hydrating FINISHED/ABANDONED/
+          // DRAFT here would resurrect it as ACTIVE, bypassing the open flow.
+          // ACTIVE is allowed through for crash recovery (server restarted
+          // mid-quiz, room lost — host restarts from Q0).
+          if (quiz.status !== 'WAITING' && quiz.status !== 'ACTIVE') {
+            emitBlockedControlAction('QUIZ_NOT_OPEN', 'This quiz is not open to start');
+            return;
+          }
+
+          // B2: pass joinCode/pin through like the join_quiz hydration does,
+          // or the host panel shows no PIN after a restart mid-lobby.
+          room = quizStore.initQuiz(quizId, questions, socket.userId, socket.id, quiz.title, quiz.joinCode, quiz.pin);
         } else {
           // Verify admin
           if (!canControlQuiz(room, socket)) {
             emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can start it');
             return;
           }
+        }
+
+        // B1: status guard — a host double-click / client retry emitted
+        // start_quiz twice; the second call advanced past Q0 before anyone
+        // answered and re-ran the DB UPDATE. Only a waiting room can start.
+        if (room.status !== 'waiting') {
+          emitBlockedControlAction('ALREADY_STARTED', 'Quiz has already started');
+          return;
         }
 
         // Update DB status
@@ -585,12 +674,10 @@ export function initQuizSocket(io: SocketIOServer) {
         // Throttled: batches updates to max ~1.3×/sec
         scheduleAnswerCountBroadcast(quizId, quizNamespace);
 
-        // For POLL/RATING: broadcast live results to everyone as votes come in
+        // For POLL/RATING: live results to everyone, batched to 1 emit/sec —
+        // unthrottled this was n submits × n recipients per poll question.
         if (isPollOrRating) {
-          quizNamespace.to(quizId).emit('poll_results_update', {
-            distribution: quizStore.getAnswerDistribution(quizId),
-            totalResponses: room.currentAnswers.size,
-          });
+          schedulePollResultsBroadcast(quizId, quizNamespace);
         }
       }
     });
@@ -767,6 +854,13 @@ export function initQuizSocket(io: SocketIOServer) {
             clearTimeout(room.autoAdvanceTimer);
             room.autoAdvanceTimer = null;
           }
+
+          // Active-stage skip bypasses the reveal, so emitQuestionResults
+          // won't clear the throttles — cancel pending ticks here so a
+          // count/poll update from the skipped question can't fire into the
+          // next one.
+          clearAnswerCountThrottle(quizId);
+          clearPollResultsThrottle(quizId);
 
           // Active-stage skip: jump directly to next question / finish (bypasses reveal).
           const advancement = quizStore.advanceQuestion(quizId);

@@ -14,7 +14,9 @@ import { ApiResponse } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeUrl } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
+import { requireUuid } from '../utils/idParams.js';
 import { broadcastNotification } from '../utils/notifications.js';
+import { resolveReadCutoff } from '../utils/notificationCutoff.js';
 
 export const notificationsRouter = Router();
 
@@ -35,10 +37,19 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
   const auth = getAuthUser(req)!;
 
   try {
-    const me = await prisma.user.findUnique({
-      where: { id: auth.id },
-      select: { notificationsReadAt: true },
-    });
+    // `me` (read cutoff) and `myNetwork` (audience derivation) are independent —
+    // fetch both in one round-trip before building the audience filter. Shaves a
+    // sequential hop off an endpoint NotifMenu polls every 30s while open.
+    const [me, myNetwork] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: auth.id },
+        select: { notificationsReadAt: true },
+      }),
+      prisma.networkProfile.findUnique({
+        where: { userId: auth.id },
+        select: { connectionType: true, status: true },
+      }),
+    ]);
     const readCutoff = me?.notificationsReadAt ?? new Date(0);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
 
@@ -52,10 +63,6 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
     if (auth.role === 'ADMIN' || auth.role === 'PRESIDENT') audienceClauses.push({ audience: 'ADMIN' });
     if (['CORE_MEMBER', 'ADMIN', 'PRESIDENT'].includes(auth.role)) audienceClauses.push({ audience: 'CORE_MEMBER' });
     // ALUMNI + NETWORK_AND_ALUMNI: derive from network profile presence
-    const myNetwork = await prisma.networkProfile.findUnique({
-      where: { userId: auth.id },
-      select: { connectionType: true, status: true },
-    });
     if (myNetwork?.status === 'VERIFIED') {
       audienceClauses.push({ audience: 'NETWORK_AND_ALUMNI' });
       if (myNetwork.connectionType === 'ALUMNI') {
@@ -88,11 +95,17 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
         orderBy: { invitedAt: 'desc' },
         take: 10,
       }),
-      // Certificates issued to me in the last 30d
+      // Certificates recorded for me in the last 30d.
+      //
+      // Windowed on createdAt (real row-write time), NOT issuedAt: a backdated
+      // certificate carries its event's date, so an issuedAt window would silently
+      // hide it from the recipient who was just given it. The bell still DISPLAYS
+      // issuedAt below — the recipient sees the certificate's real date, they just
+      // get told about it when it actually lands.
       prisma.certificate.findMany({
-        where: { recipientId: auth.id, issuedAt: { gte: since } },
-        select: { id: true, certId: true, type: true, eventName: true, issuedAt: true },
-        orderBy: { issuedAt: 'desc' },
+        where: { recipientId: auth.id, createdAt: { gte: since } },
+        select: { id: true, certId: true, type: true, eventName: true, issuedAt: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
       // Quiz sessions I joined or that are currently joinable — tagged as 'starting'
@@ -160,14 +173,21 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
     }
 
     for (const c of recentCerts) {
+      // A backdated certificate carries its event's date in issuedAt. Feed ordering
+      // and read-state must therefore run off createdAt — ordering on issuedAt would
+      // bury a brand-new certificate years down the list, and the read comparison
+      // would mark it read on arrival (issuedAt < the user's read cutoff), so they'd
+      // never see the unread badge for a certificate they were just given. The
+      // certificate's own date is surfaced in the body instead.
+      const dated = c.issuedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
       items.push({
         id: `cert-${c.id}`,
         group: 'certificates',
         icon: 'award',
         title: `Certificate issued: ${c.type}`,
-        body: `${c.eventName} · ${c.certId}`,
-        timestamp: c.issuedAt.toISOString(),
-        read: c.issuedAt < readCutoff,
+        body: `${c.eventName} · ${c.certId} · ${dated}`,
+        timestamp: c.createdAt.toISOString(),
+        read: c.createdAt < readCutoff,
         link: `/verify/${c.certId}`,
       });
     }
@@ -259,7 +279,7 @@ notificationsRouter.post('/mark-read', authMiddleware, async (req: Request, res:
   if (!parsed.success) {
     return ApiResponse.validationError(res, parsed.error.errors.map(e => ({ field: e.path.join('.'), message: e.message })));
   }
-  const cutoff = parsed.data.at ? new Date(parsed.data.at) : new Date();
+  const cutoff = resolveReadCutoff(parsed.data.at);
   try {
     await prisma.user.update({
       where: { id: auth.id },
@@ -327,6 +347,9 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
       expiresAt: p.expiresAt ? new Date(p.expiresAt) : undefined,
       createdById: auth.id,
     });
+    if (!created) {
+      return ApiResponse.internal(res, 'Failed to send notification');
+    }
     await auditLog(auth.id, 'NOTIFICATION_BROADCAST', 'notification', created.id, {
       audience: p.audience,
       audienceUserIds: p.audienceUserIds?.length ?? 0,
@@ -339,15 +362,24 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
   }
 });
 
-// List admin-authored broadcasts (history view).
-notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+// List admin-authored broadcasts (history view). Paged fetch-all support
+// (limit/offset + exact total) so the history never silently truncates.
+notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const rows = await prisma.notificationFeed.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { createdBy: { select: { id: true, name: true, email: true, avatar: true } } },
-    });
-    return ApiResponse.success(res, rows.map(r => ({
+    const rawLimit = Number.parseInt(req.query.limit as string, 10);
+    const rawOffset = Number.parseInt(req.query.offset as string, 10);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 100;
+    const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+    const [rows, total] = await Promise.all([
+      prisma.notificationFeed.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        include: { createdBy: { select: { id: true, name: true, email: true, avatar: true } } },
+      }),
+      prisma.notificationFeed.count(),
+    ]);
+    const broadcasts = rows.map(r => ({
       id: r.id,
       source: r.source,
       audience: r.audience,
@@ -363,7 +395,8 @@ notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt?.toISOString() ?? null,
       createdBy: r.createdBy,
-    })));
+    }));
+    return ApiResponse.success(res, { broadcasts, total });
   } catch (error) {
     logger.error('Failed to list broadcasts', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to load broadcasts');
@@ -373,10 +406,18 @@ notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'
 notificationsRouter.delete('/admin/broadcasts/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const auth = getAuthUser(req)!;
   try {
+    if (!requireUuid(res, req.params.id, 'notification ID')) {
+      return;
+    }
     await prisma.notificationFeed.delete({ where: { id: req.params.id } });
     await auditLog(auth.id, 'NOTIFICATION_DELETE', 'notification', req.params.id);
     return ApiResponse.success(res, { id: req.params.id });
   } catch (error) {
+    // P2025 = row already gone (double-click / another admin won the race) —
+    // that's a 404, not a server error.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return ApiResponse.notFound(res, 'Broadcast not found');
+    }
     logger.error('Failed to delete broadcast', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to delete');
   }

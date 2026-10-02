@@ -22,7 +22,9 @@ import {
   ChevronLeft,
   ChevronUp,
   Clock,
+  CalendarPlus,
   Copy as CopyIcon,
+  Download,
   ExternalLink,
   FileText,
   Github,
@@ -72,6 +74,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import {
   api,
+  ApiError,
   type AttendanceQR,
   type Event,
   type EventRegistrationField,
@@ -86,6 +89,7 @@ import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { normalizeTrustedVideoEmbedUrl } from '@/lib/videoEmbed';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { downloadICS, googleCalendarUrl } from '@/lib/calendar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -269,6 +273,10 @@ function SpeakerCard({ speaker }: { speaker: Speaker }) {
         <img
           src={processImageUrl(speaker.image, 'square')}
           alt={speaker.name}
+          width={48}
+          height={48}
+          loading="lazy"
+          decoding="async"
           className="w-12 h-12 rounded-full object-cover shrink-0"
         />
       ) : (
@@ -456,12 +464,21 @@ export default function EventDetailPage() {
     }
   }, [event?.id, token]);
 
+  // Poll only while a non-FINISHED round exists (status transitions matter
+  // live: ACTIVE→LOCKED→JUDGING→FINISHED). Most events have no competition
+  // rounds at all — for those visitors this fetches once and never polls,
+  // instead of hitting /api/competition/event/:id every 30s for everyone.
+  const hasUnfinishedRound = competitionRounds.some((round) => round.status !== 'FINISHED');
   useEffect(() => {
     void loadCompetitionRounds();
     if (!event?.id) return;
-    const interval = window.setInterval(() => void loadCompetitionRounds(), 30_000);
-    return () => window.clearInterval(interval);
-  }, [event?.id, loadCompetitionRounds]);
+    if (!hasUnfinishedRound) return;
+    // Skip the poll while the tab is backgrounded (refresh once on return).
+    const interval = window.setInterval(() => { if (!document.hidden) void loadCompetitionRounds(); }, 30_000);
+    const onVis = () => { if (!document.hidden) void loadCompetitionRounds(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', onVis); };
+  }, [event?.id, loadCompetitionRounds, hasUnfinishedRound]);
 
   useEffect(() => {
     const hasActiveCountdown = competitionRounds.some(
@@ -516,11 +533,10 @@ export default function EventDetailPage() {
   const handleAcceptInvitation = useCallback(async () => {
     if (!event?.userInvitation || event.userInvitation.status !== 'PENDING') return;
     if (!token) {
-      navigate('/signin', {
-        state: {
-          from: `/events/${event.slug || event.id}`,
-          message: 'Please sign in to accept this invitation.',
-        },
+      // UX#2: carry the return path so sign-in (email or OAuth) lands back here.
+      const next = encodeURIComponent(`/events/${event.slug || event.id}`);
+      navigate(`/signin?next=${next}`, {
+        state: { message: 'Please sign in to accept this invitation.' },
       });
       return;
     }
@@ -566,9 +582,17 @@ export default function EventDetailPage() {
         action: { label: 'View ticket', onClick: () => { void openQrTicket(); } },
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register';
-      setRegistrationFormError(errorMessage);
-      toast.error(errorMessage);
+      // Server-side per-field validation errors (keyed by registration field id)
+      // are surfaced inline on the matching input; the popup stays open so the
+      // user can fix them. Falls back to a banner/toast for anything else.
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
+        setRegistrationFieldErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+        setRegistrationFormError('Please fix the highlighted fields.');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to register';
+        setRegistrationFormError(errorMessage);
+        toast.error(errorMessage);
+      }
     } finally {
       setRegistering(false);
     }
@@ -590,9 +614,13 @@ export default function EventDetailPage() {
     const regStatus = getRegistrationStatus(event);
     if (!regStatus.canRegister) { toast.error(regStatus.message); return; }
     if (!user || !token) {
+      // pendingEventRegistration drives the profile-completion path; ?next=
+      // (UX#2) is the explicit return that lands back on the event with the
+      // register sheet open. AuthCallback consumes one and clears the other.
       localStorage.setItem('pendingEventRegistration', event.id);
       localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
-      navigate('/signin', { state: { from: `/events/${event.slug}`, message: 'Please sign in to register for events' } });
+      const next = encodeURIComponent(`/events/${event.slug}?register=1`);
+      navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
       return;
     }
     if (!user.phone || !user.course || !user.branch || !user.year) {
@@ -1751,6 +1779,45 @@ export default function EventDetailPage() {
                     )}
                   </dl>
                 </DSCard>
+              )}
+
+              {/* S-04 — Add to calendar (hidden once the event is over) */}
+              {event.status !== 'PAST' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={googleCalendarUrl({
+                      title: event.title,
+                      description: event.shortDescription,
+                      location: event.venue || event.location,
+                      startDate: event.startDate,
+                      endDate: event.endDate,
+                      url: window.location.href,
+                    })}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+                  >
+                    <CalendarPlus className="h-3.5 w-3.5" /> Google Calendar
+                  </a>
+                  <button
+                    onClick={() =>
+                      downloadICS(
+                        {
+                          title: event.title,
+                          description: event.shortDescription,
+                          location: event.venue || event.location,
+                          startDate: event.startDate,
+                          endDate: event.endDate,
+                          url: window.location.href,
+                        },
+                        event.slug,
+                      )
+                    }
+                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+                  >
+                    <Download className="h-3.5 w-3.5" /> .ics file
+                  </button>
+                </div>
               )}
 
               {/* Share helper */}

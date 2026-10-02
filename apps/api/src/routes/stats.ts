@@ -3,8 +3,11 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
-import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
+import { createTtlSingleFlight } from '../utils/singleFlight.js';
+import { logger } from '../utils/logger.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const statsRouter = Router();
 
@@ -285,8 +288,33 @@ const getHomePayload = async (): Promise<HomePayload> => {
   return homeCacheInFlight;
 };
 
-const sendPublicStats = async (res: Response) => {
-  try {
+// Public stats (/ and /public, used by /about). Same 60s in-flight-deduped cache
+// pattern as getHomePayload — these 6 counts are identical for every anonymous
+// visitor, so we compute them at most ~once/min instead of per request.
+type PublicStatsPayload = {
+  users: number;
+  members: number;
+  events: number;
+  upcomingEvents: number;
+  teamMembers: number;
+  achievements: number;
+  teamCounts: Record<string, number>;
+};
+
+const PUBLIC_STATS_CACHE_TTL_MS = 60 * 1000;
+let publicStatsCache: { expiresAt: number; data: PublicStatsPayload } | null = null;
+let publicStatsInFlight: Promise<PublicStatsPayload> | null = null;
+
+const getPublicStatsPayload = async (): Promise<PublicStatsPayload> => {
+  const now = Date.now();
+  if (publicStatsCache && publicStatsCache.expiresAt > now) {
+    return publicStatsCache.data;
+  }
+  if (publicStatsInFlight) {
+    return publicStatsInFlight;
+  }
+
+  publicStatsInFlight = (async () => {
     const [userCount, eventCount, upcomingEventCount, teamMemberCount, achievementCount, teamGroups] = await Promise.all([
       prisma.user.count(),
       prisma.event.count(),
@@ -303,47 +331,67 @@ const sendPublicStats = async (res: Response) => {
       if (g.team) teamCounts[g.team] = g._count._all;
     }
 
-    res.json({
-      success: true,
-      data: {
-        users: userCount,
-        members: userCount,
-        events: eventCount,
-        upcomingEvents: upcomingEventCount,
-        teamMembers: teamMemberCount,
-        achievements: achievementCount,
-        teamCounts,
-      },
-    });
+    const payload: PublicStatsPayload = {
+      users: userCount,
+      members: userCount,
+      events: eventCount,
+      upcomingEvents: upcomingEventCount,
+      teamMembers: teamMemberCount,
+      achievements: achievementCount,
+      teamCounts,
+    };
+    publicStatsCache = { data: payload, expiresAt: Date.now() + PUBLIC_STATS_CACHE_TTL_MS };
+    return payload;
+  })().finally(() => {
+    publicStatsInFlight = null;
+  });
+
+  return publicStatsInFlight;
+};
+
+const sendPublicStats = async (req: Request, res: Response) => {
+  try {
+    const data = await getPublicStatsPayload();
+    setSharedPublicCache(req, res, 60);
+    ApiResponse.success(res, data);
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch stats' } });
+    logger.error('Failed to fetch stats', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch stats');
   }
 };
 
 // Get public stats
-statsRouter.get('/', async (_req: Request, res: Response) => {
-  await sendPublicStats(res);
+statsRouter.get('/', async (req: Request, res: Response) => {
+  await sendPublicStats(req, res);
 });
 
 // Backwards-compatible alias used by frontend
-statsRouter.get('/public', async (_req: Request, res: Response) => {
-  await sendPublicStats(res);
+statsRouter.get('/public', async (req: Request, res: Response) => {
+  await sendPublicStats(req, res);
 });
 
 // Optimized aggregate payload for homepage sections
-statsRouter.get('/home', async (_req: Request, res: Response) => {
+statsRouter.get('/home', async (req: Request, res: Response) => {
   try {
     const data = await getHomePayload();
-    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
-    res.json({ success: true, data });
+    // Anonymous-identical global payload — shared-edge cacheable (S3).
+    setSharedPublicCache(req, res, 60);
+    ApiResponse.success(res, data);
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch homepage data' } });
+    logger.error('Failed to fetch homepage data', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch homepage data');
   }
 });
 
-// Get dashboard stats (admin)
-statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
-  try {
+// S2b: /stats/dashboard is admin-only GLOBAL counts (no per-admin data) and was
+// recomputed (~28 aggregates + trailing queries) on every load — incl. React
+// Query refetch-on-focus storms. Wrapped in the shared createTtlSingleFlight
+// primitive at a 30s TTL so concurrent admin loads collapse to at most one
+// aggregate burst per window. This is the same single-flight PATTERN
+// getHomePayload hand-rolls (separately, at 60s) — a distinct board, not a
+// shared cache/TTL. 30s staleness is fine for a stats dashboard.
+const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
+const computeDashboardStats = async () => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -416,10 +464,16 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       prisma.playgroundDailyUsage.count({
         where: { usageDate: new Date(now.toISOString().slice(0, 10)) },
       }),
-      // Top contributor this month — most QOTD submissions in the month
-      prisma.qOTDSubmission.groupBy({
+      // Top contributor this month — most QOTDs SOLVED in the month.
+      // Modern QOTDs are problem-backed: the legacy `qOTDSubmission` table is only
+      // ever written by POST /api/qotd/:id/submit, which 400s for problem-backed
+      // QOTDs — so counting it here left this tile permanently empty ("—") in prod.
+      // The real solve lives in ProblemSubmission (contextType='QOTD', one ACCEPTED
+      // row per user per QOTD via the [userId,problemId,contextType,contextKey]
+      // unique key), the same source the QOTD leaderboards use.
+      prisma.problemSubmission.groupBy({
         by: ['userId'],
-        where: { timestamp: { gte: startOfMonth } },
+        where: { contextType: 'QOTD', verdict: 'ACCEPTED', submittedAt: { gte: startOfMonth } },
         _count: { userId: true },
         orderBy: { _count: { userId: 'desc' } },
         take: 1,
@@ -439,7 +493,9 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
             select: { id: true, name: true, avatar: true },
           })
         : Promise.resolve(null),
-      prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundDailyLimit: true } }),
+      // Reuse the app-wide 5-min settings cache instead of a fresh DB read — only
+      // playgroundDailyLimit is needed here and it changes rarely.
+      getCachedSettings(),
     ]);
 
     let topContributor: { id: string; name: string; avatar: string | null; count: number } | null = null;
@@ -548,17 +604,23 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       select: { id: true, name: true, email: true, createdAt: true },
     });
 
-    res.json({
-      success: true,
-      data: {
-        overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
-        insights,
-        popularEvents,
-        recentUsers,
-      },
-    });
+    return {
+      overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
+      insights,
+      popularEvents,
+      recentUsers,
+    };
+};
+
+const dashboardStatsBoard = createTtlSingleFlight(DASHBOARD_CACHE_TTL_MS, computeDashboardStats);
+
+// Get dashboard stats (admin)
+statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  try {
+    ApiResponse.success(res, await dashboardStatsBoard.get());
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch dashboard stats' } });
+    logger.error('Failed to fetch dashboard stats', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch dashboard stats');
   }
 });
 
@@ -567,7 +629,12 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
-    const [registrationCount, qotdSubmissionCount, registrations, submissions] = await Promise.all([
+    // qotdStreak reads the materialized `User.currentStreak` (consecutive
+    // published-and-not-held QOTD days, maintained transactionally in
+    // utils/qotdStreak.ts) — the same canonical value the dashboard streak ring
+    // and admin tools show. Avoids hydrating the user's entire (unbounded) QOTD
+    // submission history just to recompute a streak in JS on every profile view.
+    const [registrationCount, qotdSubmissionCount, registrations, me] = await Promise.all([
       prisma.eventRegistration.count({ where: { userId: authUser.id } }),
       prisma.qOTDSubmission.count({ where: { userId: authUser.id } }),
       prisma.eventRegistration.findMany({
@@ -580,33 +647,162 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
           event: { select: { title: true, startDate: true } },
         },
       }),
-      prisma.qOTDSubmission.findMany({
-        where: { userId: authUser.id },
-        select: { qotd: { select: { date: true } } },
+      prisma.user.findUnique({
+        where: { id: authUser.id },
+        select: { currentStreak: true },
       }),
     ]);
 
-    const streak = calculateConsecutiveDailyStreak(
-      submissions.map((submission) => submission.qotd.date),
-      new Date()
-    );
+    const streak = me?.currentStreak ?? 0;
 
-    res.json({
-      success: true,
-      data: {
-        eventsRegistered: registrationCount,
-        qotdSubmissions: qotdSubmissionCount,
-        qotdStreak: streak,
-        recentRegistrations: registrations.map((registration) => ({
-          id: registration.id,
-          eventTitle: registration.event.title,
-          eventDate: registration.event.startDate,
-          registeredAt: registration.timestamp,
-        })),
-      },
+    ApiResponse.success(res, {
+      eventsRegistered: registrationCount,
+      qotdSubmissions: qotdSubmissionCount,
+      qotdStreak: streak,
+      recentRegistrations: registrations.map((registration) => ({
+        id: registration.id,
+        eventTitle: registration.event.title,
+        eventDate: registration.event.startDate,
+        registeredAt: registration.timestamp,
+      })),
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch user stats' } });
+    logger.error('Failed to fetch user stats', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch user stats');
+  }
+});
+
+// S-06 — first-week "start here" checklist status. Four cheap, indexed existence
+// checks (all keyed on userId): profile complete, first QOTD solved, first event
+// registered, first snippet saved. Computed live (no schema change). The frontend
+// stops calling this once `allDone` is true, so established users never pay for it.
+statsRouter.get('/onboarding', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const [me, qotdLegacy, qotdSolved, registration, snippet] = await Promise.all([
+      prisma.user.findUnique({ where: { id: authUser.id }, select: { profileCompleted: true } }),
+      prisma.qOTDSubmission.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+      prisma.problemSubmission.findFirst({
+        where: { userId: authUser.id, contextType: 'QOTD', verdict: 'ACCEPTED' },
+        select: { id: true },
+      }),
+      prisma.eventRegistration.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+      prisma.snippet.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+    ]);
+    const profileCompleted = Boolean(me?.profileCompleted);
+    const solvedQotd = Boolean(qotdLegacy || qotdSolved);
+    const registeredEvent = Boolean(registration);
+    const savedSnippet = Boolean(snippet);
+    const allDone = profileCompleted && solvedQotd && registeredEvent && savedSnippet;
+    ApiResponse.success(res, { profileCompleted, solvedQotd, registeredEvent, savedSnippet, allDone });
+  } catch (error) {
+    logger.error('Failed to fetch onboarding status', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch onboarding status');
+  }
+});
+
+// S-08 — monthly "what happened" digest. Computes a one-month-window summary from
+// data the platform already tracks and returns a ready-to-edit markdown body the
+// admin loads into the mailer (AdminMail) or posts as an announcement. Draft-for-
+// approval by design — this endpoint never sends anything itself.
+function digestMonthWindow(monthParam?: string): { start: Date; end: Date; label: string; key: string } {
+  const now = new Date();
+  let year: number;
+  let month: number; // 0-based
+  const m = /^(\d{4})-(\d{2})$/.exec(monthParam ?? '');
+  if (m) {
+    year = Number(m[1]);
+    month = Number(m[2]) - 1;
+  } else {
+    // Default to the previous complete month (the natural recap window).
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    year = d.getUTCFullYear();
+    month = d.getUTCMonth();
+  }
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 1));
+  const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+  return { start, end, label, key };
+}
+
+statsRouter.get('/digest', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const { start, end, label, key } = digestMonthWindow(typeof req.query.month === 'string' ? req.query.month : undefined);
+    const window = { gte: start, lt: end };
+
+    const [
+      newMembers,
+      eventsHeld,
+      attendanceMarks,
+      certificatesIssued,
+      qotdAccepted,
+      qotdLegacy,
+      quizSessions,
+      newNetworkMembers,
+      topStreaks,
+    ] = await Promise.all([
+      prisma.user.count({ where: { createdAt: window, role: { not: 'NETWORK' }, isDeleted: false } }),
+      prisma.event.count({ where: { startDate: window } }),
+      prisma.eventRegistration.count({ where: { ...participantsOnly, attended: true, scannedAt: window } }),
+      prisma.certificate.count({ where: { issuedAt: window, isRevoked: false } }),
+      prisma.problemSubmission.count({ where: { contextType: 'QOTD', verdict: 'ACCEPTED', submittedAt: window } }),
+      prisma.qOTDSubmission.count({ where: { timestamp: window } }),
+      // FINISHED quizzes use updatedAt as the finish-time proxy (there is no
+      // finishedAt column, and a FINISHED quiz is effectively immutable — it's
+      // read-only review mode — so updatedAt ≈ when it ended). The digest is an
+      // editable draft, so this approximation is acceptable; not worth a migration.
+      prisma.quiz.count({ where: { status: 'FINISHED', updatedAt: window } }),
+      prisma.networkProfile.count({ where: { verifiedAt: window } }),
+      prisma.user.findMany({
+        where: { currentStreak: { gt: 0 }, isDeleted: false },
+        orderBy: { currentStreak: 'desc' },
+        take: 3,
+        select: { name: true, currentStreak: true },
+      }),
+    ]);
+
+    const qotdSolves = qotdAccepted + qotdLegacy;
+    const summary = {
+      month: key,
+      label,
+      newMembers,
+      eventsHeld,
+      attendanceMarks,
+      certificatesIssued,
+      qotdSolves,
+      quizSessions,
+      newNetworkMembers,
+      topStreaks: topStreaks.map((u) => ({ name: u.name, streak: u.currentStreak })),
+    };
+
+    const lines: string[] = [
+      `## code.scriet — ${label} in review`,
+      '',
+      'Here\'s what the club got up to this month:',
+      '',
+      `- 👥 **${newMembers}** new members joined`,
+      `- 📅 **${eventsHeld}** events held, with **${attendanceMarks}** check-ins`,
+      `- 🔥 **${qotdSolves}** daily problems solved`,
+      `- 🏆 **${certificatesIssued}** certificates issued`,
+      `- 🎮 **${quizSessions}** live quiz sessions`,
+      `- 🌐 **${newNetworkMembers}** new people in our network`,
+    ];
+    if (summary.topStreaks.length > 0) {
+      lines.push('', `**Longest active streaks:** ${summary.topStreaks.map((s) => `${s.name} (${s.streak}🔥)`).join(' · ')}`);
+    }
+    lines.push('', 'Thanks for being part of it. See you next month.');
+
+    return ApiResponse.success(res, {
+      month: key,
+      label,
+      summary,
+      subject: `code.scriet · ${label} in review`,
+      markdown: lines.join('\n'),
+    });
+  } catch (error) {
+    logger.error('Failed to build digest', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to build digest');
   }
 });
 
@@ -624,9 +820,10 @@ statsRouter.get('/events/trends', authMiddleware, requireRole('ADMIN'), async (_
       ORDER BY 1 ASC
     `;
 
-    res.json({ success: true, data: mapDailyAggregateRows(registrations) });
+    ApiResponse.success(res, mapDailyAggregateRows(registrations));
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch trends' } });
+    logger.error('Failed to fetch trends', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch trends');
   }
 });
 
@@ -644,8 +841,9 @@ statsRouter.get('/qotd/trends', authMiddleware, requireRole('ADMIN'), async (_re
       ORDER BY 1 ASC
     `;
 
-    res.json({ success: true, data: mapDailyAggregateRows(submissions) });
+    ApiResponse.success(res, mapDailyAggregateRows(submissions));
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch QOTD trends' } });
+    logger.error('Failed to fetch QOTD trends', { error: error instanceof Error ? error.message : String(error) });
+    ApiResponse.internal(res, 'Failed to fetch QOTD trends');
   }
 });

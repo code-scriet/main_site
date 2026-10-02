@@ -1,5 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma } from '@prisma/client';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middleware/auth.js';
@@ -10,9 +12,25 @@ import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse } from '../utils/response.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const pollsRouter = Router();
+
+// S10: vote/feedback previously rode only the general 500/15min limiter.
+// IP-keyed (the limiter runs before authMiddleware), so the cap must survive
+// a hall of students voting behind one campus NAT during a live event —
+// 60/15min instead of the teams-join 15 (votes are additionally idempotent
+// per user via the [pollId,userId] unique).
+const pollWriteRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { success: false, error: { message: 'Too many poll submissions from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
@@ -29,6 +47,8 @@ const createPollSchema = z.object({
   isAnonymous: z.boolean().optional(),
   deadline: z.coerce.date().optional().nullable(),
   isPublished: z.boolean().optional(),
+  // S-10: link this poll to an event as its post-event feedback poll.
+  eventId: z.string().uuid().optional().nullable(),
 });
 
 const updatePollSchema = createPollSchema
@@ -211,6 +231,7 @@ function serializePublicPoll(poll: PublicPollRecord) {
     isAnonymous: poll.isAnonymous,
     isPublished: poll.isPublished,
     deadline: poll.deadline?.toISOString() ?? null,
+    eventId: poll.eventId ?? null,
     createdAt: poll.createdAt.toISOString(),
     updatedAt: poll.updatedAt.toISOString(),
     isClosed: isPollClosed(poll.deadline),
@@ -257,6 +278,7 @@ function serializeAdminPollDetail(poll: AdminPollDetailRecord) {
     isAnonymous: poll.isAnonymous,
     isPublished: poll.isPublished,
     deadline: poll.deadline?.toISOString() ?? null,
+    eventId: poll.eventId ?? null,
     createdAt: poll.createdAt.toISOString(),
     updatedAt: poll.updatedAt.toISOString(),
     isClosed: isPollClosed(poll.deadline),
@@ -542,6 +564,9 @@ pollsRouter.get('/admin/public-view', authMiddleware, requireRole('ADMIN'), asyn
 
 pollsRouter.get('/admin/public-view/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const poll = await withRetry(() =>
       prisma.poll.findUnique({
         where: { id: req.params.id },
@@ -577,6 +602,12 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
       return ApiResponse.badRequest(res, 'Provide either zero options (question-only mode) or at least two unique options');
     }
 
+    // S-10: a linked event must exist (clean 400 instead of an FK 500).
+    if (parsed.data.eventId) {
+      const event = await prisma.event.findUnique({ where: { id: parsed.data.eventId }, select: { id: true } });
+      if (!event) return ApiResponse.badRequest(res, 'Linked event does not exist');
+    }
+
     const slug = await generatePollSlug(parsed.data.question);
     const description = normalizeOptionalText(parsed.data.description);
 
@@ -591,6 +622,7 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
           isAnonymous: parsed.data.isAnonymous ?? false,
           deadline: parsed.data.deadline ? new Date(parsed.data.deadline) : null,
           isPublished: parsed.data.isPublished ?? true,
+          eventId: parsed.data.eventId ?? null,
           createdBy: authUser.id,
           options: {
             create: normalizedOptions.map((text, index) => ({
@@ -630,6 +662,9 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
 
 pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updatePollSchema.safeParse(req.body);
 
@@ -651,6 +686,12 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
     if (hasVotes && parsed.data.isAnonymous !== undefined && parsed.data.isAnonymous !== existingPoll.isAnonymous) {
       return ApiResponse.conflict(res, 'Anonymity cannot be changed after voting has started');
+    }
+
+    // S-10: a linked event must exist (clean 400 instead of an FK 500).
+    if (parsed.data.eventId) {
+      const event = await prisma.event.findUnique({ where: { id: parsed.data.eventId }, select: { id: true } });
+      if (!event) return ApiResponse.badRequest(res, 'Linked event does not exist');
     }
 
     const normalizedOptions = parsed.data.options ? normalizeOptionTexts(parsed.data.options) : null;
@@ -685,6 +726,9 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         : {}),
       ...(parsed.data.isPublished !== undefined
         ? { isPublished: parsed.data.isPublished }
+        : {}),
+      ...(parsed.data.eventId !== undefined
+        ? { eventId: parsed.data.eventId || null }
         : {}),
     };
 
@@ -737,6 +781,9 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 
 pollsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const existing = await withRetry(() =>
       prisma.poll.findUnique({
@@ -764,6 +811,9 @@ pollsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
 
 pollsRouter.get('/:id/admin/export.xlsx', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const poll = await withRetry(() =>
       prisma.poll.findUnique({
         where: { id: req.params.id },
@@ -998,7 +1048,7 @@ pollsRouter.get('/:idOrSlug', optionalAuthMiddleware, async (req: Request, res: 
   }
 });
 
-pollsRouter.post('/:idOrSlug/vote', authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
+pollsRouter.post('/:idOrSlug/vote', pollWriteRateLimiter, authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
   try {
     const authUser = ensurePollParticipant(req, res);
     if (!authUser) return;
@@ -1099,7 +1149,7 @@ pollsRouter.post('/:idOrSlug/vote', authMiddleware, requireRole('USER'), async (
   }
 });
 
-pollsRouter.post('/:idOrSlug/feedback', authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
+pollsRouter.post('/:idOrSlug/feedback', pollWriteRateLimiter, authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
   try {
     const authUser = ensurePollParticipant(req, res);
     if (!authUser) return;

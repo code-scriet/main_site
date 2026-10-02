@@ -1,4 +1,4 @@
-export const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+export const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 export type CertType = (typeof CERT_TYPES)[number];
 
 const typeColors: Record<CertType, string> = {
@@ -6,6 +6,7 @@ const typeColors: Record<CertType, string> = {
   COMPLETION: 'bg-green-100 text-green-700',
   WINNER: 'bg-[var(--warning-bg)] text-[var(--warning)]',
   SPEAKER: 'bg-purple-100 text-purple-700',
+  APPRECIATION: 'bg-rose-100 text-rose-700',
 };
 
 export function CertTypeBadge({ type }: { type: CertType }) {

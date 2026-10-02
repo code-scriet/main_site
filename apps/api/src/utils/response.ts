@@ -1,11 +1,92 @@
 // API Response helpers for consistent response formatting
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
-const isProduction = process.env.NODE_ENV === 'production';
+// Evaluated at call time (not module load) so behavior tracks the current
+// NODE_ENV — required for deterministic unit tests that exercise the
+// production-only sanitization path in a shared test process.
+const isProduction = () => process.env.NODE_ENV === 'production';
+
+/**
+ * CDN/browser cache header for anonymous, identical-for-everyone GET responses.
+ * Mirrors the header already used by GET /api/stats/home. Apply ONLY after
+ * confirming the request is unauthenticated (`!getAuthUser(req)`) — many list
+ * endpoints embed per-user fields (isRegistered, myVote) that must never be
+ * cached at a shared edge. With Cloudflare in front of api.codescriet.dev the
+ * `public` + s-maxage semantics also shed repeat hits before they reach Render.
+ *
+ * Vary: Authorization, Cookie is mandatory, not optional: on mixed-audience
+ * endpoints (optionalAuth, e.g. GET /api/events) only the anonymous variant is
+ * cacheable, and RFC 9111 §3.5 allows caches to reuse a `public` response even
+ * for requests carrying an Authorization header. Without Vary, a user who
+ * fetched anonymously and then logged in would be served the cached anonymous
+ * payload (isRegistered always false) for up to max-age. Anonymous visitors
+ * (no auth header, no cookies) keep full cache hits.
+ */
+export function setPublicCache(res: Response, maxAgeSeconds = 60, staleWhileRevalidateSeconds = maxAgeSeconds * 2) {
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+  );
+  // res.vary() appends — it won't clobber the Vary: Origin set by cors().
+  res.vary('Authorization');
+  res.vary('Cookie');
+}
+
+/**
+ * S3: shared-CDN cache header for TRULY-anonymous, identical-for-everyone GET
+ * responses. Unlike setPublicCache it emits `s-maxage` (the SHARED-cache TTL a CDN
+ * honours) and deliberately does NOT set `Vary: Cookie/Authorization` — that Vary
+ * is exactly what makes setPublicCache un-storable at a shared edge (every browser
+ * request carries the `scriet_session` cookie via credentials:'include', so each
+ * gets a distinct cache key and nothing is reused). Dropping it lets Cloudflare
+ * store and reuse the one anonymous body.
+ *
+ * ENFORCED guard (not caller-must-remember): the function takes the request and,
+ * when it carries ANY credentials (Authorization header or a scriet_session
+ * cookie), silently degrades to the safe setPublicCache header — a mistaken call
+ * on a mixed-audience route can therefore never make an authed response
+ * shared-cacheable. Use it only on endpoints whose anonymous body is identical
+ * for everyone (public QOTD leaderboards, /stats/home, /stats/public,
+ * /announcements, /team, /credits, /achievements); never on per-user routes
+ * (e.g. /qotd/leaderboard/around-me) where even the degraded header is wrong.
+ *
+ * Browser TTL note: on the SHARED (credential-less) branch `max-age` is
+ * intentionally clamped to ≤30s regardless of maxAgeSeconds — the parameter
+ * controls the SHARED `s-maxage` TTL, and browsers revalidate sooner so a
+ * mistakenly-shared body heals fast. The credentialed-degrade branch is NOT
+ * shared-cacheable, so it keeps the caller's full max-age (pre-S3 parity) —
+ * that "heals fast" rationale doesn't apply when nothing is stored at the edge.
+ *
+ * This is GUARD #1 of three and MUST ship together with the other two (Cloudflare
+ * config, not code): (2) a Cache Rule scoped to an explicit path allowlist, and
+ * (3) "Bypass cache on cookie: scriet_session" so any session-bearing request
+ * always reaches origin. `Vary: Origin` (from cors()) is left intact; only
+ * Cookie/Authorization are omitted, and only for credential-less requests.
+ */
+export function setSharedPublicCache(req: Request, res: Response, maxAgeSeconds = 60, staleWhileRevalidateSeconds = maxAgeSeconds * 5) {
+  const hasCredentials =
+    Boolean(req.headers.authorization) || (req.headers.cookie ?? '').includes('scriet_session=');
+  if (hasCredentials) {
+    // Degrade to the per-audience header. This branch emits no s-maxage (nothing
+    // is stored at a shared edge), so neither the ≤30s max-age clamp nor the
+    // maxAgeSeconds*5 shared stale window applies — both are shared-cache tuning.
+    // Restore the pre-S3 `setPublicCache(res, 60)` behavior exactly so the
+    // logged-in cohort keeps its full browser TTL (max-age=60, SWR=120) instead
+    // of the halved/inflated window S3 briefly introduced.
+    setPublicCache(res, maxAgeSeconds, Math.min(staleWhileRevalidateSeconds, maxAgeSeconds * 2));
+    return;
+  }
+  res.setHeader(
+    'Cache-Control',
+    `public, s-maxage=${maxAgeSeconds}, max-age=${Math.min(maxAgeSeconds, 30)}, stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+  );
+  // Intentionally NO Vary: Cookie/Authorization on this branch — that omission is
+  // what allows a shared edge cache to store the (credential-less) response.
+}
 
 // Filter potentially sensitive information from error details in production
 function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown {
-  if (!isProduction || details === undefined) {
+  if (!isProduction() || details === undefined) {
     return details;
   }
 
@@ -25,6 +106,15 @@ function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown
       return '[Circular]';
     }
     visited.add(details as object);
+
+    // Preserve arrays as arrays. The generic object path below rebuilds objects
+    // via Object.entries, which would turn [{...}] into a {"0":{...}} map and
+    // break any consumer that relies on Array.isArray — e.g. the field-error
+    // lists in error.details emitted by ApiResponse.validationError(). Recurse
+    // with the same visited set so nested entries are still sanitized.
+    if (Array.isArray(details)) {
+      return details.map((item) => sanitizeErrorDetails(item, visited));
+    }
 
     // If it's an Error-like object, strip the stack
     if ('stack' in details) {

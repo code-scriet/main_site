@@ -1,10 +1,11 @@
-import { Router, Request, Response } from 'express';
-import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict } from '@prisma/client';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
+import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict, Difficulty } from '@prisma/client';
 import { z } from 'zod';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
-import { ApiResponse, ErrorCodes } from '../utils/response.js';
+import { ApiResponse } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { broadcastNotification } from '../utils/notifications.js';
 import { auditLog } from '../utils/audit.js';
@@ -21,8 +22,13 @@ import {
   type ProblemInput,
 } from '../utils/problemsCore.js';
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
+import { formatUsageDate } from '../utils/dailyLimit.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
+import { broadcastLeaderboard } from '../competition/competitionRealtime.js';
+import { recomputeUserStreakSafe } from '../utils/qotdStreak.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { requireUuid } from '../utils/idParams.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 
 export const problemsRouter = Router();
 
@@ -54,7 +60,7 @@ const problemInputSchema = z.object({
   body: z.string().min(1).max(60_000),
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']),
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-  allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(4),
+    allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(5),
   timeLimitMs: z.coerce.number().int().min(500).max(10_000).default(2000),
   defaultSubmitCap: z.coerce.number().int().min(1).max(100).default(5),
   sampleTests: z.array(testCaseSchema).min(1).max(20),
@@ -69,6 +75,8 @@ const runSchema = z.object({
   code: z.string().min(1).max(100_000),
   contextType: z.nativeEnum(ProblemContextType).optional(),
   contextKey: z.string().min(1).max(120).optional(),
+  // Signed 'qotd_reopen' link token — allows submitting a past, admin-reopened QOTD.
+  reopenToken: z.string().max(2000).optional(),
 });
 
 const submitSchema = runSchema.extend({
@@ -112,6 +120,21 @@ async function resolveProblemId(idOrSlug: string): Promise<string> {
   return problem.id;
 }
 
+// Catalog/list rows render only a summary (serializeProblemSummary), so fetch just
+// those columns — never body / referenceSolution / sample+hidden test JSON. On the
+// unbounded admin catalog that turns a multi-MB transfer into a few KB.
+const problemSummarySelect = {
+  id: true,
+  slug: true,
+  title: true,
+  difficulty: true,
+  tags: true,
+  allowedLanguages: true,
+  isPublished: true,
+  createdAt: true,
+  _count: { select: { submissions: true } },
+} satisfies Prisma.ProblemSelect;
+
 problemsRouter.use(optionalAuthMiddleware);
 
 problemsRouter.use(async (req, res, next) => {
@@ -128,36 +151,49 @@ problemsRouter.use(async (req, res, next) => {
   }
 });
 
-problemsRouter.get('/', async (req, res) => {
+problemsRouter.get('/', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     const admin = isAdminUser(user);
     const published = req.query.published === 'true' ? true : req.query.published === 'false' ? false : undefined;
-    const difficulty = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    // Narrow the query-param to the Difficulty enum; an unrecognized value is
+    // ignored (no filter) rather than reaching Postgres as an invalid enum.
+    const difficultyRaw = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    const difficulty = difficultyRaw === 'EASY' || difficultyRaw === 'MEDIUM' || difficultyRaw === 'HARD'
+      ? (difficultyRaw as Difficulty)
+      : undefined;
     const tag = typeof req.query.tag === 'string' ? req.query.tag.toLowerCase() : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
 
-    const problems = await withRetry(() => prisma.problem.findMany({
-      where: {
-        ...(admin
-          ? (published !== undefined ? { isPublished: published } : {})
-          : { isPublished: true }),
-        ...(difficulty ? { difficulty } : {}),
-        ...(tag ? { tags: { has: tag } } : {}),
-        ...(search ? {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { slug: { contains: search, mode: 'insensitive' } },
-          ],
-        } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      include: { _count: { select: { submissions: true } } },
-    }));
+    // Paged fetch-all support (offset + exact total) so no problem truncates.
+    const whereClause: Prisma.ProblemWhereInput = {
+      ...(admin
+        ? (published !== undefined ? { isPublished: published } : {})
+        : { isPublished: true }),
+      ...(difficulty ? { difficulty } : {}),
+      ...(tag ? { tags: { has: tag } } : {}),
+      ...(search ? {
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { slug: { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
 
-    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
+    const [problems, total] = await Promise.all([
+      withRetry(() => prisma.problem.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        select: problemSummarySelect,
+      })),
+      withRetry(() => prisma.problem.count({ where: whereClause })),
+    ]);
+
+    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary), total });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to list problems');
   }
@@ -165,17 +201,20 @@ problemsRouter.get('/', async (req, res) => {
 
 problemsRouter.get('/admin/all', authMiddleware, requireRole('ADMIN'), async (_req, res) => {
   try {
-    const problems = await prisma.problem.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { submissions: true } } },
-    });
-    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary) });
+    const [problems, total] = await Promise.all([
+      prisma.problem.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: problemSummarySelect,
+      }),
+      prisma.problem.count(),
+    ]);
+    return ApiResponse.success(res, { problems: problems.map(serializeProblemSummary), total });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to list admin problems');
   }
 });
 
-problemsRouter.post('/admin/reset-cap', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/reset-cap', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
@@ -241,7 +280,7 @@ function pruneCapRequestThrottle() {
   }
 }
 
-problemsRouter.post('/:id/request-cap', authMiddleware, async (req, res) => {
+problemsRouter.post('/:id/request-cap', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
@@ -297,7 +336,7 @@ problemsRouter.post('/:id/request-cap', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -351,8 +390,11 @@ problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('A
 });
 
 // Dashboard v2: one-click grant for cap requests from the admin pending-requests card.
-problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
+      return;
+    }
     const admin = getAuthUser(req)!;
     const schema = z.object({
       deltaSubmits: z.coerce.number().int().min(1).max(50).optional(),
@@ -390,8 +432,11 @@ problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requ
   }
 });
 
-problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
+      return;
+    }
     const admin = getAuthUser(req)!;
     const counter = await prisma.problemSubmissionCounter.findUnique({
       where: { id: req.params.counterId },
@@ -413,7 +458,7 @@ problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requi
 });
 
 // Dashboard v2: cross-problem recent submissions for the current user (overview widget).
-problemsRouter.get('/me/recent', authMiddleware, async (req, res) => {
+problemsRouter.get('/me/recent', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req)!;
     const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
@@ -457,7 +502,7 @@ problemsRouter.get('/me/recent', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req, res) => {
+problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const author = getAuthUser(req);
     if (!author) return ApiResponse.unauthorized(res);
@@ -495,8 +540,11 @@ problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req,
   }
 });
 
-problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const parsed = problemInputSchema.safeParse(req.body);
@@ -509,8 +557,11 @@ problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res
   }
 });
 
-problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     await prisma.problem.delete({ where: { id: req.params.id } });
@@ -524,8 +575,11 @@ problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, 
   }
 });
 
-problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const parsed = z.object({ isPublished: z.boolean() }).safeParse(req.body);
@@ -585,13 +639,16 @@ problemsRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Res
   }
 });
 
-problemsRouter.get('/:id/my-submission', authMiddleware, async (req, res) => {
+problemsRouter.get('/:id/my-submission', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
     const contextType = req.query.contextType as ProblemContextType | undefined;
-    const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
-    if (!contextType || !contextKey) return ApiResponse.badRequest(res, 'contextType and contextKey are required');
+    const rawContextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
+    if (!contextType || !rawContextKey) return ApiResponse.badRequest(res, 'contextType and contextKey are required');
+    // PRACTICE is server-keyed by IST day on write (submitProblemForUser) — resolve
+    // the same key here so the read matches the write across the midnight boundary.
+    const contextKey = contextType === 'PRACTICE' ? formatUsageDate() : rawContextKey;
     const problemId = await resolveProblemId(req.params.id);
     const [submission, counter, problem] = await Promise.all([
       prisma.problemSubmission.findUnique({
@@ -624,7 +681,7 @@ problemsRouter.get('/:id/my-submission', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.get('/:id/leaderboard', async (req, res) => {
+problemsRouter.get('/:id/leaderboard', async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -632,7 +689,9 @@ problemsRouter.get('/:id/leaderboard', async (req, res) => {
     const problemId = await resolveProblemId(req.params.id);
     const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
     const submissions = await prisma.problemSubmission.findMany({
-      where: { problemId, contextType, contextKey },
+      // Exclude held reopen solves (verdict PENDING) so an unaccepted late solve
+      // never appears on a leaderboard; normal non-accepted attempts aren't PENDING.
+      where: { problemId, contextType, contextKey, verdict: { not: 'PENDING' } },
       orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
       take: limit,
       include: { user: { select: { id: true, name: true, avatar: true } } },
@@ -654,7 +713,7 @@ problemsRouter.get('/:id/leaderboard', async (req, res) => {
   }
 });
 
-problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -677,8 +736,11 @@ problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'),
   }
 });
 
-problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const schema = z.object({
@@ -691,10 +753,16 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
     const problemId = await resolveProblemId(req.params.id);
     const existing = await prisma.problemSubmission.findUnique({
       where: { id: req.params.submissionId },
-      select: { id: true, problemId: true, contextType: true, contextKey: true },
+      select: { id: true, userId: true, problemId: true, contextType: true, contextKey: true, reopenPending: true },
     });
     if (!existing || existing.problemId !== problemId) {
       return ApiResponse.notFound(res, 'Submission not found for this problem');
+    }
+    // A held reopened-QOTD solve grants past-day credit — only the reopen authority
+    // (President / super-admin) may resolve it, even via this generic override path.
+    // This closes the bypass that would otherwise let a plain ADMIN accept it here.
+    if (existing.reopenPending && !isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can grade a reopened-QOTD solve');
     }
     const submission = await prisma.problemSubmission.update({
       where: { id: req.params.submissionId },
@@ -703,9 +771,21 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
         ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
         overrideNotes: parsed.data.notes ?? null,
         manualOverride: true,
+        // Grading the submission resolves it out of the review queue and clears any
+        // reopen acceptance hold (the admin's verdict is now authoritative).
+        needsReview: false,
+        reopenPending: false,
       },
     });
-    if (existing.contextType === 'QOTD') invalidateQotdLeaderboardCaches(existing.contextKey);
+    if (existing.contextType === 'QOTD') {
+      invalidateQotdLeaderboardCaches(existing.contextKey);
+      // A QOTD verdict moving to/from ACCEPTED changes the user's solved-day set —
+      // recompute their materialized streak so it reflects the manual grade.
+      if (parsed.data.verdict) recomputeUserStreakSafe(existing.userId);
+    } else if (existing.contextType === 'CONTEST') {
+      // A contest score/verdict override changes the live board — push a refresh.
+      broadcastLeaderboard(existing.contextKey);
+    }
     await auditLog(admin.id, 'PROBLEM_SUBMISSION_OVERRIDDEN', 'ProblemSubmission', submission.id, {
       problemId,
       verdict: parsed.data.verdict,
@@ -717,7 +797,168 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
   }
 });
 
-problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+// Student appeal — flag a non-accepted submission for manual review. Used when
+// judging was unavailable (the submission was captured with verdict JUDGE_ERROR)
+// or when the student disputes a verdict. Puts the row in the admin review queue.
+problemsRouter.post('/:id/appeal', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return ApiResponse.unauthorized(res);
+    const schema = z.object({
+      contextType: z.nativeEnum(ProblemContextType),
+      contextKey: z.string().min(1).max(200),
+      note: z.string().max(2_000).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid appeal payload');
+    const problemId = await resolveProblemId(req.params.id);
+    const existing = await prisma.problemSubmission.findUnique({
+      where: {
+        userId_problemId_contextType_contextKey: {
+          userId: user.id,
+          problemId,
+          contextType: parsed.data.contextType,
+          contextKey: parsed.data.contextKey,
+        },
+      },
+      select: { id: true, verdict: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'No submission found to appeal');
+    if (existing.verdict === 'ACCEPTED') {
+      return ApiResponse.badRequest(res, 'This submission was already accepted — nothing to appeal');
+    }
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      data: {
+        appealedAt: new Date(),
+        appealNote: parsed.data.note ?? null,
+        needsReview: true,
+      },
+    });
+    await auditLog(user.id, 'PROBLEM_SUBMISSION_APPEALED', 'ProblemSubmission', submission.id, {
+      problemId,
+      contextType: parsed.data.contextType,
+      contextKey: parsed.data.contextKey,
+    });
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to appeal submission');
+  }
+});
+
+// Admin review queue — every submission flagged for manual review (judge-failed
+// captures + student appeals), newest first, with code + user + problem.
+problemsRouter.get('/admin/review-queue', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+    const where = { needsReview: true };
+    const [submissions, total] = await Promise.all([
+      prisma.problemSubmission.findMany({
+        where,
+        orderBy: [{ appealedAt: 'desc' }, { updatedAt: 'desc' }],
+        take: limit,
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+          problem: { select: { id: true, slug: true, title: true, difficulty: true } },
+        },
+      }),
+      prisma.problemSubmission.count({ where }),
+    ]);
+    return ApiResponse.success(res, { submissions, total });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to fetch review queue');
+  }
+});
+
+// Accept a held reopened-QOTD solve. The solve was judged ACCEPTED but parked at
+// verdict PENDING (reopen_pending=true); accepting flips it to ACCEPTED so it now
+// counts — streak + every QOTD leaderboard recompute — and rings the solver's bell.
+problemsRouter.post('/admin/reopen/:submissionId/accept', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
+    const admin = getAuthUser(req);
+    if (!admin) return ApiResponse.unauthorized(res);
+    // Accepting grants streak/marks/leaderboard credit for a PAST day, so it is gated
+    // to the same authority that can reopen a QOTD (President / super-admin) — not
+    // every ADMIN. The /override bypass is closed with the matching check there.
+    if (!isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can accept a reopened-QOTD solve');
+    }
+    const existing = await prisma.problemSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      select: { id: true, userId: true, contextType: true, contextKey: true, reopenPending: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'Submission not found');
+    if (!existing.reopenPending) return ApiResponse.badRequest(res, 'This submission is not awaiting reopen acceptance');
+
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      data: { verdict: 'ACCEPTED', reopenPending: false, needsReview: false },
+    });
+    // Now that the row is ACCEPTED, the normal pipeline counts it everywhere.
+    if (existing.contextType === 'QOTD') {
+      invalidateQotdLeaderboardCaches(existing.contextKey);
+      recomputeUserStreakSafe(existing.userId);
+    }
+    await auditLog(admin.id, 'QOTD_REOPEN_SUBMISSION_ACCEPTED', 'ProblemSubmission', submission.id, {
+      contextKey: existing.contextKey,
+      userId: existing.userId,
+    });
+    void broadcastNotification({
+      source: 'AUTO_QOTD',
+      audience: 'CUSTOM',
+      audienceUserIds: [existing.userId],
+      category: 'streak',
+      icon: 'check',
+      title: 'Your late QOTD solve was accepted',
+      body: 'An admin accepted your reopened-QOTD solve — your streak, marks and leaderboard standing now count it.',
+      link: '/dashboard/coding',
+      refEntity: 'qotd-reopen-accept',
+      refEntityId: submission.id,
+    }).catch(() => undefined);
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to accept reopened submission');
+  }
+});
+
+// Reject a held reopened-QOTD solve. The row stays at verdict PENDING (it never
+// counts) and is cleared out of the review queue. Idempotent on the flag.
+problemsRouter.post('/admin/reopen/:submissionId/reject', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
+    const admin = getAuthUser(req);
+    if (!admin) return ApiResponse.unauthorized(res);
+    // Symmetric with accept: only the reopen authority works the reopen hold queue.
+    if (!isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can reject a reopened-QOTD solve');
+    }
+    const schema = z.object({ note: z.string().max(2_000).optional() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid payload');
+    const existing = await prisma.problemSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      select: { id: true, userId: true, contextKey: true, reopenPending: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'Submission not found');
+    if (!existing.reopenPending) return ApiResponse.badRequest(res, 'This submission is not awaiting reopen acceptance');
+
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      // Verdict stays PENDING (non-counting); just clear the queue/hold flags.
+      data: { reopenPending: false, needsReview: false, overrideNotes: parsed.data.note ?? 'Reopen solve not accepted' },
+    });
+    await auditLog(admin.id, 'QOTD_REOPEN_SUBMISSION_REJECTED', 'ProblemSubmission', submission.id, {
+      contextKey: existing.contextKey,
+      userId: existing.userId,
+    });
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to reject reopened submission');
+  }
+});
+
+problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
@@ -736,7 +977,7 @@ problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async 
   }
 });
 
-problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const problemId = await resolveProblemId(req.params.id);
     const job = getRejudgeJob(req.params.jobId);
@@ -747,7 +988,7 @@ problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('AD
   }
 });
 
-problemsRouter.get('/:idOrSlug', async (req, res) => {
+problemsRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     const problem = await resolveProblem(req.params.idOrSlug);

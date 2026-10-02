@@ -24,6 +24,7 @@
 /join-us          /join-us/index.html          200
 /privacy-policy   /privacy-policy/index.html   200
 /credits          /credits/index.html          200
+/code-of-conduct  /code-of-conduct/index.html  200
 
 # SPA catch-all (must stay last).
 /* /index.html 200

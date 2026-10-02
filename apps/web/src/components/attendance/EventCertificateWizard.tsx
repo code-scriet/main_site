@@ -1,4 +1,5 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   api,
   type CertificateBulkGenerateInput,
@@ -12,6 +13,7 @@ import {
 } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { processImageUrl } from '@/lib/imageUtils';
+import { mapWithConcurrency } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,12 +69,20 @@ import {
   filterGuestRecipients,
   type RecipientFilter,
 } from './attendanceCertRecipients';
+import {
+  CertificateBackdateControl,
+  EMPTY_BACKDATE,
+  toBackdatePayload,
+  type CertificateBackdateValue,
+} from '@/components/certificates/CertificateBackdateControl';
 
 interface EventCertificateWizardProps {
   eventId: string;
   eventName: string;
   token: string;
   hasCompetitionRounds: boolean;
+  /** ISO start of this event — the floor the server enforces on a backdated issue date. */
+  eventStartDate?: string | null;
 }
 
 interface Signatory {
@@ -116,6 +126,7 @@ const CERT_TYPE_OPTIONS: Array<{ value: CertType; label: string }> = [
   { value: 'COMPLETION', label: 'Completion' },
   { value: 'WINNER', label: 'Winner' },
   { value: 'SPEAKER', label: 'Speaker' },
+  { value: 'APPRECIATION', label: 'Appreciation' },
 ];
 
 const TEMPLATE_OPTIONS = [
@@ -175,13 +186,17 @@ export default function EventCertificateWizard({
   eventName,
   token,
   hasCompetitionRounds,
+  eventStartDate,
 }: EventCertificateWizardProps) {
   const [mode, setMode] = useState<CertificateMode | null>(null);
   const [step, setStep] = useState<WizardStep>('mode');
+  const [searchParams] = useSearchParams();
+  const deepLinkAppliedRef = useRef(false);
 
   const [recipients, setRecipients] = useState<CertificateRecipient[]>([]);
   const [guestRecipients, setGuestRecipients] = useState<GuestCertificateRecipient[]>([]);
   const [stats, setStats] = useState({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
+  const [recipientsTruncated, setRecipientsTruncated] = useState(false);
   const [attendanceEventDays, setAttendanceEventDays] = useState(1);
   const [attendanceDayLabels, setAttendanceDayLabels] = useState<string[]>([]);
   const [minAttendanceDays, setMinAttendanceDays] = useState<number | null>(null);
@@ -218,9 +233,25 @@ export default function EventCertificateWizard({
   const [attendanceEventName, setAttendanceEventName] = useState('');
   const [competitionDomain, setCompetitionDomain] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  // Backdate the whole batch (PRES/SA only). Empty = issue with today's date.
+  const [backdate, setBackdate] = useState<CertificateBackdateValue>(EMPTY_BACKDATE);
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Deep-link from the competition console ("Issue winner certificates"): ?competition=<roundId>
+  // jumps straight into the competition flow, pre-selecting that round on the specific-round
+  // strategy so the admin lands on the winners preview instead of the mode picker.
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const roundParam = searchParams.get('competition');
+    if (!roundParam) return;
+    deepLinkAppliedRef.current = true;
+    setCompetitionStrategy('specific_round');
+    setSelectedRoundIds([roundParam]);
+    setMode('competition');
+    setStep('select');
+  }, [searchParams]);
 
   const [generatedCerts, setGeneratedCerts] = useState<GeneratedCert[]>([]);
   const [managementSearch, setManagementSearch] = useState('');
@@ -342,6 +373,7 @@ export default function EventCertificateWizard({
       }
       setAttendanceEventDays(eventDays);
       setAttendanceDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
+      setRecipientsTruncated(data.truncated === true);
       setRecipients(data.participants ?? data.recipients);
       setGuestRecipients(data.guests ?? []);
       setStats({
@@ -363,6 +395,7 @@ export default function EventCertificateWizard({
     } catch {
       setRecipients([]);
       setGuestRecipients([]);
+      setRecipientsTruncated(false);
       setStats({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
       setAttendanceEventDays(1);
       setAttendanceDayLabels([]);
@@ -675,6 +708,10 @@ export default function EventCertificateWizard({
         body.facultySignatoryId = facultySignatoryId;
       }
 
+      // Spread last so it applies to both the competition and attendance branches.
+      // Empty for a normal issuance — no backdate keys are sent at all.
+      Object.assign(body, toBackdatePayload(backdate));
+
       const result = await api.bulkGenerateCertificates(body, token);
       const certificates: GeneratedCert[] = result.results
         .filter(isBulkGeneratedCertResult)
@@ -766,12 +803,15 @@ export default function EventCertificateWizard({
 
   async function handleBulkResend() {
     const ids = Array.from(managementSelected);
+    let completed = 0;
     let failed = 0;
 
     setBulkResending(true);
     setBulkResendProgress({ completed: 0, total: ids.length, failed: 0 });
 
-    for (const certId of ids) {
+    // Bounded concurrency (5 in flight): sequential was O(N) latency,
+    // all-at-once trips the resend cooldown + rate limiters.
+    await mapWithConcurrency(ids, 5, async (certId: string) => {
       try {
         await api.resendCertificateEmail(certId, token);
         setGeneratedCerts((current) =>
@@ -780,13 +820,12 @@ export default function EventCertificateWizard({
       } catch {
         failed += 1;
       } finally {
-        setBulkResendProgress((current) => ({
-          ...current,
-          completed: Math.min(current.completed + 1, ids.length),
-          failed,
-        }));
+        completed += 1;
+        const done = completed;
+        const failCount = failed;
+        setBulkResendProgress({ completed: Math.min(done, ids.length), total: ids.length, failed: failCount });
       }
-    }
+    });
 
     setBulkResending(false);
     setManagementSelected(new Set());
@@ -989,6 +1028,12 @@ export default function EventCertificateWizard({
             </CardContent>
           </Card>
         </div>
+
+        {recipientsTruncated && (
+          <div className="mb-3 rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            Showing the first 5,000 recipients — counts below undercount and bulk actions skip the rest. Split certificates by day filter or contact support for larger events.
+          </div>
+        )}
 
         {attendanceEventDays > 1 && (
           <div className="mb-4 flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between">
@@ -1379,8 +1424,15 @@ export default function EventCertificateWizard({
                   >
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-semibold text-[var(--ds-text-1)]">{round.title}</p>
-                        <p className="text-sm text-[var(--ds-text-3)]">{round.submissions.length} ranked submission{round.submissions.length === 1 ? '' : 's'}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-[var(--ds-text-1)]">{round.title}</p>
+                          {round.roundType && (
+                            <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                              {round.roundType === 'DSA' ? 'DSA' : 'Build'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-[var(--ds-text-3)]">{round.submissions.length} ranked {round.roundType === 'DSA' ? 'competitor' : 'submission'}{round.submissions.length === 1 ? '' : 's'}</p>
                       </div>
                       <label className="flex items-center gap-2 text-sm font-medium text-[var(--ds-text-2)]">
                         <input
@@ -2123,6 +2175,14 @@ export default function EventCertificateWizard({
               </div>
               <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
             </div>
+
+            {/* PRES/SA only, collapsed by default — renders nothing for other admins. */}
+            <CertificateBackdateControl
+              value={backdate}
+              onChange={setBackdate}
+              eventStartDate={eventStartDate}
+              className="mt-4"
+            />
           </CardContent>
         </Card>
 
@@ -2292,6 +2352,11 @@ export default function EventCertificateWizard({
             <h3 className="text-lg font-semibold">Generated Certificates ({generatedCerts.length})</h3>
             <p className="text-sm text-[var(--ds-text-3)]">Manage the certificates generated for {eventName}</p>
           </div>
+          {recipientsTruncated && (
+            <div className="mb-3 rounded-[10px] border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              Showing the first 5,000 recipients — counts below undercount and bulk actions skip the rest. Split certificates by day filter or contact support for larger events.
+            </div>
+          )}
           <div className="flex gap-2">
             {managementSelected.size > 0 && (
               <div className="space-y-1 text-right">

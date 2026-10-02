@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
+import { prisma } from '../lib/prisma.js';
 import { logger } from './logger.js';
 import { generateSlug, generateUniqueSlug } from './slug.js';
-
-const prisma = new PrismaClient();
 
 // Run an async worker over an array in fixed-size chunks. Each chunk runs
 // sequentially so we don't blow past the Neon connection pool, but every
@@ -19,25 +17,28 @@ export async function initializeDatabase() {
   try {
     logger.info('🔧 Initializing database...');
 
-    // Fix failed migrations directly in the database
+    // Self-heal known Settings schema drift BEFORE any settings read/write.
+    // Production's `settings` table can be missing `site_launch_date` (the
+    // 20260524230555_about_page_content migration is recorded as applied but the
+    // column drifted away), and Prisma 7 SELECTs every schema column — so every
+    // full-row Settings query (getCachedSettings, admin GET, the PATCH upsert's
+    // RETURNING clause) fails with P2022 and 500s the site. `prisma migrate deploy`
+    // won't re-add a column for an already-applied migration, so repair it
+    // idempotently here. No-op on healthy DBs; tolerant so it never blocks startup.
     try {
-      logger.info('📊 Checking for failed migrations...');
-      // Delete the failed migration record so migrate deploy can retry or skip it
-      const deleted = await prisma.$executeRaw`
-        DELETE FROM "_prisma_migrations" 
-        WHERE migration_name = '20260220003000_harden_email_and_network_query_indexes'
-        AND rolled_back_at IS NULL
-        AND finished_at IS NULL
-      `;
-      if (deleted > 0) {
-        logger.info('✅ Removed failed migration record');
-      }
-    } catch (migError) {
-      logger.warn('⚠️ Migration cleanup warning', { error: migError instanceof Error ? migError.message : String(migError) });
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "site_launch_date" TIMESTAMP(3) NOT NULL DEFAULT '2026-01-01T00:00:00Z'`
+      );
+    } catch (healErr) {
+      logger.error('Settings schema self-heal (site_launch_date) failed', {
+        error: healErr instanceof Error ? healErr.message : String(healErr),
+      });
     }
 
-    // Get super admin credentials from environment variables
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    // Canonical lowercase form (mirrors prisma/seed.ts): User.email is a
+    // case-sensitive @unique, so a mixed-case env value would miss the existing
+    // lowercase row with findUnique and then insert a duplicate admin identity.
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
     const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
     const superAdminName = process.env.SUPER_ADMIN_NAME || 'Super Admin';
 
@@ -166,94 +167,109 @@ const normalizeLegacySlugs = (legacySlugs: string[] | null | undefined, previous
 
 export async function populateProfileSlugs() {
   try {
-    const missingTeamSlugsBefore = await prisma.teamMember.count({
-      where: {
-        OR: [{ slug: null }, { slug: '' }],
-      },
-    });
-    logger.info('🔎 Team slug normalization status', {
+    // This pass is a legacy backfill/repair: write paths (team.ts, network.ts)
+    // maintain slugs on every create/update. When the cheap count probes show
+    // nothing is missing, skip the full-table scans entirely — most boots pay
+    // two COUNTs instead of hydrating every teamMember + networkProfile row.
+    const [missingTeamSlugsBefore, missingNetworkSlugsBefore] = await Promise.all([
+      prisma.teamMember.count({
+        where: {
+          OR: [{ slug: null }, { slug: '' }],
+        },
+      }),
+      prisma.networkProfile.count({
+        where: {
+          OR: [{ slug: null }, { slug: '' }],
+        },
+      }),
+    ]);
+    logger.info('🔎 Profile slug normalization status', {
       stage: 'before',
       missingTeamSlugs: missingTeamSlugsBefore,
+      missingNetworkSlugs: missingNetworkSlugsBefore,
     });
 
-    const teamMembers = await prisma.teamMember.findMany({
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, slug: true, legacySlugs: true },
-    });
-
-    const usedTeamSlugs = new Set<string>();
-    const teamUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
-
-    for (const member of teamMembers) {
-      const baseSlug = generateSlug(member.name) || 'team-member';
-      const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedTeamSlugs));
-      usedTeamSlugs.add(canonicalSlug);
-
-      const legacySlugs = normalizeLegacySlugs(member.legacySlugs, member.slug, canonicalSlug);
-      const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(member.legacySlugs ?? []);
-      const hasCanonicalChanged = member.slug !== canonicalSlug;
-
-      if (hasCanonicalChanged || hasLegacyChanged) {
-        teamUpdates.push({ id: member.id, slug: canonicalSlug, legacySlugs });
-      }
-    }
-
-    // Batched updates so cold-starts don't serialize one round-trip per row.
-    // Most boots have 0 updates after the initial migration settled.
     let updatedTeamCount = 0;
-    if (teamUpdates.length > 0) {
-      await runInChunks(teamUpdates, 50, (chunk) =>
-        prisma.$transaction(
-          chunk.map((u) =>
-            prisma.teamMember.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
-          ),
-        ),
-      );
-      updatedTeamCount = teamUpdates.length;
-    }
+    if (missingTeamSlugsBefore > 0) {
+      const teamMembers = await prisma.teamMember.findMany({
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, name: true, slug: true, legacySlugs: true },
+      });
 
-    const missingTeamSlugsAfter = await prisma.teamMember.count({
-      where: {
-        OR: [{ slug: null }, { slug: '' }],
-      },
-    });
-    logger.info('🔎 Team slug normalization status', {
-      stage: 'after',
-      missingTeamSlugs: missingTeamSlugsAfter,
-    });
+      const usedTeamSlugs = new Set<string>();
+      const teamUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
 
-    const networkProfiles = await prisma.networkProfile.findMany({
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, fullName: true, slug: true, legacySlugs: true },
-    });
+      for (const member of teamMembers) {
+        const baseSlug = generateSlug(member.name) || 'team-member';
+        const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedTeamSlugs));
+        usedTeamSlugs.add(canonicalSlug);
 
-    const usedNetworkSlugs = new Set<string>();
-    const networkUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
+        const legacySlugs = normalizeLegacySlugs(member.legacySlugs, member.slug, canonicalSlug);
+        const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(member.legacySlugs ?? []);
+        const hasCanonicalChanged = member.slug !== canonicalSlug;
 
-    for (const profile of networkProfiles) {
-      const baseSlug = generateSlug(profile.fullName) || 'network-profile';
-      const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedNetworkSlugs));
-      usedNetworkSlugs.add(canonicalSlug);
-
-      const legacySlugs = normalizeLegacySlugs(profile.legacySlugs, profile.slug, canonicalSlug);
-      const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(profile.legacySlugs ?? []);
-      const hasCanonicalChanged = profile.slug !== canonicalSlug;
-
-      if (hasCanonicalChanged || hasLegacyChanged) {
-        networkUpdates.push({ id: profile.id, slug: canonicalSlug, legacySlugs });
+        if (hasCanonicalChanged || hasLegacyChanged) {
+          teamUpdates.push({ id: member.id, slug: canonicalSlug, legacySlugs });
+        }
       }
+
+      // Batched updates so cold-starts don't serialize one round-trip per row.
+      if (teamUpdates.length > 0) {
+        await runInChunks(teamUpdates, 50, (chunk) =>
+          prisma.$transaction(
+            chunk.map((u) =>
+              prisma.teamMember.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
+            ),
+          ),
+        );
+        updatedTeamCount = teamUpdates.length;
+      }
+
+      const missingTeamSlugsAfter = await prisma.teamMember.count({
+        where: {
+          OR: [{ slug: null }, { slug: '' }],
+        },
+      });
+      logger.info('🔎 Team slug normalization status', {
+        stage: 'after',
+        missingTeamSlugs: missingTeamSlugsAfter,
+      });
     }
 
     let updatedNetworkCount = 0;
-    if (networkUpdates.length > 0) {
-      await runInChunks(networkUpdates, 50, (chunk) =>
-        prisma.$transaction(
-          chunk.map((u) =>
-            prisma.networkProfile.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
+    if (missingNetworkSlugsBefore > 0) {
+      const networkProfiles = await prisma.networkProfile.findMany({
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, fullName: true, slug: true, legacySlugs: true },
+      });
+
+      const usedNetworkSlugs = new Set<string>();
+      const networkUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
+
+      for (const profile of networkProfiles) {
+        const baseSlug = generateSlug(profile.fullName) || 'network-profile';
+        const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedNetworkSlugs));
+        usedNetworkSlugs.add(canonicalSlug);
+
+        const legacySlugs = normalizeLegacySlugs(profile.legacySlugs, profile.slug, canonicalSlug);
+        const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(profile.legacySlugs ?? []);
+        const hasCanonicalChanged = profile.slug !== canonicalSlug;
+
+        if (hasCanonicalChanged || hasLegacyChanged) {
+          networkUpdates.push({ id: profile.id, slug: canonicalSlug, legacySlugs });
+        }
+      }
+
+      if (networkUpdates.length > 0) {
+        await runInChunks(networkUpdates, 50, (chunk) =>
+          prisma.$transaction(
+            chunk.map((u) =>
+              prisma.networkProfile.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
+            ),
           ),
-        ),
-      );
-      updatedNetworkCount = networkUpdates.length;
+        );
+        updatedNetworkCount = networkUpdates.length;
+      }
     }
 
     if (updatedTeamCount > 0 || updatedNetworkCount > 0) {

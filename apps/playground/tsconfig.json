@@ -20,8 +20,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Path aliases */
-    "baseUrl": ".",
+    /* Path aliases — resolved relative to this tsconfig (no baseUrl, matching
+       apps/web + apps/api; baseUrl is deprecated under TypeScript 6). */
     "paths": {
       "@/*": ["./src/*"]
     }

@@ -38,6 +38,7 @@ import {
   QUIZ_IMPORT_TEMPLATE_FILENAME,
   QUIZ_IMPORT_TEMPLATE_HEADERS,
   createEmptyQuestion,
+  createFeedbackTemplate,
   isUnscoredQuestion,
   usesOptions,
   type QuestionDraft,
@@ -98,6 +99,19 @@ export default function AdminQuizCreator() {
     setQuestions((prev) => [...prev, newQ]);
     setActiveQIndex(questions.length);
   }, [questions.length]);
+
+  // S-13: drop in the 3-question "Session feedback" template. Replaces a pristine
+  // single empty question; otherwise appends so existing work is preserved.
+  const applyFeedbackTemplate = useCallback(() => {
+    const template = createFeedbackTemplate();
+    setQuestions((prev) => {
+      const pristine =
+        prev.length === 1 && !prev[0].questionText.trim() && prev[0].questionType === 'MCQ';
+      const next = pristine ? template : [...prev, ...template];
+      setActiveQIndex(pristine ? 0 : prev.length);
+      return next;
+    });
+  }, []);
 
   // Remove question
   const removeQuestion = useCallback(
@@ -499,6 +513,15 @@ export default function AdminQuizCreator() {
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Add
+                  </button>
+                  {/* S-13: one-tap session-feedback template (rate · one word · what next) */}
+                  <button
+                    onClick={applyFeedbackTemplate}
+                    title="Add a 3-question session feedback set (rating, one word, what next)"
+                    className="w-full px-3 py-2 rounded-lg text-[var(--ds-text-2)] text-[12.5px] font-medium flex items-center justify-center gap-1.5 hover:bg-[var(--accent-subtle)] hover:text-[var(--accent)] transition-colors duration-200"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Feedback template
                   </button>
                 </div>
 

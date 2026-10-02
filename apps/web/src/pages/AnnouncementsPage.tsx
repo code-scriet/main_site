@@ -32,6 +32,7 @@ export default function AnnouncementsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const priorityParam = searchParams.get('priority');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [totalAnnouncements, setTotalAnnouncements] = useState<number | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,10 +46,11 @@ export default function AnnouncementsPage() {
     const loadAnnouncements = async () => {
       try {
         const [announcementData, pollData] = await Promise.all([
-          api.getAnnouncements(),
+          api.getAnnouncementsWithTotal({ limit: 100 }),
           api.getPolls({ limit: 6 }),
         ]);
-        setAnnouncements(announcementData);
+        setAnnouncements(announcementData.announcements);
+        setTotalAnnouncements(announcementData.total);
         setPolls(pollData);
         setError(null);
       } catch (err) {
@@ -213,7 +215,13 @@ export default function AnnouncementsPage() {
 
           {/* Announcements Grid */}
           {!loading && !error && filteredAnnouncements.length > 0 && (
-            <motion.div
+          <div className="max-w-7xl mx-auto">
+            <p className="text-sm text-gray-500 tabular-nums mb-4">
+              {totalAnnouncements != null ? `${totalAnnouncements} total` : `${filteredAnnouncements.length} shown`}
+              {totalAnnouncements != null && announcements.length < totalAnnouncements
+                ? ` · showing ${announcements.length}` : ''}
+            </p>
+          <motion.div
               variants={containerVariants}
               initial="hidden"
               animate="visible"
@@ -329,6 +337,7 @@ export default function AnnouncementsPage() {
               );
             })}
           </motion.div>
+          </div>
           )}
         </div>
       </section>

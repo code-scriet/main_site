@@ -1,0 +1,237 @@
+@import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+.coc-page {
+  --brown: #4a1410;
+  --orange: #d2762a;
+  --gold: #f2b23e;
+  --paper: #fdf3da;
+  --line: #e8cf9b;
+  --ink: #3a1a14;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.65 "IBM Plex Sans", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.coc-page h1,
+.coc-page h2,
+.coc-page h3 {
+  font-family: "Zilla Slab", Georgia, serif !important;
+  color: var(--brown) !important;
+  line-height: 1.15;
+}
+
+.coc-page a {
+  color: var(--orange);
+  transition: color 0.15s ease;
+}
+
+.coc-page a:focus-visible {
+  outline: 3px solid var(--brown);
+  outline-offset: 2px;
+}
+
+.coc-hero {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 2rem;
+}
+
+.coc-hero img {
+  width: 170px;
+  height: 170px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  flex: none;
+}
+
+.coc-hero h1 {
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  margin: 0 0 .5rem;
+}
+
+.coc-hero p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--ink);
+}
+
+.coc-wrap {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 3rem;
+}
+
+.coc-nav {
+  position: sticky;
+  top: calc(var(--site-header-height, 80px) + 1.5rem);
+  align-self: start;
+  font-size: .95rem;
+}
+
+.coc-nav a {
+  display: block;
+  padding: .3rem 0 .3rem .8rem;
+  border-left: 3px solid var(--line);
+  color: var(--brown);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.coc-nav a:hover,
+.coc-nav a:focus-visible {
+  border-color: var(--orange);
+  background: rgba(242, 178, 62, .25);
+}
+
+.coc-main {
+  counter-reset: art;
+}
+
+.coc-section {
+  scroll-margin-top: calc(var(--site-header-height, 80px) + 1.5rem);
+  margin-bottom: 2.5rem;
+}
+
+.coc-section h2 {
+  font-size: 2rem;
+  margin: 0 0 1rem;
+  padding-bottom: .4rem;
+  border-bottom: 4px solid var(--gold);
+}
+
+.coc-article {
+  counter-increment: art;
+  counter-reset: cl;
+  background: #fff9ea;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--orange);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+}
+
+.coc-article h3 {
+  font-size: 1.3rem;
+  margin: 0 0 .5rem;
+}
+
+.coc-article h3::before {
+  content: "{ " counter(art) " } ";
+  color: var(--orange);
+}
+
+.coc-article ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.coc-article li {
+  counter-increment: cl;
+  padding-left: 2.6rem;
+  position: relative;
+  margin: .45rem 0;
+}
+
+.coc-article li::before {
+  content: counter(art) "." counter(cl);
+  position: absolute;
+  left: 0;
+  font-weight: 600;
+  color: var(--orange);
+}
+
+.coc-chain {
+  list-style: none;
+  margin: 1rem 0 1.5rem;
+  padding: 0;
+  border-left: 4px solid var(--brown);
+}
+
+.coc-chain li {
+  margin: 0 0 .6rem -4px;
+  padding: .4rem 1rem;
+  border-left: 4px solid var(--orange);
+  background: var(--gold);
+  color: var(--brown);
+  border-radius: 0 4px 4px 0;
+  counter-increment: none;
+}
+
+.coc-chain li:nth-child(n+2) { background: #f6c968; }
+.coc-chain li:nth-child(n+3) { background: #f9d98f; }
+.coc-chain li:nth-child(n+4) { background: #fbe5b0; }
+.coc-chain li:nth-child(n+5) { background: #fdefce; }
+
+.coc-chain li::before {
+  content: none;
+}
+
+.coc-chain b {
+  font-family: "Zilla Slab", serif;
+  font-size: 1.1rem;
+}
+
+.coc-note {
+  font-size: .95rem;
+  border: 1px dashed var(--orange);
+  padding: .7rem 1rem;
+  border-radius: 4px;
+  background: rgba(242, 178, 62, 0.12);
+}
+
+.coc-founder-banner {
+  background: var(--brown);
+  color: var(--paper);
+  padding: 2rem 1.25rem;
+  text-align: center;
+  font-size: .95rem;
+  border-radius: 6px;
+  margin-top: 3rem;
+}
+
+.coc-founder-title {
+  margin: 0 0 .6rem;
+  font-family: 'Zilla Slab', Georgia, serif;
+  font-size: 1.18rem;
+  color: var(--gold);
+}
+
+.coc-founder-banner a {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.coc-founder-banner a:hover {
+  color: #fff;
+}
+
+@media(max-width: 800px) {
+  .coc-wrap {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .coc-nav {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem;
+  }
+  .coc-nav a {
+    border: 1px solid var(--line);
+    padding: .3rem .7rem;
+    border-radius: 99px;
+  }
+  .coc-hero {
+    flex-direction: column;
+    text-align: center;
+  }
+}

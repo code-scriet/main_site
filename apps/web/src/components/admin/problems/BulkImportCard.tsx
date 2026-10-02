@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { DSCard, Pill } from '@/components/dash';
 import { api, type ProblemInput, type ProblemLanguage, type ProblemTestCase } from '@/lib/api';
 
-const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
+const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'C', 'JAVA'];
 
 type BulkRowResult =
   | { input: ProblemInput; warnings: string[]; row?: number }

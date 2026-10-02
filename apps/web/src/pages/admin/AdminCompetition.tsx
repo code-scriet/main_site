@@ -2,7 +2,8 @@
 // Design source: code-scriet-innerdashboard/project/js/screen-admin.jsx
 //   - AdminCompetitionScreen (lines 371-431) — header, round-card grid, global lifecycle stepper.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type Event, type EventTeam, type Problem } from '@/lib/api';
@@ -24,7 +25,9 @@ import {
 import { RoundActionDialog } from '@/components/admin/competition/RoundActionDialog';
 import { NumericPromptDialog } from '@/components/dash';
 import {
+  Activity,
   AlertCircle,
+  Award,
   Calendar,
   Check,
   CheckCircle2,
@@ -57,6 +60,17 @@ type FormState = {
   targetImageUrl: string;
   roundType: 'IMAGE_TARGET' | 'DSA';
   problems: Array<{ problemId: string; displayOrder: number; points: number }>;
+  // Contest config (redesign). finalWeight = this round's raw weight in the event-final;
+  // penaltyModel / proctored / freeze drive ranking + the live arena.
+  finalWeight: number;
+  proctored: boolean;
+  penaltyModel: 'BEST_SCORE' | 'ICPC';
+  teamAggregation: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
+  leaderboardFreezeMinutes: number;
+  // Editable presets that seed a newly-added problem's weight from its difficulty. Persisted
+  // on the round so the admin's tuning survives a reload (raw per-problem weight still lives
+  // on each problem's `points`; these only seed the input).
+  difficultyWeights: { EASY: number; MEDIUM: number; HARD: number };
 };
 
 const DEFAULT_FORM: FormState = {
@@ -70,7 +84,23 @@ const DEFAULT_FORM: FormState = {
   targetImageUrl: '',
   roundType: 'IMAGE_TARGET',
   problems: [],
+  finalWeight: 1,
+  proctored: false,
+  penaltyModel: 'BEST_SCORE',
+  teamAggregation: 'BEST_PER_PROBLEM',
+  leaderboardFreezeMinutes: 0,
+  difficultyWeights: { EASY: 100, MEDIUM: 200, HARD: 300 },
 };
+
+// Default difficulty → weight presets (the fallback when a round has none stored).
+const DEFAULT_DIFFICULTY_WEIGHTS = { EASY: 100, MEDIUM: 200, HARD: 300 } as const;
+// Seed a newly-added problem's weight from its difficulty using the round's editable
+// presets (the admin can still override the resulting per-problem weight).
+function seedWeightFromDifficulty(difficulty: string | undefined, weights: FormState['difficultyWeights']): number {
+  const key = (difficulty || '').toUpperCase();
+  if (key === 'EASY' || key === 'MEDIUM' || key === 'HARD') return weights[key] || 100;
+  return weights.MEDIUM || 100;
+}
 
 // Map each round status to a dashboard v2 Pill tone (matches design line 387).
 const statusPill: Record<CompetitionRound['status'], { tone: PillTone; label: string; dot: boolean }> = {
@@ -152,6 +182,8 @@ export default function AdminCompetition() {
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
   // NumericPromptDialog replaces the window.prompt for "raise submit cap" on a round.
   const [capTarget, setCapTarget] = useState<CompetitionRound | null>(null);
+  const [extendTarget, setExtendTarget] = useState<CompetitionRound | null>(null);
+  const [finalEvent, setFinalEvent] = useState<Event | null>(null);
   const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
   const [roundActionDialog, setRoundActionDialog] = useState<{
     action: 'start' | 'lock' | 'delete';
@@ -223,16 +255,51 @@ export default function AdminCompetition() {
     void load();
   }, [load]);
 
+  // Live-round poll: refresh ONLY the rounds of events that currently have an ACTIVE
+  // round — not the full load() (events list + problem catalog + every event's
+  // rounds/teams). Keeps the 10s tick cheap while a round is running.
+  //
+  // `refreshActiveRounds` reads the latest rounds from a ref (not a closure dep) so it
+  // stays referentially stable — otherwise it would be re-created on every poll (each
+  // poll calls setRoundsByEvent), tearing down and recreating the interval each tick.
+  const roundsByEventRef = useRef(roundsByEvent);
   useEffect(() => {
-    const activePresent = Object.values(roundsByEvent).some((list) =>
+    roundsByEventRef.current = roundsByEvent;
+  }, [roundsByEvent]);
+
+  const refreshActiveRounds = useCallback(async () => {
+    if (!token) return;
+    const activeEventIds = Object.entries(roundsByEventRef.current)
+      .filter(([, list]) => list.some((round) => round.status === 'ACTIVE'))
+      .map(([eventId]) => eventId);
+    if (activeEventIds.length === 0) return;
+    try {
+      const entries = await Promise.all(activeEventIds.map(async (eventId) => {
+        const response = await api.getCompetitionRoundsAdmin(eventId, token);
+        return [eventId, response.rounds] as const;
+      }));
+      setRoundsByEvent((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    } catch {
+      // transient poll failure — keep the last good rounds; next tick retries.
+    }
+  }, [token]);
+
+  // A boolean gate (not roundsByEvent itself) so the interval is created once when a
+  // round goes active and torn down once it ends — it doesn't re-arm on every poll.
+  const hasActiveRound = useMemo(
+    () => Object.values(roundsByEvent).some((list) =>
       list.some((round) => round.status === 'ACTIVE'),
-    );
-    if (!activePresent) return;
+    ),
+    [roundsByEvent],
+  );
+
+  useEffect(() => {
+    if (!hasActiveRound) return;
     const id = window.setInterval(() => {
-      void load();
+      void refreshActiveRounds();
     }, 10_000);
     return () => window.clearInterval(id);
-  }, [roundsByEvent, load]);
+  }, [hasActiveRound, refreshActiveRounds]);
 
   useEffect(() => {
     if (!success) return;
@@ -272,6 +339,16 @@ export default function AdminCompetition() {
         displayOrder: link.displayOrder ?? index,
         points: link.points ?? 100,
       })).filter((link) => link.problemId),
+      finalWeight: round.finalWeight ?? 1,
+      proctored: round.proctored ?? false,
+      penaltyModel: round.penaltyModel ?? 'BEST_SCORE',
+      teamAggregation: round.teamAggregation ?? 'BEST_PER_PROBLEM',
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes ?? 0,
+      difficultyWeights: {
+        EASY: round.difficultyWeights?.EASY ?? DEFAULT_DIFFICULTY_WEIGHTS.EASY,
+        MEDIUM: round.difficultyWeights?.MEDIUM ?? DEFAULT_DIFFICULTY_WEIGHTS.MEDIUM,
+        HARD: round.difficultyWeights?.HARD ?? DEFAULT_DIFFICULTY_WEIGHTS.HARD,
+      },
     });
     setCreateOpen(true);
   };
@@ -303,6 +380,12 @@ export default function AdminCompetition() {
         problems: form.roundType === 'DSA'
           ? form.problems.map((problem, index) => ({ ...problem, displayOrder: index }))
           : undefined,
+        finalWeight: form.finalWeight,
+        proctored: form.proctored,
+        penaltyModel: form.penaltyModel,
+        teamAggregation: form.teamAggregation,
+        leaderboardFreezeMinutes: form.leaderboardFreezeMinutes > 0 ? form.leaderboardFreezeMinutes : null,
+        difficultyWeights: form.difficultyWeights,
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
@@ -325,6 +408,12 @@ export default function AdminCompetition() {
           allowedTeamIds: payload.allowedTeamIds,
           targetImageUrl: payload.roundType === 'DSA' ? null : payload.targetImageUrl || null,
           problems: payload.problems,
+          finalWeight: payload.finalWeight,
+          proctored: payload.proctored,
+          penaltyModel: payload.penaltyModel,
+          teamAggregation: payload.teamAggregation,
+          leaderboardFreezeMinutes: payload.leaderboardFreezeMinutes,
+          difficultyWeights: payload.difficultyWeights,
         }, token);
         setSuccess('Round updated successfully');
       } else {
@@ -450,6 +539,29 @@ export default function AdminCompetition() {
     }
   };
 
+  const commitExtend = async (addMinutes: number) => {
+    if (!token || !extendTarget) return;
+    try {
+      await api.extendCompetitionRound(extendTarget.id, Math.max(1, Math.round(addMinutes)), token);
+      setSuccess(`Extended by ${Math.round(addMinutes)} min`);
+      setExtendTarget(null);
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to extend round'));
+    }
+  };
+
+  const rejudgeRound = async (round: CompetitionRound) => {
+    if (!token) return;
+    try {
+      await api.rejudgeCompetitionRound(round.id, token);
+      setSuccess('Rejudge queued for all problems');
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to rejudge round'));
+    }
+  };
+
   if (loading) {
     return (
       <div data-dashboard data-accent={accent} className="flex items-center justify-center py-20">
@@ -551,10 +663,18 @@ export default function AdminCompetition() {
                       <span className="ml-2 font-mono tabular-nums">{rounds.length} round{rounds.length === 1 ? '' : 's'}</span>
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => openCreate(event.id)} className="gap-1.5 shrink-0">
-                    <Plus className="h-3.5 w-3.5" />
-                    Add round
-                  </Button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {rounds.some((r) => r.status === 'FINISHED') && (
+                      <Button size="sm" variant="ghost" onClick={() => setFinalEvent(event)} className="gap-1.5">
+                        <Trophy className="h-3.5 w-3.5" />
+                        Final standings
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => openCreate(event.id)} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      Add round
+                    </Button>
+                  </div>
                 </div>
 
                 {rounds.length === 0 ? (
@@ -670,16 +790,27 @@ export default function AdminCompetition() {
                             )}
                             {round.status === 'ACTIVE' && (
                               <>
-                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
-                                  <Eye className="h-3.5 w-3.5" /> View submissions
+                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <Eye className="h-3.5 w-3.5" /> Submissions
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'lock', round })} className="gap-1.5">
                                   <Square className="h-3.5 w-3.5" /> Lock
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setExtendTarget(round)} className="gap-1.5">
+                                  <Clock className="h-3.5 w-3.5" /> Extend
+                                </Button>
                                 {round.roundType === 'DSA' && (
-                                  <Button size="sm" variant="ghost" onClick={() => void raiseCap(round)} className="gap-1.5">
-                                    Raise cap
-                                  </Button>
+                                  <>
+                                    <Button size="sm" variant="ghost" onClick={() => void raiseCap(round)} className="gap-1.5">
+                                      Raise cap
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => void rejudgeRound(round)} className="gap-1.5">
+                                      <RefreshCw className="h-3.5 w-3.5" /> Rejudge
+                                    </Button>
+                                  </>
                                 )}
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -694,6 +825,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
                                   <Eye className="h-3.5 w-3.5" /> View
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -707,6 +841,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" onClick={() => void onFinishRound(round.id)} className="gap-1.5">
                                   <CheckCircle2 className="h-3.5 w-3.5" /> Publish
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -717,8 +854,17 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="secondary" onClick={() => viewResults(round.id)} className="gap-1.5">
                                   <Eye className="h-3.5 w-3.5" /> Results
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <FileText className="h-3.5 w-3.5" /> Submissions
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => void exportResults(round)} className="gap-1.5">
                                   <Download className="h-3.5 w-3.5" /> Export
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/events/${event.id}/attendance?tab=certificates&competition=${round.id}`)} className="gap-1.5">
+                                  <Award className="h-3.5 w-3.5" /> Certificates
                                 </Button>
                                 {round.roundType === 'DSA' && (
                                   <Button size="sm" variant="ghost" onClick={() => void publishAsPractice(round)} className="gap-1.5">
@@ -769,7 +915,7 @@ export default function AdminCompetition() {
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => (!open ? closeDialog() : setCreateOpen(open))}>
-        <DialogContent data-dashboard data-accent={accent}>
+        <DialogContent data-dashboard data-accent={accent} className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
               <DialogDescription>
@@ -949,6 +1095,83 @@ export default function AdminCompetition() {
               />
             </div>
 
+            {/* Contest settings — ranking model, event-final weight, proctoring, freeze */}
+            <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--ds-text-3)]">Contest settings</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="competition-penalty" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Ranking model</label>
+                  <select
+                    id="competition-penalty"
+                    value={form.penaltyModel}
+                    onChange={(e) => setForm((prev) => ({ ...prev, penaltyModel: e.target.value as 'BEST_SCORE' | 'ICPC' }))}
+                    className="h-10 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
+                  >
+                    <option value="BEST_SCORE">Best score (ties: earliest)</option>
+                    <option value="ICPC">ICPC (ties: penalty)</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="competition-final-weight" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Event-final weight</label>
+                  <Input
+                    id="competition-final-weight"
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step={0.1}
+                    value={form.finalWeight}
+                    onChange={(e) => setForm((prev) => ({ ...prev, finalWeight: Number(e.target.value || 0) }))}
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Relative weight of this round in the event final (normalized across rounds).</p>
+                </div>
+                <div>
+                  <label htmlFor="competition-freeze" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Leaderboard freeze (min)</label>
+                  <Input
+                    id="competition-freeze"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    value={form.leaderboardFreezeMinutes}
+                    onChange={(e) => setForm((prev) => ({ ...prev, leaderboardFreezeMinutes: Number(e.target.value || 0) }))}
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Freeze the public board in the final N minutes (0 = never).</p>
+                </div>
+                <div className="flex flex-col gap-1 self-end pb-1">
+                  <label htmlFor="competition-proctored" className="flex items-center gap-2 text-sm font-medium text-[var(--ds-text-2)]">
+                    <input
+                      id="competition-proctored"
+                      type="checkbox"
+                      checked={form.proctored}
+                      onChange={(e) => setForm((prev) => ({ ...prev, proctored: e.target.checked }))}
+                      className="h-4 w-4 rounded border-[var(--accent-ring)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                    />
+                    Proctored (lockdown)
+                  </label>
+                  {form.proctored && (
+                    <p className="text-[11px] text-[var(--ds-text-3)]">
+                      Tab-away locks after a 10s warning. Paste &amp; leaving fullscreen warn first and lock on the 3rd — each lock needs a manual admin unlock from the Monitor, so staff one for large rounds.
+                    </p>
+                  )}
+                </div>
+                {selectedFormEvent?.teamRegistration && form.roundType === 'DSA' && (
+                  <div className="sm:col-span-2">
+                    <label htmlFor="competition-team-agg" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Team score (how members fold)</label>
+                    <select
+                      id="competition-team-agg"
+                      value={form.teamAggregation}
+                      onChange={(e) => setForm((prev) => ({ ...prev, teamAggregation: e.target.value as FormState['teamAggregation'] }))}
+                      className="h-10 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
+                    >
+                      <option value="BEST_PER_PROBLEM">Best per problem (best member on each problem)</option>
+                      <option value="AVERAGE">Average of members' round scores</option>
+                      <option value="BEST_MEMBER">Best single member</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Only applies to team events on DSA rounds.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {form.roundType === 'IMAGE_TARGET' ? (
               <div>
                 <label htmlFor="competition-target-image" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Reference image URL (optional)</label>
@@ -962,16 +1185,39 @@ export default function AdminCompetition() {
               </div>
             ) : (
               <div>
-                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems</p>
+                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems &amp; weights</p>
+                <p className="mb-1 text-[11px] text-[var(--ds-text-3)]">A new problem&apos;s weight seeds from these difficulty presets — edit freely. Each problem&apos;s share is normalized within the round; its weight is split across the problem&apos;s private tests only.</p>
+                {/* Editable difficulty → seed-weight presets (persisted on the round). */}
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ds-text-3)]">Seed by difficulty</span>
+                  {(['EASY', 'MEDIUM', 'HARD'] as const).map((level) => (
+                    <label key={level} className="flex items-center gap-1.5 text-[11px] text-[var(--ds-text-2)]">
+                      <span className="capitalize">{level.toLowerCase()}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        aria-label={`${level.toLowerCase()} seed weight`}
+                        value={form.difficultyWeights[level]}
+                        onChange={(e) => setForm((prev) => ({
+                          ...prev,
+                          difficultyWeights: { ...prev.difficultyWeights, [level]: Number(e.target.value || 0) },
+                        }))}
+                        className="h-8 w-16"
+                      />
+                    </label>
+                  ))}
+                </div>
                 <div className="space-y-2 rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)]/40 p-3">
                   <select
                     value=""
                     onChange={(event) => {
                       const problemId = event.target.value;
                       if (!problemId || form.problems.some((item) => item.problemId === problemId)) return;
+                      const added = problemCatalog.find((item) => item.id === problemId);
                       setForm((prev) => ({
                         ...prev,
-                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: 100 }],
+                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: seedWeightFromDifficulty(added?.difficulty, prev.difficultyWeights) }],
                       }));
                     }}
                     className="h-10 w-full rounded-lg border border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
@@ -981,32 +1227,41 @@ export default function AdminCompetition() {
                       <option key={problem.id} value={problem.id}>{problem.title} ({problem.difficulty})</option>
                     ))}
                   </select>
-                  {form.problems.map((link, index) => {
-                    const problem = problemCatalog.find((item) => item.id === link.problemId);
-                    return (
-                      <div key={link.problemId} className="grid grid-cols-[1fr,96px,36px] items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
-                        <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">{problem?.title ?? link.problemId}</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={1000}
-                          value={link.points}
-                          onChange={(event) => setForm((prev) => ({
-                            ...prev,
-                            problems: prev.problems.map((item, itemIndex) => itemIndex === index ? { ...item, points: Number(event.target.value) } : item),
-                          }))}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
-                          className="rounded p-2 text-[var(--danger)] hover:bg-[var(--danger-bg)]"
-                          title="Remove problem"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {(() => {
+                    const totalWeight = form.problems.reduce((sum, item) => sum + (item.points || 0), 0) || 1;
+                    return form.problems.map((link, index) => {
+                      const problem = problemCatalog.find((item) => item.id === link.problemId);
+                      const sharePct = Math.round(((link.points || 0) / totalWeight) * 1000) / 10;
+                      return (
+                        <div key={link.problemId} className="grid grid-cols-[1fr,96px,52px,36px] items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">
+                            {problem?.title ?? link.problemId}
+                            {problem?.difficulty && <span className="ml-1.5 text-[11px] text-[var(--ds-text-3)]">{problem.difficulty}</span>}
+                          </span>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={link.points}
+                            aria-label="Weight"
+                            onChange={(event) => setForm((prev) => ({
+                              ...prev,
+                              problems: prev.problems.map((item, itemIndex) => itemIndex === index ? { ...item, points: Number(event.target.value) } : item),
+                            }))}
+                          />
+                          <span className="text-right font-mono tabular-nums text-[12px] text-[var(--ds-text-3)]">{sharePct}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
+                            className="rounded p-2 text-[var(--danger)] hover:bg-[var(--danger-bg)]"
+                            title="Remove problem"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
@@ -1023,6 +1278,10 @@ export default function AdminCompetition() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {finalEvent && token && (
+        <FinalStandingsDialog event={finalEvent} token={token} onClose={() => setFinalEvent(null)} />
+      )}
 
       <RoundActionDialog
         action={roundActionDialog}
@@ -1052,6 +1311,158 @@ export default function AdminCompetition() {
         confirmLabel="Raise cap"
         onCommit={(value) => void commitRaiseCap(Math.max(1, Math.round(value)))}
       />
+
+      <NumericPromptDialog
+        open={Boolean(extendTarget)}
+        onOpenChange={(o) => !o && setExtendTarget(null)}
+        title="Extend round time"
+        description={extendTarget ? `Round: ${extendTarget.title}` : undefined}
+        label="Add minutes"
+        defaultValue={10}
+        min={1}
+        max={600}
+        confirmLabel="Extend"
+        onCommit={(value) => void commitExtend(value)}
+      />
     </div>
+  );
+}
+
+// Event-final standings (Phase F): combined weighted standings across an event's FINISHED
+// rounds, with publish toggle + CSV export. Admin-only.
+function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: string; onClose: () => void }) {
+  const { settings } = useSettings();
+  const accent = settings?.accentColor || 'rust';
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const finalQuery = useQuery({
+    queryKey: ['event-final', event.id],
+    queryFn: () => api.getEventFinal(event.id, token),
+  });
+  const data = finalQuery.data;
+  const [busy, setBusy] = useState(false);
+  const podium = (data?.standings ?? []).slice(0, 3);
+  const podiumOrder = podium.length === 3 ? [1, 0, 2] : podium.map((_, i) => i);
+
+  const togglePublish = async () => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      await api.publishEventFinal(event.id, !data.event.publishedAt, token);
+      await queryClient.invalidateQueries({ queryKey: ['event-final', event.id] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportCsv = () => {
+    if (!data) return;
+    const head = ['Rank', data.event.teamRegistration ? 'Team' : 'Participant', 'Final', ...data.rounds.map((r) => r.title)];
+    const rows = data.standings.map((s) => [
+      String(s.rank), s.name, String(s.final),
+      ...data.rounds.map((r) => { const pr = s.perRound.find((p) => p.roundId === r.id); return pr?.score == null ? '' : String(pr.score); }),
+    ]);
+    const csv = [head, ...rows].map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${event.title.replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60)}-final.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent data-dashboard data-accent={accent} className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Final standings — {event.title}</DialogTitle>
+          <DialogDescription>
+            Combined across finished rounds by each round&apos;s normalized weight (capped 0–100).
+          </DialogDescription>
+        </DialogHeader>
+        {finalQuery.isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-[var(--accent)]" /></div>
+        ) : !data || data.standings.length === 0 ? (
+          <p className="py-8 text-center text-sm text-[var(--ds-text-3)]">No finished rounds with results yet.</p>
+        ) : (
+          <>
+            {/* Podium — top 3 final standings */}
+            {podium.length > 0 && (
+              <div className="flex items-end justify-center gap-2 sm:gap-3 pb-1">
+                {podiumOrder.map((idx) => {
+                  const s = podium[idx];
+                  if (!s) return null;
+                  const place = s.rank;
+                  const h = place === 1 ? 'h-[88px]' : place === 2 ? 'h-[70px]' : 'h-[54px]';
+                  const ring = place === 1 ? 'border-[var(--accent)]' : 'border-[var(--border-default)]';
+                  return (
+                    <div key={s.entrantId} className="flex flex-col items-center flex-1 max-w-[140px]">
+                      <div className={cn('w-full rounded-[10px] border bg-[var(--surface-soft)] p-2 text-center', ring)}>
+                        <div className="inline-flex items-center justify-center gap-1 text-[12px] font-bold">
+                          <Award className={cn('h-3.5 w-3.5', place === 1 ? 'text-[var(--accent)]' : 'text-[var(--ds-text-3)]')} />#{place}
+                        </div>
+                        <p className="mt-1 text-[12px] font-semibold truncate">{s.name}</p>
+                        <p className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">{s.final}</p>
+                      </div>
+                      <div className={cn('w-full rounded-t-[8px] mt-1 border-t-2', h, place === 1 ? 'bg-[var(--accent)]/15 border-[var(--accent)]' : 'bg-[var(--surface-soft)] border-[var(--border-default)]')} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap text-[11.5px] text-[var(--ds-text-3)]">
+              <span>Round weights:</span>
+              {data.rounds.map((r) => (
+                <span key={r.id} className="rounded border border-[var(--border-subtle)] px-1.5 py-0.5">{r.title}: {Math.round(r.weight * 100)}%</span>
+              ))}
+            </div>
+            <div className="max-h-[50vh] overflow-auto mt-2">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-[var(--ds-text-3)] border-b border-[var(--border-subtle)]">
+                    <th className="py-1.5 pr-2 w-10">#</th>
+                    <th className="py-1.5 pr-2">{data.event.teamRegistration ? 'Team' : 'Participant'}</th>
+                    {data.rounds.map((r) => <th key={r.id} className="py-1.5 px-2 text-right">{r.title}</th>)}
+                    <th className="py-1.5 pl-2 text-right">Final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.standings.map((s) => (
+                    <tr key={s.entrantId} className="border-b border-[var(--border-subtle)]">
+                      <td className="py-1.5 pr-2 font-mono font-semibold">{s.rank}</td>
+                      <td className="py-1.5 pr-2 truncate">{s.name}</td>
+                      {data.rounds.map((r) => {
+                        const pr = s.perRound.find((p) => p.roundId === r.id);
+                        return <td key={r.id} className="py-1.5 px-2 text-right font-mono tabular-nums text-[var(--ds-text-2)]">{pr?.score == null ? '–' : pr.score}</td>;
+                      })}
+                      <td className="py-1.5 pl-2 text-right font-mono font-semibold tabular-nums">{s.final}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(`/admin/events/${event.id}/attendance?tab=certificates`)}
+            className="gap-1.5"
+          >
+            <Award className="h-3.5 w-3.5" /> Issue winner certificates
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data || data.standings.length === 0} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" /> CSV
+            </Button>
+            <Button size="sm" onClick={() => void togglePublish()} disabled={busy || !data} className="gap-1.5">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {data?.event.publishedAt ? 'Unpublish' : 'Publish to public'}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

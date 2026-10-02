@@ -17,6 +17,14 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   OPEN_ENDED: 'Open Ended',
 };
 
+// Collision-free local id for draft questions. crypto.randomUUID exists in every
+// browser we target; fall back only if it's somehow unavailable (e.g. insecure ctx).
+function genDraftId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `q-${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
 export const isUnscoredQuestion = (type: QuestionType) =>
   type === 'POLL' || type === 'RATING' || type === 'OPEN_ENDED';
 
@@ -37,7 +45,7 @@ export interface QuestionDraft {
 
 export function createEmptyQuestion(): QuestionDraft {
   return {
-    id: crypto.randomUUID(),
+    id: genDraftId(),
     questionText: '',
     questionType: 'MCQ',
     options: ['', '', '', ''],
@@ -47,6 +55,31 @@ export function createEmptyQuestion(): QuestionDraft {
     points: 100,
     mediaUrl: '',
   };
+}
+
+// S-13 — "Session feedback" starter. The live-quiz engine already runs rating,
+// open-ended and poll questions; this pre-fills the three-question feedback set
+// (rate it · one word · what next) so hosts can collect feedback at peak energy
+// in the last five minutes of a session. All three are unscored question types.
+export function createFeedbackTemplate(): QuestionDraft[] {
+  const base = (): Omit<QuestionDraft, 'questionType' | 'questionText' | 'options'> => ({
+    id: genDraftId(),
+    correctAnswer: '',
+    correctAnswers: [],
+    timeLimitSeconds: 30,
+    points: 0,
+    mediaUrl: '',
+  });
+  return [
+    { ...base(), questionType: 'RATING', questionText: 'How would you rate this session overall?', options: [] },
+    { ...base(), questionType: 'OPEN_ENDED', questionText: 'In one word, how did this session feel?', options: [] },
+    {
+      ...base(),
+      questionType: 'POLL',
+      questionText: 'What would you like more of next time?',
+      options: ['More hands-on labs', 'Deeper theory deep-dives', 'Guest / industry talks', 'More contests & challenges'],
+    },
+  ];
 }
 
 export const STEP_LABELS = ['Details', 'Questions', 'Review'];

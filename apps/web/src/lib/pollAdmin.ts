@@ -20,6 +20,7 @@ export const EMPTY_POLL_FORM: PollInput = {
   isAnonymous: false,
   deadline: '',
   isPublished: true,
+  eventId: '',
 };
 
 type PollResponse = AdminPollDetail['responses'][number];

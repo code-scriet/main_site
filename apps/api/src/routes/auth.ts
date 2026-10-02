@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import passport from 'passport';
-import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
+import bcrypt from 'bcrypt';
+import { randomBytes, randomUUID } from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -10,10 +11,13 @@ import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
+import { consumeOAuthExchangeJti, signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { oauthStateMatches } from '../utils/oauthEmail.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+import { getClientIp } from '../utils/clientIp.js';
+import { isSuperAdmin } from '../utils/superAdmin.js';
 
 export const authRouter = Router();
 
@@ -24,6 +28,11 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEV_AUTH === 'tr
 }
 
 const getFrontendUrl = (): string => process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// Cost-12 bcrypt hash of a random throwaway string. Login miss paths (unknown
+// email, soft-deleted, OAuth-only account) compare against this so a 401 costs
+// the same wall-clock time whether or not the account exists.
+const DUMMY_PASSWORD_HASH = '$2b$12$iHHVW2s3Wq.bFReQ.00Cf.z0oXIikCUJcwgvA1Lgkw6o6hcuqU8NS';
 
 const buildAuthCallbackUrl = (code: string): string => {
   const callbackUrl = new URL('/auth/callback', getFrontendUrl());
@@ -51,17 +60,14 @@ const generateToken = (
     tokenVersion: typeof user.tokenVersion === 'number' ? user.tokenVersion : 0,
   });
 
-/** Extract requester's IP for login telemetry. Truncated to v4 prefix or v6 first-block to limit retained PII. */
+/** Extract requester's IP for login telemetry. Truncated to limit retained PII. */
 const getRequestIp = (req: Request): string | null => {
-  // L2: prefer Express's req.ip. With `trust proxy` set, Express resolves the
-  // real client IP from the proxy chain; the raw X-Forwarded-For header is
-  // fully client-controlled and only a dev/non-proxied fallback here.
-  const fwd = req.headers['x-forwarded-for'];
-  const raw = req.ip || (Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()) || req.socket?.remoteAddress || null;
-  if (!raw) return null;
-  // Strip IPv6 zone identifier and ::ffff: prefix
-  const cleaned = String(raw).replace(/^::ffff:/, '').split('%')[0];
-  return cleaned.slice(0, 64); // hard cap for safety
+  // S2: shared resolution with the rate limiters and socket layer —
+  // CF-Connecting-IP when the peer is a Cloudflare range, else Express's
+  // trust-proxy resolution (never the client-controlled first XFF entry).
+  const resolved = getClientIp(req);
+  if (!resolved || resolved === 'unknown') return null;
+  return resolved.slice(0, 64); // hard cap for safety
 };
 
 /** Fire-and-forget login telemetry write. Never blocks the response. */
@@ -152,7 +158,7 @@ const normalizeNetworkType = (value: string | undefined): 'professional' | 'alum
 
 const withSuperAdmin = <T extends { email: string }>(user: T) => ({
   ...user,
-  isSuperAdmin: !!process.env.SUPER_ADMIN_EMAIL && user.email === process.env.SUPER_ADMIN_EMAIL,
+  isSuperAdmin: isSuperAdmin(user),
 });
 
 const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(user: T): Promise<T> => {
@@ -173,6 +179,7 @@ const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(u
     where: { id: user.id },
     data: { role: 'USER' },
   });
+  invalidateCachedAuthUser(user.id);
 
   logger.warn('Demoted NETWORK user without profile to USER', { userId: user.id });
   return { ...user, role: 'USER' };
@@ -206,6 +213,7 @@ const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many registration attempts, please try again later.' },
 });
 
@@ -215,6 +223,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many login attempts, please try again later.' },
 });
 
@@ -232,6 +241,15 @@ authRouter.post('/register', registerLimiter, async (req: Request, res: Response
     const validation = registerSchema.safeParse(req.body);
     if (!validation.success) {
       return res.status(400).json({ error: validation.error.errors[0].message });
+    }
+
+    // L1: the admin's registrationOpen toggle must hold server-side — until
+    // now only SignInPage hid the form while direct POSTs sailed through.
+    const settings = await getCachedSettings();
+    if (settings?.registrationOpen === false) {
+      return res.status(403).json({
+        error: 'Registration is currently closed. New account creation is disabled right now — use an existing account or check back later.',
+      });
     }
 
     const { name, email, password } = validation.data;
@@ -293,15 +311,18 @@ authRouter.post('/login', loginLimiter, async (req: Request, res: Response) => {
     });
 
     if (!fetchedUser) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (fetchedUser.isDeleted) {
       // Same error message as bad-password to avoid account enumeration.
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     if (!fetchedUser.password) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -397,6 +418,7 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
           where: { id: user.id },
           data: { role: 'NETWORK' },
         });
+        invalidateCachedAuthUser(user.id);
         user.role = 'NETWORK';
       }
 
@@ -512,14 +534,33 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
   }
 });
 
+// Re-issue a token from /me only once the presented one is in the back half of
+// its 7-day life. Minting on every call made sessions slide forever — a stolen
+// token could self-renew indefinitely as long as it was used once a week.
+const TOKEN_REISSUE_THRESHOLD_MS = 3.5 * 24 * 60 * 60 * 1000;
+
 authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
     return res.json({ success: true, data: null });
   }
-  // Include a fresh token so cross-origin callers (e.g. the playground) can
+  // Always include a token so cross-origin callers (e.g. the playground) can
   // obtain a JWT even when they authenticated via httpOnly cookie alone.
-  const token = generateToken(authUser);
+  // While the presented token is still fresh, echo it back unchanged; only
+  // mint a replacement in its back half (authMiddleware already verified it).
+  const presented = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.substring(7)
+    : getCookie(req, 'scriet_session');
+  let token: string | undefined;
+  if (presented) {
+    const decoded = jwt.decode(presented) as { exp?: number } | null;
+    if (decoded?.exp && decoded.exp * 1000 - Date.now() > TOKEN_REISSUE_THRESHOLD_MS) {
+      token = presented;
+    }
+  }
+  if (!token) {
+    token = generateToken(authUser);
+  }
   res.json({ success: true, data: withSuperAdmin(authUser), token });
 });
 
@@ -534,6 +575,12 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
     payload = verifyOAuthExchangeCode(parsed.data.code);
   } catch {
     return res.status(400).json({ error: 'Authorization code expired or invalid' });
+  }
+
+  // Single-use (audit S1/S4): the code travels in a URL, so a leaked copy
+  // (history, referrer) must be worthless once the legitimate exchange ran.
+  if (!consumeOAuthExchangeJti(payload.jti)) {
+    return res.status(400).json({ error: 'Authorization code already used' });
   }
 
   try {
@@ -628,6 +675,7 @@ const resetPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many reset attempts, please try again later.' },
 });
 
@@ -641,9 +689,88 @@ const resetPasswordEmailLimiter = rateLimit({
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || req.ip || 'unknown';
+    return email || getClientIp(req);
   },
   message: { error: 'Too many reset attempts, please try again later.' },
+});
+
+// ─── Self-service "forgot password" initiator ───
+// Companion to the consumer below. Mirrors the admin-initiated flow in
+// /api/users/:id/password-reset (same hashed-token storage, same 30-min TTL,
+// same email template) but is requestable by anyone. The response is always
+// the same neutral 200 so account existence is never confirmed or denied.
+const SELF_RESET_TTL_MIN = 30;
+
+const requestPasswordResetSchema = z.object({
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
+});
+
+const requestResetIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+  message: { error: 'Too many reset requests, please try again later.' },
+});
+
+// Per-email cap so a botnet can't bombard one inbox from many IPs.
+const requestResetEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return email || getClientIp(req);
+  },
+  message: { error: 'Too many reset requests, please try again later.' },
+});
+
+authRouter.post('/request-password-reset', requestResetIpLimiter, requestResetEmailLimiter, async (req: Request, res: Response) => {
+  const parsed = requestPasswordResetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Please enter a valid email address' });
+  }
+  const { email } = parsed.data;
+  const neutralResponse = () => res.json({
+    success: true,
+    message: 'If an account exists for that email, a reset link is on its way.',
+  });
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, email: true, name: true, isDeleted: true },
+    });
+    if (!user || user.isDeleted) {
+      return neutralResponse();
+    }
+
+    const rawToken = randomBytes(32).toString('hex');
+    const hashed = hashPasswordResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + SELF_RESET_TTL_MIN * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetToken: hashed, passwordResetExpiresAt: expiresAt },
+    });
+
+    const url = `${getFrontendUrl()}/reset-password?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(user.email)}`;
+    emailService.sendPasswordReset(user.email, user.name, url, SELF_RESET_TTL_MIN).catch((err) => {
+      logger.warn('Failed to send self-service password-reset email', {
+        userId: user.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    void auditLog(user.id, 'PASSWORD_RESET_REQUESTED', 'user', user.id, { selfService: true, ttlMinutes: SELF_RESET_TTL_MIN });
+    return neutralResponse();
+  } catch (error) {
+    logger.error('Password reset request error:', { error: error instanceof Error ? error.message : String(error) });
+    // Still neutral — an internal error must not become an account-existence oracle.
+    return neutralResponse();
+  }
 });
 
 authRouter.post('/reset-password', resetPasswordLimiter, resetPasswordEmailLimiter, async (req: Request, res: Response) => {
@@ -694,6 +821,9 @@ authRouter.post('/reset-password', resetPasswordLimiter, resetPasswordEmailLimit
       // Lost the race to a concurrent consumer.
       return res.status(400).json({ error: 'Reset link is invalid or has expired' });
     }
+    // Drop the cached auth entry so the tokenVersion bump takes effect now,
+    // not after the 30s cache TTL — stolen sessions die with the old password.
+    invalidateCachedAuthUser(user!.id);
     await auditLog(user!.id, 'PASSWORD_RESET_COMPLETED', 'user', user!.id);
     return res.json({ success: true, message: 'Password updated. Please sign in with your new password.' });
   } catch (error) {

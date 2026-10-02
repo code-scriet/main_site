@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { toast } from 'sonner';
 import { api, UnauthorizedError } from '@/lib/api';
 import type { User } from '@/lib/api';
 import { AUTH_TOKEN_STORAGE_KEY, clearStoredAuthToken, getStoredAuthToken, storeAuthToken } from '@/lib/authToken';
@@ -29,6 +30,10 @@ interface AuthActions {
   logout: () => void;
   clearError: () => void;
   refreshUser: () => Promise<void>;
+  /** Replace the stored session token without the full login() loading cycle.
+   *  Used when the API rotates the session (e.g. password change bumps
+   *  tokenVersion and returns a fresh token). */
+  adoptToken: (token: string) => void;
 }
 
 type AuthContextType = AuthState & AuthActions;
@@ -107,6 +112,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return response.user as ExtendedUser | null;
     } catch (err) {
       if (err instanceof UnauthorizedError) {
+        // Only announce expiry when a session actually existed — first-time
+        // anonymous visitors should not see a toast on boot.
+        if (authToken) {
+          toast.error('Your session has expired. Please sign in again.', { id: 'session-expired' });
+        }
         clearStoredAuthToken();
         return null;
       }
@@ -292,8 +302,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // memoized via useCallback with stable deps). Splitting into its own context
   // means action-only consumers never re-render when state changes.
   const actions = useMemo<AuthActions>(
-    () => ({ login, loginWithEmail, register, devLogin, logout, clearError, refreshUser }),
-    [login, loginWithEmail, register, devLogin, logout, clearError, refreshUser],
+    () => ({ login, loginWithEmail, register, devLogin, logout, clearError, refreshUser, adoptToken: persistToken }),
+    [login, loginWithEmail, register, devLogin, logout, clearError, refreshUser, persistToken],
   );
 
   const state = useMemo<AuthState>(

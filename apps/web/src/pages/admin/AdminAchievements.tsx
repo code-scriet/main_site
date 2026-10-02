@@ -25,7 +25,7 @@ interface EditState {
   achievedBy: string;
   date: string;
   imageUrl: string;
-  imageGallery: string; // newline-separated URLs in the textarea
+  imageGallery: string; // newline- or comma-separated URLs in the textarea
   tags: string;
   featured: boolean;
 }
@@ -54,16 +54,37 @@ export default function AdminAchievements() {
 
   const q = useQuery({
     queryKey: ['admin-achievements'],
-    queryFn: () => api.getAchievements({ limit: 200, includeContent: true }),
+    // Fetch-all: walk every server page (max 200/page) so nothing truncates.
+    queryFn: async () => {
+      const mine: Achievement[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 200;
+      while (mine.length < total) {
+        const r = await api.getAchievementsWithTotal({ limit: LIMIT, offset, includeContent: true });
+        mine.push(...r.achievements);
+        total = r.total;
+        if (r.achievements.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { achievements: mine, total };
+    },
   });
 
-  const items = useMemo(() => (q.data ?? []).slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [q.data]);
+  const items = useMemo(() => (q.data?.achievements ?? []).slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [q.data]);
+  const serverTotal = q.data?.total ?? items.length;
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      // Accept newline- AND comma-separated pastes (the upload tool's "Copy all"
+      // hands back comma-joined URLs, and users paste those straight in). Split on
+      // newlines, or on a comma/whitespace run that PRECEDES another http(s) URL —
+      // the lookahead means commas inside a Cloudinary transform URL
+      // (…/upload/c_fill,w_200/…) are never mistaken for a separator. Trailing
+      // commas/space on each entry are stripped.
       const gallery = edit.imageGallery
-        .split(/\r?\n/)
-        .map((u) => u.trim())
+        .split(/\n+|[,\s]+(?=https?:\/\/)/)
+        .map((u) => u.trim().replace(/[,\s]+$/, ''))
         .filter(Boolean);
       const payload: Partial<Achievement> = {
         title: edit.title.trim(),
@@ -73,7 +94,7 @@ export default function AdminAchievements() {
         eventName: edit.eventName.trim() || undefined,
         achievedBy: edit.achievedBy.trim(),
         date: edit.date,
-        imageUrl: edit.imageUrl.trim() || undefined,
+        imageUrl: edit.imageUrl.trim().replace(/[,\s]+$/, '') || undefined,
         imageGallery: gallery.length ? gallery : undefined,
         tags: edit.tags.split(',').map((t) => t.trim()).filter(Boolean),
         featured: edit.featured,
@@ -142,6 +163,10 @@ export default function AdminAchievements() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Achievements</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Curated milestones shown on the public site.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${serverTotal} total`}
+            {items.length ? ` · ${items.length} loaded` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild>
@@ -182,13 +207,6 @@ export default function AdminAchievements() {
                 <div className="absolute top-2 left-2 flex gap-1.5">
                   {a.featured && <Pill tone="warning" size="xs" icon={<Star size={9} />}>Featured</Pill>}
                 </div>
-                <button
-                  className="absolute top-2 right-2 size-7 rounded-[6px] bg-black/30 backdrop-blur opacity-0 group-hover:opacity-100 text-white flex items-center justify-center transition-opacity"
-                  onClick={() => openEdit(a)}
-                  title="Edit"
-                >
-                  <Pencil size={12} />
-                </button>
               </div>
               <div className="p-4">
                 <div className="text-[13.5px] font-semibold leading-snug line-clamp-2">{a.title}</div>
@@ -201,7 +219,10 @@ export default function AdminAchievements() {
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Switch checked={a.featured ?? false} onCheckedChange={(checked) => featureMut.mutate({ id: a.id, featured: checked })} />
-                    <button onClick={() => setDeleting(a)} className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center" title="Delete">
+                    <button onClick={() => openEdit(a)} className="size-7 rounded-[6px] border border-[var(--border-default)] text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)] hover:text-[var(--accent)] hover:border-[var(--accent)] flex items-center justify-center transition-colors" title="Edit">
+                      <Pencil size={12} />
+                    </button>
+                    <button onClick={() => setDeleting(a)} className="size-7 rounded-[6px] border border-[var(--border-default)] text-[var(--ds-text-3)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] hover:border-[var(--danger-border)] flex items-center justify-center transition-colors" title="Delete">
                       <Trash2 size={11} />
                     </button>
                   </div>
@@ -240,7 +261,7 @@ export default function AdminAchievements() {
             <Field label="Achieved by"><Input value={edit.achievedBy} onChange={(e) => setEdit({ ...edit, achievedBy: e.target.value })} placeholder="Names or 'code.scriet'" /></Field>
             <Field label="Date" required><Input type="date" value={edit.date} onChange={(e) => setEdit({ ...edit, date: e.target.value })} /></Field>
             <Field label="Cover image URL"><Input value={edit.imageUrl} onChange={(e) => setEdit({ ...edit, imageUrl: e.target.value })} placeholder="https://…" /></Field>
-            <Field label="Image gallery" hint="One URL per line · up to 30 images" className="sm:col-span-2">
+            <Field label="Image gallery" hint="One per line or comma-separated · up to 30 images" className="sm:col-span-2">
               <textarea
                 value={edit.imageGallery}
                 onChange={(e) => setEdit({ ...edit, imageGallery: e.target.value })}

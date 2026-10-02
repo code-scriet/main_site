@@ -2,7 +2,7 @@
 // Bundled because they share the same shape (CRUD on club content surfaces)
 // and the per-file cost would not pay for the import overhead.
 
-import { request, requestBlob } from './_internal';
+import { request, requestBlob, requestEnvelope } from './_internal';
 import type {
   AdminPollDetail,
   AdminPollListResponse,
@@ -17,12 +17,30 @@ import type {
 
 export const contentApi = {
   // Announcements
-  getAnnouncements: (priority?: string, featured?: boolean) => {
+  getAnnouncements: (priority?: string, featured?: boolean, limit?: number) => {
     const params = new URLSearchParams();
     if (priority) params.set('priority', priority);
     if (featured) params.set('featured', 'true');
+    if (limit) params.set('limit', String(limit));
     const queryString = params.toString();
     return request<Announcement[]>(`/announcements${queryString ? `?${queryString}` : ''}`);
+  },
+  // Same list plus the server total — use for any screen that shows
+  // "{total} total" or needs to know when to fetch more (fetch-all).
+  getAnnouncementsWithTotal: (options?: { priority?: string; featured?: boolean; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.priority) params.set('priority', options.priority);
+    if (options?.featured) params.set('featured', 'true');
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const queryString = params.toString();
+    return (async () => {
+      const res = await requestEnvelope<Announcement[]>(`/announcements${queryString ? `?${queryString}` : ''}`);
+      const list = res.data ?? [];
+      const paging = res.pagination as { total?: unknown } | undefined;
+      const total = typeof paging?.total === 'number' ? paging.total : list.length;
+      return { announcements: list, total };
+    })();
   },
   getAnnouncement: (idOrSlug: string) =>
     request<Announcement>(`/announcements/${idOrSlug}`),
@@ -137,6 +155,24 @@ export const contentApi = {
     if (options?.includeContent) params.append('includeContent', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<Achievement[]>(`/achievements${query}`);
+  },
+  // Same list plus the server total — use for any screen that shows
+  // "{total} total" or needs to know when to fetch more (fetch-all).
+  getAchievementsWithTotal: (options?: { year?: string; featured?: boolean; limit?: number; offset?: number; includeContent?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.year) params.append('year', options.year);
+    if (options?.featured) params.append('featured', 'true');
+    if (options?.limit) params.append('limit', String(options.limit));
+    if (options?.offset) params.append('offset', String(options.offset));
+    if (options?.includeContent) params.append('includeContent', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return (async () => {
+      const res = await requestEnvelope<Achievement[]>(`/achievements${query}`);
+      const list = res.data ?? [];
+      const paging = res.pagination as { total?: unknown } | undefined;
+      const total = typeof paging?.total === 'number' ? paging.total : list.length;
+      return { achievements: list, total };
+    })();
   },
   getFeaturedAchievements: (limit?: number) => {
     const params = limit ? `?limit=${limit}` : '';

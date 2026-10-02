@@ -5,18 +5,20 @@ import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  ArrowLeft, Search, Download, Mail, Trash2, ChevronDown, ChevronRight,
+  ArrowLeft, Search, Download, Mail, MessageSquare, Trash2, ChevronDown, ChevronRight,
   ExternalLink, ScanLine, CalendarDays, MapPin, Users, Award, Loader2,
   Lock, Unlock, XCircle, Filter, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type EventAdminRegistration, type Event as EventT, type EventRegistrationExportFilters, type RegistrationType } from '@/lib/api';
+import { EVENT_AUDIENCE_OPTIONS, type MessageRegistrantsAudience } from '@/lib/api/event-ops';
 import { Avatar, DSCard, EmptyState, Field, Pill, SegmentedTabs, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import AdminEventInvitations from '@/components/events/AdminEventInvitations';
+import EventRegistrantComposer from '@/components/events/EventRegistrantComposer';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -63,11 +65,13 @@ export default function AdminEventRegistrationDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam: 'registrations' | 'invitations' =
-    searchParams.get('tab') === 'invitations' ? 'invitations' : 'registrations';
-  const setTab = (next: 'registrations' | 'invitations') => {
+  const tabParamRaw = searchParams.get('tab');
+  const tabParam: 'registrations' | 'invitations' | 'message' =
+    tabParamRaw === 'invitations' || tabParamRaw === 'message' ? tabParamRaw : 'registrations';
+  const setTab = (next: 'registrations' | 'invitations' | 'message') => {
     const params = new URLSearchParams(searchParams);
     if (next === 'invitations') params.set('tab', 'invitations');
+    else if (next === 'message') params.set('tab', 'message');
     else params.delete('tab');
     setSearchParams(params, { replace: true });
   };
@@ -92,6 +96,14 @@ export default function AdminEventRegistrationDetail() {
   const [deletingEventTarget, setDeletingEventTarget] = useState<{ id: string; title: string } | null>(null);
   // Admin team controls — restored from HEAD
   const [dissolveTarget, setDissolveTarget] = useState<{ id: string; teamName: string } | null>(null);
+  // Post-event feedback poll dialog
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [fbAudience, setFbAudience] = useState<MessageRegistrantsAudience>('attended');
+  const [fbEmail, setFbEmail] = useState(true);
+  const [fbInApp, setFbInApp] = useState(true);
+  const [fbSendNow, setFbSendNow] = useState(true);
+  const [fbEnded, setFbEnded] = useState(false);
+  const [fbLoading, setFbLoading] = useState(false);
 
   const deleteEventMut = useMutation({
     mutationFn: () => api.deleteEvent(eventId!, token!),
@@ -130,6 +142,13 @@ export default function AdminEventRegistrationDetail() {
     queryFn: () => api.getEventRegistrations(eventId!, token!),
     enabled: Boolean(eventId && token),
   });
+  // Server totals — exact even when the table below truncates at the 5000-row
+  // server cap. Falls back to client counts while loading.
+  const statsQ = useQuery({
+    queryKey: ['admin-event-regs-stats', eventId],
+    queryFn: () => api.getEventRegistrationStats(eventId!, token!),
+    enabled: Boolean(eventId && token),
+  });
   const teamsQ = useQuery({
     queryKey: ['admin-event-teams', eventId],
     queryFn: () => api.getEventTeams(eventId!, token!),
@@ -137,7 +156,9 @@ export default function AdminEventRegistrationDetail() {
   });
 
   const event = eventQ.data as EventT | undefined;
-  const regs = (regsQ.data ?? []) as EventAdminRegistration[];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const regs = useMemo(() => (regsQ.data ?? []) as EventAdminRegistration[], [regsQ.data]);
 
   const isAttended = (r: EventAdminRegistration): boolean => {
     const rr = r as unknown as { attended?: boolean; dayAttendances?: Array<{ attended: boolean }> };
@@ -159,12 +180,15 @@ export default function AdminEventRegistrationDetail() {
   }, [regs, search, status, typeF]);
 
   const stats = useMemo(() => {
+    if (statsQ.data) return statsQ.data;
     const total = regs.length;
     const participants = regs.filter((r) => r.registrationType === 'PARTICIPANT').length;
     const guests = regs.filter((r) => r.registrationType === 'GUEST').length;
     const attended = regs.filter(isAttended).length;
     return { total, participants, guests, attended };
-  }, [regs]);
+  }, [statsQ.data, regs]);
+  // Server caps the table at 5000 rows — say so instead of silently truncating.
+  const tableTruncated = regs.length >= 5000;
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.id));
   const toggleAll = () => {
@@ -251,6 +275,23 @@ export default function AdminEventRegistrationDetail() {
     }
   };
 
+  const handleEnableFeedbackPoll = async () => {
+    if (!token || !eventId) return;
+    setFbLoading(true);
+    try {
+      const res = await api.enableEventFeedbackPoll(eventId, { audience: fbAudience, channels: { email: fbEmail, inApp: fbInApp }, sendNow: fbSendNow }, token);
+      if (res.alreadySent) toast.success('Feedback was already sent for this event');
+      else if (res.sent) toast.success(`Feedback poll sent · ${res.notified} notified · ${res.emailed} emailed`);
+      else if (res.scheduled) toast.success('Feedback poll created — auto-sends to attendees after the event ends');
+      else toast.success('Feedback poll created');
+      setFeedbackOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to enable feedback poll');
+    } finally {
+      setFbLoading(false);
+    }
+  };
+
   if (eventQ.isLoading) {
     return <div className="h-64 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />;
   }
@@ -294,6 +335,19 @@ export default function AdminEventRegistrationDetail() {
               <a href={`/events/${event.slug || event.id}`} target="_blank" rel="noreferrer"><ExternalLink size={11} className="mr-1.5" />Public page</a>
             </Button>
             <Button size="sm" variant="outline" onClick={() => navigate(`/admin/events/${event.id}/edit`)}>Edit event</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const ended = new Date(event.endDate ?? event.startDate).getTime() < Date.now();
+                setFbSendNow(ended);
+                setFbEnded(ended);
+                setFeedbackOpen(true);
+              }}
+            >
+              <MessageSquare size={11} className="mr-1.5" />
+              Feedback poll
+            </Button>
             <Button size="sm" onClick={() => navigate(`/admin/events/${event.id}/attendance`)}>
               <ScanLine size={11} className="mr-1.5" />
               Open scanner
@@ -319,15 +373,20 @@ export default function AdminEventRegistrationDetail() {
             items={[
               { value: 'registrations', label: 'Registrations' },
               { value: 'invitations', label: 'Invitations' },
+              { value: 'message', label: 'Message' },
             ]}
             value={tabParam}
-            onChange={(v) => setTab(v as 'registrations' | 'invitations')}
+            onChange={(v) => setTab(v as 'registrations' | 'invitations' | 'message')}
           />
         </div>
       </div>
 
       {tabParam === 'invitations' && token && (
         <AdminEventInvitations eventId={eventId!} eventTitle={event.title} token={token} />
+      )}
+
+      {tabParam === 'message' && token && (
+        <EventRegistrantComposer eventId={eventId!} eventName={event.title} eventDays={event.eventDays} token={token} />
       )}
 
       {tabParam === 'registrations' && (
@@ -345,13 +404,17 @@ export default function AdminEventRegistrationDetail() {
           </div>
         ))}
       </div>
+      {tableTruncated && (
+        <p className="text-[12px] text-[var(--warning)] tabular-nums">
+          Showing first 5000 rows — use search, filters, or Export for the full list ({stats.total} total).
+        </p>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative max-w-[300px] flex-1 min-w-[200px]">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, branch…" className="pl-8 h-8 text-[13px]" />
-        </div>
-        <SegmentedTabs
+        </div>        <SegmentedTabs
           items={[
             { value: 'all', label: 'All' },
             { value: 'attended', label: 'Attended' },
@@ -677,6 +740,66 @@ export default function AdminEventRegistrationDetail() {
               {exporting ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Download size={13} className="mr-1.5" />}
               Export {exportFilters.format.toUpperCase()}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-event feedback poll — auto-creates + sends the feedback poll for this event. */}
+      <Dialog open={feedbackOpen} onOpenChange={setFeedbackOpen}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2">
+              <MessageSquare size={14} />
+              Post-event feedback poll
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-[12.5px] text-[var(--ds-text-3)]">
+            Auto-creates a feedback poll (&ldquo;How was {event.title}?&rdquo;) with a 24-hour deadline after the event ends, and sends the link.
+          </div>
+          {fbSendNow || fbEnded ? (
+            <Field label="Audience">
+              <div className="overflow-x-auto">
+                <SegmentedTabs
+                  items={EVENT_AUDIENCE_OPTIONS}
+                  value={fbAudience}
+                  onChange={(v) => setFbAudience(v as MessageRegistrantsAudience)}
+                />
+              </div>
+            </Field>
+          ) : (
+            <div className="text-[11.5px] text-[var(--ds-text-3)]">
+              Auto-sends to attendees ~2h after the event ends.
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ds-text-2)]">
+              <input type="checkbox" checked={fbEmail} onChange={(e) => setFbEmail(e.target.checked)} className="size-4" />
+              Email
+            </label>
+            <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ds-text-2)]">
+              <input type="checkbox" checked={fbInApp} onChange={(e) => setFbInApp(e.target.checked)} className="size-4" />
+              In-app notification
+            </label>
+            <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ds-text-2)]">
+              <input type="checkbox" checked={fbSendNow} onChange={(e) => setFbSendNow(e.target.checked)} className="size-4" />
+              Send now
+            </label>
+            <div className="text-[11px] text-[var(--ds-text-3)] pl-6 -mt-1">
+              Unchecked = the poll is created now but auto-sends via the scheduler once the event ends.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setFeedbackOpen(false)} disabled={fbLoading}>Cancel</Button>
+            {token && (
+              <Button
+                size="sm"
+                onClick={handleEnableFeedbackPoll}
+                disabled={fbLoading || ((fbSendNow || fbEnded) && !fbEmail && !fbInApp)}
+              >
+                {fbLoading ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+                {fbSendNow ? 'Enable & send' : 'Enable'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -86,7 +86,23 @@ export default function AdminNetwork() {
   });
   const allQ = useQuery({
     queryKey: ['network-all', 'VERIFIED'],
-    queryFn: () => api.getNetworkAll(token!, 'VERIFIED'),
+    // Fetch-all: walk every server page (max 500/page) so the grid never
+    // silently truncates — same guarantee as Users.
+    queryFn: async () => {
+      const profiles: NetworkProfile[] = [];
+      let counts = { PENDING: 0, VERIFIED: 0, REJECTED: 0 };
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+      while (profiles.length < total) {
+        const r = await api.getNetworkAll(token!, 'VERIFIED', { page, limit: 500 });
+        profiles.push(...r.profiles);
+        counts = r.counts ?? counts;
+        total = r.total ?? r.profiles.length;
+        if (r.profiles.length === 0) break;
+        page += 1;
+      }
+      return { profiles, counts, total };
+    },
     enabled: Boolean(token),
   });
   const statsQ = useQuery({
@@ -228,7 +244,9 @@ export default function AdminNetwork() {
   }, [statsQ.data, allQ.data, pendingQ.data]);
 
   const pending = pendingQ.data ?? [];
-  const allVerified = allQ.data?.profiles ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const allVerified = useMemo(() => allQ.data?.profiles ?? [], [allQ.data?.profiles]);
   const verifiedFiltered = useMemo(() => {
     return allVerified
       .filter((p) => (verifyFilter === 'featured' ? p.isFeatured : true))
@@ -252,6 +270,10 @@ export default function AdminNetwork() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin · Network</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Network management</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Alumni and industry guests visible on the public network page.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {allQ.isLoading ? 'Loading…' : `${allQ.data?.total ?? allVerified.length} total`}
+            {allVerified.length ? ` · ${allVerified.length} loaded` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" onClick={() => void handleExportExcel()} disabled={exporting}>

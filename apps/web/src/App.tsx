@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
+import { MotionConfig } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
@@ -53,6 +54,7 @@ const AnnouncementsPage = lazy(() => import('@/pages/AnnouncementsPage'));
 const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage'));
 const PollDetailPage = lazy(() => import('@/pages/PollDetailPage'));
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'));
 const JoinUsPage = lazy(() => import('@/pages/JoinUsPage'));
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'));
 const NetworkPage = lazy(() => import('@/pages/NetworkPage'));
@@ -61,6 +63,7 @@ const NetworkStatusPage = lazy(() => import('@/pages/network/NetworkStatusPage')
 const NetworkProfilePage = lazy(() => import('@/pages/network/NetworkProfilePage'));
 const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
+const CodeOfConductPage = lazy(() => import('@/pages/CodeOfConductPage'));
 const CreditsPage = lazy(() => import('@/pages/CreditsPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 const QOTDSolvePage = lazy(() => import('@/pages/QOTDSolvePage'));
@@ -99,11 +102,14 @@ const AdminEventRegistrationDetail = lazy(() => import('@/pages/admin/AdminEvent
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
+// Unlisted, PRES/SA-only retroactive-records console — see the route below.
+const AdminBackdate = lazy(() => import('@/pages/admin/AdminBackdate'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
-const AdminProblems = lazy(() => import('@/pages/admin/AdminProblems'));
+const AdminProblemsHub = lazy(() => import('@/pages/admin/AdminProblemsHub'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
+const CompetitionMonitor = lazy(() => import('@/pages/admin/CompetitionMonitor'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
 const AdminNotifications = lazy(() => import('@/pages/admin/AdminNotifications'));
@@ -140,6 +146,10 @@ function App() {
         <AuthProvider>
           <SettingsProvider>
             <ErrorBoundary>
+              {/* reducedMotion="user" makes every framer-motion animation respect the
+                  OS prefers-reduced-motion setting (transforms disabled, opacity kept).
+                  No visual change for everyone else. */}
+              <MotionConfig reducedMotion="user">
               <Router>
                 <ScrollToTopOnNavigation />
                 <Toaster position="top-right" richColors />
@@ -158,6 +168,8 @@ function App() {
                   <Route path="/achievements/:id" element={withRouteBoundary(<AchievementDetailPage />)} />
                   <Route path="/signin" element={withRouteBoundary(<SignInPage />)} />
                   <Route path="/signup" element={withRouteBoundary(<SignInPage />)} />
+                  <Route path="/forgot-password" element={withRouteBoundary(<ResetPasswordPage />)} />
+                  <Route path="/reset-password" element={withRouteBoundary(<ResetPasswordPage />)} />
                   <Route path="/join-us" element={withRouteBoundary(<JoinUsPage />)} />
                   <Route path="/auth/callback" element={withRouteBoundary(<AuthCallbackPage />)} />
                   <Route path="/network" element={withRouteBoundary(<NetworkPage />)} />
@@ -168,6 +180,7 @@ function App() {
                   <Route path="/network/:slug" element={withRouteBoundary(<NetworkProfilePage />)} />
                   <Route path="/join-our-network" element={withRouteBoundary(<JoinOurNetworkPage />)} />
                   <Route path="/privacy-policy" element={withRouteBoundary(<PrivacyPolicyPage />)} />
+                  <Route path="/code-of-conduct" element={withRouteBoundary(<CodeOfConductPage />)} />
                   <Route path="/credits" element={withRouteBoundary(<CreditsPage />)} />
                   <Route path="/qotd/leaderboard" element={withRouteBoundary(<QOTDLeaderboardPage />)} />
                   <Route path="/competition/:roundId/results" element={withRouteBoundary(<CompetitionResults />)} />
@@ -225,7 +238,9 @@ function App() {
                       <Route path="users/:id" element={withRouteBoundary(<UserDetailPage />)} />
                       <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
-                      <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />
+                      <Route path="problems" element={withRouteBoundary(<AdminProblemsHub />)} />
+                      {/* Submission Review folded into the hub — keep the old path as a redirect. */}
+                      <Route path="submission-review" element={<Navigate to="/admin/problems?tab=review" replace />} />
                       <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
                       <Route path="event-registrations/:eventId" element={withRouteBoundary(<AdminEventRegistrationDetail />)} />
                       <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />
@@ -234,8 +249,14 @@ function App() {
                       <Route path="credits" element={withRouteBoundary(<AdminCredits />)} />
                       <Route path="competition" element={withRouteBoundary(<AdminCompetition />)} />
                       <Route path="competition/:roundId/judge" element={withRouteBoundary(<CompetitionJudge />)} />
+                      <Route path="competition/:roundId/monitor" element={withRouteBoundary(<CompetitionMonitor />)} />
                       <Route element={<SuperAdminOrPresidentRoute />}>
                         <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
+                        {/* Deliberately absent from the sidebar and the command palette:
+                            retroactive records are a rare, high-trust operation, reached by
+                            typing the URL. The guard above and the server-side PRES/SA check
+                            on every /api/backdate endpoint are the actual security. */}
+                        <Route path="backdate" element={withRouteBoundary(<AdminBackdate />)} />
                       </Route>
                       <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
                       <Route path="mail" element={withRouteBoundary(<AdminMail />)} />
@@ -250,6 +271,7 @@ function App() {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Router>
+              </MotionConfig>
             </ErrorBoundary>
           </SettingsProvider>
         </AuthProvider>

@@ -50,3 +50,35 @@ export function getApiBaseUrl(): string {
 
   return 'http://localhost:5001/api';
 }
+
+/**
+ * Run async tasks with bounded concurrency.
+ * @param items - Array of items to process
+ * @param limit - Maximum number of concurrent tasks
+ * @param fn - Async function to run for each item
+ * @returns Array of results in the same order as input
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let index = 0;
+
+  async function worker() {
+    while (true) {
+      const i = index++;
+      if (i >= items.length) break;
+      try {
+        results[i] = await fn(items[i]);
+      } catch (e) {
+        results[i] = e as R;
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}

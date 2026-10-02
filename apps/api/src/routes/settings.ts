@@ -1,4 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
+import rateLimit from 'express-rate-limit';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -11,6 +13,20 @@ import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCac
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { getClientIp } from '../utils/clientIp.js';
+
+// Manual reminder pass fans out to Brevo per due event — dedup makes repeats
+// safe no-ops, but throttle clicks so a stuck button can't hammer the sender.
+const reminderTriggerLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many manual reminder triggers, please try again later.' } },
+  keyGenerator: (req) => getAuthUser(req)?.id ?? getClientIp(req),
+});
 
 export const settingsRouter = Router();
 
@@ -40,6 +56,7 @@ const updateSettingsSchema = z.object({
   hiringDesigning: z.boolean().optional(),
   hiringSocialMedia: z.boolean().optional(),
   hiringManagement: z.boolean().optional(),
+  hiringCycle: z.string().trim().min(1).max(40).optional(),
   showNetwork: z.boolean().optional(),
   mailingEnabled: z.boolean().optional(),
   certificatesEnabled: z.boolean().optional(),
@@ -47,6 +64,7 @@ const updateSettingsSchema = z.object({
   playgroundDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
   competitionEnabled: z.boolean().optional(),
   problemsEnabled: z.boolean().optional(),
+  plagiarismCheckEnabled: z.boolean().optional(),
   // Email notification controls
   emailWelcomeEnabled: z.boolean().optional(),
   emailEventCreationEnabled: z.boolean().optional(),
@@ -55,8 +73,20 @@ const updateSettingsSchema = z.object({
   emailCertificateEnabled: z.boolean().optional(),
   emailReminderEnabled: z.boolean().optional(),
   emailInvitationEnabled: z.boolean().optional(),
+  emailPasswordResetEnabled: z.boolean().optional(),
   emailTestingMode: z.boolean().optional(),
   emailTestRecipients: z.string().max(2000).optional().nullable(),
+  // Email provider per category (oci | brevo)
+  emailProviderWelcome: z.enum(['oci', 'brevo']).optional(),
+  emailProviderEventCreation: z.enum(['oci', 'brevo']).optional(),
+  emailProviderRegistration: z.enum(['oci', 'brevo']).optional(),
+  emailProviderAnnouncement: z.enum(['oci', 'brevo']).optional(),
+  emailProviderCertificate: z.enum(['oci', 'brevo']).optional(),
+  emailProviderReminder: z.enum(['oci', 'brevo']).optional(),
+  emailProviderInvitation: z.enum(['oci', 'brevo']).optional(),
+  emailProviderAdminMail: z.enum(['oci', 'brevo']).optional(),
+  emailProviderPasswordReset: z.enum(['oci', 'brevo']).optional(),
+  emailProviderOther: z.enum(['oci', 'brevo']).optional(),
   githubUrl: optionalUrl,
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
@@ -82,10 +112,7 @@ const updateSecurityEnvSchema = z.object({
 });
 
 function isSuperAdminOrPresident(authUser: { email: string; role: string }): boolean {
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-  const isSuperAdmin = Boolean(superAdminEmail) && authUser.email === superAdminEmail;
-  const isPresident = authUser.role === 'PRESIDENT';
-  return isSuperAdmin || isPresident;
+  return isPresidentOrSuperAdmin(authUser);
 }
 
 function enforceSuperAdminOrPresident(authUser: { email: string; role: string }, res: Response): boolean {
@@ -215,6 +242,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       announcementsEnabled: full.announcementsEnabled,
       competitionEnabled: full.competitionEnabled,
       problemsEnabled: full.problemsEnabled,
+      plagiarismCheckEnabled: full.plagiarismCheckEnabled,
       githubUrl: full.githubUrl,
       linkedinUrl: full.linkedinUrl,
       twitterUrl: full.twitterUrl,
@@ -225,8 +253,16 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       // Stored as JSONB; coerce to a clean { label, email }[] for the contact page.
       contactEmails: Array.isArray(full.contactEmails) ? full.contactEmails : [],
       accentColor: full.accentColor,
+      codeExecutionProvider: full.codeExecutionProvider,
+      showExecutionSource: full.showExecutionSource,
       // Used by /about to compute the "months since inception" stat.
       siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
+      // Public origin of the contest /competition socket relay (the playground execute-server),
+      // derived from the API's PLAYGROUND_API_URL env. Surfaced here so the web admin monitor
+      // can connect at RUNTIME (its build-time VITE_PLAYGROUND_API_URL can't see a runtime env
+      // var). null ⇒ relay unconfigured ⇒ the monitor falls back to REST polling. Not secret —
+      // the playground arena already connects to this origin publicly.
+      playgroundApiUrl: getPlaygroundRelayBase(),
     };
 
     if (!settings) {
@@ -256,6 +292,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           announcementsEnabled: true,
           competitionEnabled: false,
           problemsEnabled: false,
+          plagiarismCheckEnabled: false,
           githubUrl: null,
           linkedinUrl: null,
           twitterUrl: null,
@@ -265,13 +302,16 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           contactPhone: null,
           contactEmails: [],
           accentColor: 'rust',
+          codeExecutionProvider: 'wandbox',
+          showExecutionSource: true,
           siteLaunchDate: '2026-01-01T00:00:00.000Z',
+          playgroundApiUrl: getPlaygroundRelayBase(),
         },
       });
     }
 
     res.json({ success: true, data: settings });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch settings' } });
   }
 });
@@ -296,13 +336,16 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     res.json({ success: true, data: sanitizeSettingsForResponse(settings) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch settings' } });
   }
 });
 
 // Update settings
-settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Request, res: Response) => {
+// D1: requireRole('ADMIN') admits PRESIDENT (same level 4); the real
+// President/superAdmin floor is the inline enforceSuperAdminOrPresident below.
+// CLAUDE.md forbids the literal requireRole('PRESIDENT') — use 'ADMIN' + the gate.
+settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
@@ -335,6 +378,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       hiringDesigning,
       hiringSocialMedia,
       hiringManagement,
+      hiringCycle,
       showNetwork,
       mailingEnabled,
       certificatesEnabled,
@@ -342,6 +386,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       playgroundDailyLimit,
       competitionEnabled,
       problemsEnabled,
+      plagiarismCheckEnabled,
       emailWelcomeEnabled,
       emailEventCreationEnabled,
       emailRegistrationEnabled,
@@ -349,8 +394,19 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       emailCertificateEnabled,
       emailReminderEnabled,
       emailInvitationEnabled,
+      emailPasswordResetEnabled,
       emailTestingMode,
       emailTestRecipients,
+      emailProviderWelcome,
+      emailProviderEventCreation,
+      emailProviderRegistration,
+      emailProviderAnnouncement,
+      emailProviderCertificate,
+      emailProviderReminder,
+      emailProviderInvitation,
+      emailProviderAdminMail,
+      emailProviderPasswordReset,
+      emailProviderOther,
       githubUrl,
       linkedinUrl,
       twitterUrl,
@@ -378,6 +434,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(hiringDesigning !== undefined && { hiringDesigning }),
       ...(hiringSocialMedia !== undefined && { hiringSocialMedia }),
       ...(hiringManagement !== undefined && { hiringManagement }),
+      ...(hiringCycle !== undefined && { hiringCycle }),
       ...(showNetwork !== undefined && { showNetwork }),
       ...(mailingEnabled !== undefined && { mailingEnabled }),
       ...(certificatesEnabled !== undefined && { certificatesEnabled }),
@@ -385,6 +442,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(playgroundDailyLimit !== undefined && { playgroundDailyLimit }),
       ...(competitionEnabled !== undefined && { competitionEnabled }),
       ...(problemsEnabled !== undefined && { problemsEnabled }),
+      ...(plagiarismCheckEnabled !== undefined && { plagiarismCheckEnabled }),
       ...(emailWelcomeEnabled !== undefined && { emailWelcomeEnabled }),
       ...(emailEventCreationEnabled !== undefined && { emailEventCreationEnabled }),
       ...(emailRegistrationEnabled !== undefined && { emailRegistrationEnabled }),
@@ -392,8 +450,19 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(emailCertificateEnabled !== undefined && { emailCertificateEnabled }),
       ...(emailReminderEnabled !== undefined && { emailReminderEnabled }),
       ...(emailInvitationEnabled !== undefined && { emailInvitationEnabled }),
+      ...(emailPasswordResetEnabled !== undefined && { emailPasswordResetEnabled }),
       ...(emailTestingMode !== undefined && { emailTestingMode }),
       ...(emailTestRecipients !== undefined && { emailTestRecipients: emailTestRecipients || null }),
+      ...(emailProviderWelcome !== undefined && { emailProviderWelcome }),
+      ...(emailProviderEventCreation !== undefined && { emailProviderEventCreation }),
+      ...(emailProviderRegistration !== undefined && { emailProviderRegistration }),
+      ...(emailProviderAnnouncement !== undefined && { emailProviderAnnouncement }),
+      ...(emailProviderCertificate !== undefined && { emailProviderCertificate }),
+      ...(emailProviderReminder !== undefined && { emailProviderReminder }),
+      ...(emailProviderInvitation !== undefined && { emailProviderInvitation }),
+      ...(emailProviderAdminMail !== undefined && { emailProviderAdminMail }),
+      ...(emailProviderPasswordReset !== undefined && { emailProviderPasswordReset }),
+      ...(emailProviderOther !== undefined && { emailProviderOther }),
       ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
       ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
       ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -416,8 +485,21 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
+    // Same instant playground flush as PATCH /:key (bulk save touches everything).
+    try {
+      const relayBase = getPlaygroundRelayBase();
+      const secret = getInternalApiSecret();
+      if (relayBase && secret) {
+        void fetch(`${relayBase}/internal/flush-caches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+          body: JSON.stringify({ keys: ['*'] }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    } catch { /* never fail the save */ }
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update settings' } });
   }
 });
@@ -662,6 +744,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'playgroundDailyLimit',
       'competitionEnabled',
       'problemsEnabled',
+      'plagiarismCheckEnabled',
       'emailWelcomeEnabled',
       'emailEventCreationEnabled',
       'emailRegistrationEnabled',
@@ -669,8 +752,19 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'emailCertificateEnabled',
       'emailReminderEnabled',
       'emailInvitationEnabled',
+      'emailPasswordResetEnabled',
       'emailTestingMode',
       'emailTestRecipients',
+      'emailProviderWelcome',
+      'emailProviderEventCreation',
+      'emailProviderRegistration',
+      'emailProviderAnnouncement',
+      'emailProviderCertificate',
+      'emailProviderReminder',
+      'emailProviderInvitation',
+      'emailProviderAdminMail',
+      'emailProviderPasswordReset',
+      'emailProviderOther',
       'githubUrl',
       'linkedinUrl',
       'twitterUrl',
@@ -678,6 +772,10 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'discordUrl',
       'whatsappUrl',
       'accentColor',
+      'codeExecutionProvider',
+      'showExecutionSource',
+      'quizFoldRankInResult',
+      'quizSnapshotEnabled',
     ];
 
     if (!allowedKeys.includes(key)) {
@@ -712,7 +810,11 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'emailCertificateEnabled',
       'emailReminderEnabled',
       'emailInvitationEnabled',
+      'emailPasswordResetEnabled',
       'emailTestingMode',
+      'quizFoldRankInResult',
+      'quizSnapshotEnabled',
+      'showExecutionSource',
     ]);
     const urlKeys = new Set([
       'githubUrl',
@@ -722,9 +824,27 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'discordUrl',
       'whatsappUrl',
     ]);
+    const emailProviderKeys = new Set([
+      'emailProviderWelcome',
+      'emailProviderEventCreation',
+      'emailProviderRegistration',
+      'emailProviderAnnouncement',
+      'emailProviderCertificate',
+      'emailProviderReminder',
+      'emailProviderInvitation',
+      'emailProviderAdminMail',
+      'emailProviderPasswordReset',
+      'emailProviderOther',
+    ]);
 
     if (booleanKeys.has(key) && typeof value !== 'boolean') {
       return res.status(400).json({ success: false, error: { message: `${key} must be a boolean` } });
+    }
+
+    if (emailProviderKeys.has(key)) {
+      if (typeof value !== 'string' || !['oci', 'brevo'].includes(value)) {
+        return res.status(400).json({ success: false, error: { message: `${key} must be 'oci' or 'brevo'` } });
+      }
     }
 
     const parsedMaxEvents = key === 'maxEventsPerUser' ? Number(value) : undefined;
@@ -772,6 +892,20 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       }
     }
 
+    if (key === 'codeExecutionProvider') {
+      // 'balanced' splits judge/playground traffic across healthy upstreams per
+      // request (least-loaded, JS pinned to Wandbox for the worker chain);
+      // 'codebox' pins the local Judge0 engine (spills to the worker chain on
+      // infra failure). See utils/executionRouting.ts.
+      const allowedProviders = ['wandbox', 'godbolt', 'balanced', 'codebox'];
+      if (typeof value !== 'string' || !allowedProviders.includes(value)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: `codeExecutionProvider must be one of: ${allowedProviders.join(', ')}` },
+        });
+      }
+    }
+
     if (urlKeys.has(key) && typeof value === 'string' && value.trim() !== '') {
       try {
         const parsed = new URL(value);
@@ -811,8 +945,22 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
+    // Push the flip to the playground instantly (it caches settings 60s).
+    // Fire-and-forget: a failed poke only costs the TTL wait, never the save.
+    try {
+      const relayBase = getPlaygroundRelayBase();
+      const secret = getInternalApiSecret();
+      if (relayBase && secret) {
+        void fetch(`${relayBase}/internal/flush-caches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+          body: JSON.stringify({ keys: [key] }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    } catch { /* never fail the save */ }
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: `Setting ${key} updated successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update setting' } });
   }
 });
@@ -826,10 +974,23 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
       return;
     }
 
+    // S9: reset must not wipe the runtime security env. attendanceJwtSecret
+    // signs every issued 90-day attendance QR — losing it invalidates them all
+    // after the next restart (the in-memory secret cache hides the loss until
+    // then). indexNowKey likewise has no recovery path. Carry both across.
+    const preserved = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { attendanceJwtSecret: true, indexNowKey: true },
+    });
+
     await prisma.settings.delete({ where: { id: 'default' } }).catch(() => {});
 
     const settings = await prisma.settings.create({
-      data: { id: 'default' },
+      data: {
+        id: 'default',
+        ...(preserved?.attendanceJwtSecret ? { attendanceJwtSecret: preserved.attendanceJwtSecret } : {}),
+        ...(preserved?.indexNowKey ? { indexNowKey: preserved.indexNowKey } : {}),
+      },
     });
 
     // Reset blows away every cached setting field — invalidate every settings
@@ -841,7 +1002,7 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
 
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { action: 'reset' });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings reset to defaults' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to reset settings' } });
   }
 });
@@ -905,7 +1066,7 @@ settingsRouter.post('/event-status/sync-now', authMiddleware, requireRole('ADMIN
 // Manually run the event-reminder pass (admin "send reminders now"). Honours the
 // same global toggle, testing mode, per-event opt-out and dedup as the scheduler,
 // so clicking this while reminders are disabled is a safe no-op.
-settingsRouter.post('/reminders/trigger', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+settingsRouter.post('/reminders/trigger', authMiddleware, requireRole('ADMIN'), reminderTriggerLimiter, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

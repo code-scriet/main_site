@@ -3,8 +3,9 @@
 // Pixel-port of screen-stubs.jsx:302 + brief §7.19.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Mail, Send, Search, X, Loader2, AlertCircle, CheckCircle, Eye, Code, AtSign, Plus, Inbox } from 'lucide-react';
+import { Mail, Send, Search, X, Loader2, AlertCircle, CheckCircle, Eye, Code, AtSign, Plus, Inbox, FileText } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
 import { Avatar, DSCard, Field, Pill, SegmentedTabs } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ export default function AdminMail() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [bodyType, setBodyType] = useState<BodyType>('markdown');
+  const [loadingDigest, setLoadingDigest] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,7 +312,35 @@ export default function AdminMail() {
             </div>
           )}
 
-          <div className="border-t border-[var(--border-subtle)] pt-3">
+          <div className="border-t border-[var(--border-subtle)] pt-3 space-y-3">
+            {/* S-08: auto-compose a monthly recap from real activity, then edit before sending. */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[12px] text-[var(--ds-text-3)]">Recap last month's activity into an editable draft.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={loadingDigest}
+                onClick={async () => {
+                  if (!token) return;
+                  setLoadingDigest(true);
+                  try {
+                    const d = await api.getMonthlyDigest(token);
+                    setBodyType('markdown');
+                    setSubject(d.subject);
+                    setBody(d.markdown);
+                    toast.success(`Loaded ${d.label} digest — edit, then send`);
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Could not load digest');
+                  } finally {
+                    setLoadingDigest(false);
+                  }
+                }}
+              >
+                {loadingDigest ? <Loader2 size={13} className="mr-1 animate-spin" /> : <FileText size={13} className="mr-1" />}
+                Load monthly digest
+              </Button>
+            </div>
             <Field label="Subject" required>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Round 3 — final reminder" />
             </Field>

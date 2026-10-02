@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -6,20 +7,32 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { EventStatus, Prisma, RegistrationType } from '@prisma/client';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
-import { emailService } from '../utils/email.js';
+import { emailService, EmailTemplates } from '../utils/email.js';
 import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { sanitizeHtml } from '../utils/sanitize.js';
+import { sanitizeHtml, sanitizeText } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
-import { reconcileEventStatusesSoon } from '../utils/scheduler.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+import {
+  buildAudienceWhere,
+  fetchEventRecipients,
+  computeFeedbackDeadline,
+  resolveFeedbackDelivery,
+  resolveEffectiveDay,
+  EVENT_AUDIENCES,
+  EVENT_RECIPIENT_CAP,
+  type EventAudience,
+} from '../utils/eventRecipients.js';
+import { reconcileEventStatusesSoon, armRegistrationOpenTimer, cancelRegistrationOpenTimer } from '../utils/scheduler.js';
+import { requireUuid } from '../utils/idParams.js';
+import { setPublicCache, setSharedPublicCache } from '../utils/response.js';
 
 export const eventsRouter = Router();
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GUEST_ROLE_PRIORITY: Record<string, number> = {
   'Chief Guest': 0,
   Speaker: 1,
@@ -222,12 +235,17 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       });
     }
 
+    // `?view=card` drops the two heaviest list fields — `description` (unbounded
+    // text) and `registrationFields` (JSON) — for card grids (EventsPage/home)
+    // that never render them. Default (no/other view) keeps the full select, so
+    // no existing consumer can break.
+    const cardView = req.query.view === 'card';
+
     // Public event counts: only participant registrations belong in "X registered" totals.
     const eventListSelect = {
       id: true,
       title: true,
       slug: true,
-      description: true,
       status: true,
       startDate: true,
       endDate: true,
@@ -244,10 +262,10 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       allowLateRegistration: true,
       eventDays: true,
       dayLabels: true,
-      registrationFields: true,
       teamRegistration: true,
       teamMinSize: true,
       teamMaxSize: true,
+      ...(cardView ? {} : { description: true, registrationFields: true }),
       _count: {
         select: {
           registrations: { where: participantsOnly },
@@ -255,22 +273,20 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       },
     } satisfies Prisma.EventSelect;
 
+    // No explicit limit → default cap of 100 rows so the list can't grow
+    // unbounded with event history. Explicit limit capped at 500 per request
+    // (fetch-all walks pages with limit+offset); always return the exact total
+    // so every consumer can show "{total} total" and know when to fetch more.
+    const cappedLimit = limitValue ? Math.min(limitValue, 500) : undefined;
     const queryOptions: Prisma.EventFindManyArgs = {
       where,
       orderBy: { startDate: 'desc' },
       select: eventListSelect,
-      ...(limitValue ? { take: limitValue, skip: offsetValue } : {}),
+      ...(cappedLimit ? { take: cappedLimit, skip: offsetValue } : { take: 100 }),
     };
 
     const events = await prisma.event.findMany(queryOptions);
-    const shouldCount =
-      Boolean(limitValue) &&
-      !(offsetValue === 0 && events.length < (limitValue as number));
-    const total = shouldCount
-      ? await prisma.event.count({ where })
-      : limitValue
-        ? events.length + offsetValue
-        : events.length;
+    const total = await prisma.event.count({ where });
 
     const authUser = getAuthUser(req);
     let registeredEventIds = new Set<string>();
@@ -291,12 +307,15 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       isRegistered: authUser ? registeredEventIds.has(event.id) : false,
     }));
 
+    // Anonymous responses are identical for everyone (isRegistered is always
+    // false); authed responses embed per-user state and must never be edge-cached.
+    if (!authUser) setPublicCache(res, 60);
     res.json({
       success: true,
       data: eventsWithRegistration,
-      pagination: { total, limit: limitValue ?? total, offset: limitValue ? offsetValue : 0 },
+      pagination: { total, limit: cappedLimit ?? total, offset: cappedLimit ? offsetValue : 0 },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch events' } });
   }
 });
@@ -316,8 +335,10 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
         },
       },
     });
+    // No per-user fields on this endpoint — always edge-cacheable.
+    setSharedPublicCache(_req, res, 60);
     res.json({ success: true, data: events });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch upcoming events' } });
   }
 });
@@ -334,11 +355,14 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
         },
       },
     } as const;
-    const event = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
-        (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
-      : (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
-        (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
+    // Single round-trip for the id-or-slug lookup (was up to 2 sequential
+    // findUnique calls). Both `id` and `slug` are unique and event slugs are
+    // generated word-strings that can never collide with a UUID, so the OR has
+    // exactly one match. Mirrors resolveProblem() in problems.ts.
+    const event = await prisma.event.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: includeOptions,
+    });
 
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
@@ -481,7 +505,7 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
           : null,
       },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch event' } });
   }
 });
@@ -607,6 +631,8 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
     // Re-tune the event-status scheduler in case this event is the next boundary.
     void reconcileEventStatusesSoon();
+    // S-01: arm the "registration now open" announcement if it opens in the future.
+    armRegistrationOpenTimer(event);
 
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {
@@ -628,6 +654,9 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
 eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateEventSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -652,6 +681,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         teamRegistration: true,
         teamMinSize: true,
         teamMaxSize: true,
+        // S-11: capture pre-update values so we can detect date/venue changes.
+        title: true,
+        venue: true,
+        location: true,
       },
     });
 
@@ -912,6 +945,29 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
     // Dates/status may have changed → re-tune the event-status scheduler.
     void reconcileEventStatusesSoon();
+    // S-01: a moved/added registrationStartDate re-arms (or clears) the announcement timer.
+    armRegistrationOpenTimer(event);
+
+    // S-11: if the date/time or venue changed, tell everyone who registered —
+    // but not for an event that already happened (editing a PAST event is cleanup,
+    // not a change attendees need to hear about; mirrors the delete/cancel path).
+    if (event.status !== 'PAST') {
+      const changes: string[] = [];
+      // Compare at minute granularity so a no-op re-save (where the datetime-local
+      // round-trips to a sub-second-different value) doesn't spuriously notify.
+      const toMinute = (d: Date) => Math.floor(d.getTime() / 60_000);
+      if (toMinute(existingEvent.startDate) !== toMinute(event.startDate)) {
+        changes.push(`New date & time: ${event.startDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })}`);
+      }
+      const oldVenue = (existingEvent.venue || existingEvent.location || '').trim();
+      const newVenue = (event.venue || event.location || '').trim();
+      if (oldVenue !== newVenue) {
+        changes.push(`New venue: ${newVenue || 'To be announced'}`);
+      }
+      if (changes.length > 0) {
+        void notifyEventRegistrants(event.id, event.title, event.slug, 'updated', changes.join(' · '));
+      }
+    }
 
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
@@ -925,18 +981,21 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
 eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     
     // Check event exists and get creator
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
-      select: { id: true, createdBy: true },
+      select: { id: true, createdBy: true, title: true, slug: true, status: true },
     });
-    
+
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
-    
+
     // Authorization: Only creator, ADMIN, or PRESIDENT can delete events
     const isCreatorOrAdmin = event.createdBy === authUser.id ||
       authUser.role === 'ADMIN' ||
@@ -944,13 +1003,31 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
     if (!isCreatorOrAdmin) {
       return res.status(403).json({ success: false, error: { message: 'Only the event creator or an admin can delete this event' } });
     }
-    
+
+    // S-11: capture registrants BEFORE deletion (cascade removes their rows) so we
+    // can tell them the event is cancelled. Skip for events that already happened
+    // (deleting a PAST event is cleanup, not a cancellation).
+    const cancelRecipients = event.status === 'PAST'
+      ? []
+      : await prisma.eventRegistration.findMany({
+          where: { eventId: req.params.id },
+          select: { userId: true, user: { select: { email: true } } },
+        });
+
     await prisma.event.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'event', req.params.id);
     // The deleted event may have been the next scheduled boundary → re-tune.
     void reconcileEventStatusesSoon();
+    // S-01: drop any pending registration-open announcement timer for this event.
+    cancelRegistrationOpenTimer(req.params.id);
+    // S-11: notify the (now ex-)registrants that the event is cancelled.
+    if (cancelRecipients.length > 0) {
+      const userIds = [...new Set(cancelRecipients.map((r) => r.userId))];
+      const emails = [...new Set(cancelRecipients.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+      void dispatchEventRegistrantNotice(userIds, emails, event.title, event.slug, 'cancelled', 'This event has been cancelled. Apologies for the inconvenience.');
+    }
     res.json({ success: true, message: 'Event deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete event' } });
   }
 });
@@ -961,23 +1038,19 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
 eventsRouter.get('/:id/registrations/stats', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
     const [total, participants, guests, attended] = await Promise.all([
       prisma.eventRegistration.count({ where: { eventId } }),
       prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.PARTICIPANT } }),
       prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.GUEST } }),
       prisma.eventRegistration.count({
-        where: {
-          eventId,
-          registrationType: RegistrationType.PARTICIPANT,
-          OR: [
-            { attended: true },
-            { dayAttendances: { some: { attended: true } } },
-          ],
-        },
+        where: { eventId, ...buildAudienceWhere('attended') },
       }),
     ]);
     res.json({ success: true, data: { total, participants, guests, attended } });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registration stats' } });
   }
 });
@@ -988,6 +1061,9 @@ const REGISTRATIONS_LIST_CAP = 5000;
 
 eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const registrations = await prisma.eventRegistration.findMany({
       where: { eventId: req.params.id },
       select: {
@@ -1022,8 +1098,383 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
       take: REGISTRATIONS_LIST_CAP,
     });
     res.json({ success: true, data: registrations });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
+  }
+});
+
+// ── Message an event's registrants (in-app bell + email) ────────────────────
+// Admin composer that fans out a custom subject/body to the people registered
+// for a specific event — the same machinery the auto edit/cancel notice uses
+// (broadcastNotification CUSTOM audience + emailService), generalized. Both
+// channels are optional per send; audience can be narrowed to participants /
+// guests / attended / absent. Guarded by the event ownership rule (creator or
+// ADMIN/PRESIDENT) like the PUT/DELETE handlers.
+// Audience enum derived from the single EVENT_AUDIENCES source (shared by both endpoints).
+const eventAudienceEnum = z.enum([...EVENT_AUDIENCES] as [EventAudience, ...EventAudience[]]);
+const messageRegistrantsSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  // Kept in lockstep with broadcastNotification's 2000-char bell body slice
+  // (utils/notifications.ts) so the in-app bell and email never diverge on
+  // long messages.
+  body: z.string().trim().min(1).max(2000),
+  bodyType: z.enum(['markdown', 'html']).default('markdown'),
+  channels: z
+    .object({ email: z.boolean().default(false), inApp: z.boolean().default(false) })
+    .refine((c) => c.email || c.inApp, { message: 'Select at least one channel' }),
+  audience: eventAudienceEnum.default('all'),
+  dayNumber: z.number().int().min(1).max(10).optional(),
+});
+
+eventsRouter.post('/:id/message-registrants', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+    const authUser = getAuthUser(req)!;
+    const parsed = messageRegistrantsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors.map((e) => e.message).join(', ') },
+      });
+    }
+    const { subject, body, bodyType, channels, audience, dayNumber } = parsed.data;
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true, slug: true, createdBy: true, eventDays: true },
+    });
+    if (!event) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+
+    // Ownership: creator, ADMIN, or PRESIDENT only (mirrors PUT/DELETE /:id).
+    const isCreatorOrAdmin =
+      event.createdBy === authUser.id || authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'You can only message registrants of events you created' },
+      });
+    }
+
+    const effectiveDay = resolveEffectiveDay(event.eventDays, dayNumber);
+
+    const { userIds, emails, count } = await fetchEventRecipients(eventId, audience, effectiveDay);
+    if (count > EVENT_RECIPIENT_CAP) {
+      return res.status(400).json({
+        success: false,
+        error: { message: `Too many recipients (>${EVENT_RECIPIENT_CAP}). Narrow the audience and try again.` },
+      });
+    }
+
+    if (userIds.length === 0) {
+      return res.json({ success: true, data: { notified: 0, emailed: 0, audience }, message: 'No matching registrants' });
+    }
+
+    // Resolve whether email can actually go out (mailing toggle + testing mode
+    // are handled inside emailService). If email is the ONLY channel and mailing
+    // is disabled, nothing would send — surface that clearly.
+    let mailingEnabled = true;
+    if (channels.email) {
+      const settings = await getCachedSettings();
+      if (settings && settings.mailingEnabled === false) {
+        mailingEnabled = false;
+      }
+    }
+    if (channels.email && !mailingEnabled && !channels.inApp) {
+      return res.status(403).json({ success: false, error: { message: 'Mailing is currently disabled' } });
+    }
+
+    let notified = 0;
+    let emailed = 0;
+
+    // {{event}} substituted once for both channels. The bell renders Markdown (not
+    // raw HTML — the renderer escapes it), so an HTML-typed body is flattened to
+    // text for the in-app notification; email keeps the sanitized HTML.
+    // Function replacement (not a string) — a string replacement treats
+    // $&/$$/$`/$'/$n in event.title as special patterns and would corrupt output.
+    const substituted = body.replace(/\{\{event\}\}/g, () => event.title);
+
+    // In-app bell — CUSTOM audience targeting the registrant userIds.
+    if (channels.inApp) {
+      await broadcastNotification({
+        source: 'ADMIN',
+        audience: 'CUSTOM',
+        audienceUserIds: userIds,
+        category: 'event',
+        icon: 'calendar',
+        title: subject,
+        body: bodyType === 'html' ? sanitizeText(substituted) : substituted,
+        link: `/events/${event.slug}`,
+        refEntity: 'event',
+        refEntityId: event.slug,
+        createdById: authUser.id,
+      });
+      notified = userIds.length;
+    }
+
+    // Email — branded shell via adminMail + sendBulk (Brevo messageVersions,
+    // one message per recipient, no address leakage).
+    if (channels.email && mailingEnabled && emails.length > 0) {
+      const safeBody = bodyType === 'html' ? sanitizeHtml(substituted) : substituted;
+      const tpl = EmailTemplates.adminMail(subject, safeBody, bodyType);
+      const sent = await emailService.sendBulk(emails, tpl.subject, tpl.html, tpl.text, 'admin_mail');
+      if (sent) emailed = emails.length;
+    }
+
+    await auditLog(authUser.id, 'EVENT_MESSAGE_REGISTRANTS', 'event', eventId, {
+      audience,
+      channels: { email: channels.email, inApp: channels.inApp },
+      dayNumber: effectiveDay ?? null,
+      notified,
+      emailed,
+    });
+
+    return res.json({ success: true, data: { notified, emailed, audience } });
+  } catch (error) {
+    logger.error('Failed to message event registrants', {
+      eventId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ success: false, error: { message: 'Failed to message registrants' } });
+  }
+});
+
+// ── Enable a post-event feedback poll (auto-generate + optionally send) ──────
+// One click: builds a feedback Poll from the event's details (rating question +
+// open comment via PollFeedback), links it to the event (Poll.eventId), publishes
+// it, and sets the deadline to 24h after the event ends. Delivery:
+//   • sendNow=true  → send bell+email immediately to the admin-selected audience
+//                     and reserve Event.feedbackSentAt so the S-10 scheduler skips.
+//   • sendNow=false → leave feedbackSentAt null; the S-10 scheduler
+//                     (sendEventFeedbackRequests) auto-sends to attendees ~2h after
+//                     the event ends. (Schedulers are OFF in local dev.)
+// Idempotent: an existing published poll already linked to the event is reused.
+const FEEDBACK_OPTIONS = ['Excellent', 'Good', 'Average', 'Poor'];
+const feedbackPollSchema = z.object({
+  audience: eventAudienceEnum.default('attended'),
+  dayNumber: z.number().int().min(1).max(10).optional(),
+  channels: z
+    .object({ email: z.boolean().default(true), inApp: z.boolean().default(true) })
+    .refine((c) => c.email || c.inApp, { message: 'Select at least one channel' })
+    .default({ email: true, inApp: true }),
+  sendNow: z.boolean().default(true),
+});
+
+async function generateEventPollSlug(question: string): Promise<string> {
+  const base = generateSlug(question) || 'feedback';
+  const existing = await prisma.poll.findMany({ where: { slug: { startsWith: base } }, select: { slug: true } });
+  return generateUniqueSlug(base, existing.map((p) => p.slug).filter(Boolean));
+}
+
+eventsRouter.post('/:id/feedback-poll', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+    const authUser = getAuthUser(req)!;
+    const parsed = feedbackPollSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors.map((e) => e.message).join(', ') } });
+    }
+    const { audience, dayNumber, channels, sendNow } = parsed.data;
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true, slug: true, createdBy: true, eventDays: true, startDate: true, endDate: true, feedbackSentAt: true },
+    });
+    if (!event) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+    const isCreatorOrAdmin = event.createdBy === authUser.id || authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You can only enable feedback for events you created' } });
+    }
+
+    const now = new Date();
+    const base = event.endDate ?? event.startDate;
+    const deadline = computeFeedbackDeadline(base, now);
+    // Deferring an already-ended event would risk a silent no-op (the S-10
+    // scheduler only fires within a window AFTER the event), so send now instead.
+    const { shouldSendNow, willSchedule } = resolveFeedbackDelivery(sendNow, base, now);
+
+    // When sending now, resolve recipients + enforce the cap BEFORE creating the
+    // poll, so an over-cap request fails cleanly without leaving a poll behind.
+    let recipients: { userIds: string[]; emails: string[] } | null = null;
+    if (shouldSendNow) {
+      const effectiveDay = resolveEffectiveDay(event.eventDays, dayNumber);
+      const r = await fetchEventRecipients(eventId, audience, effectiveDay);
+      if (r.count > EVENT_RECIPIENT_CAP) {
+        return res.status(400).json({
+          success: false,
+          error: { message: `Too many recipients (>${EVENT_RECIPIENT_CAP}). Narrow the audience and try again.` },
+        });
+      }
+      recipients = { userIds: r.userIds, emails: r.emails };
+    }
+
+    // Idempotent: reuse an existing published poll linked to this event.
+    let poll = await prisma.poll.findFirst({
+      where: { eventId, isPublished: true },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, slug: true, question: true, deadline: true },
+    });
+    let created = false;
+    if (!poll) {
+      const question = `How was ${event.title}?`;
+      const slug = await generateEventPollSlug(question);
+      try {
+        poll = await prisma.poll.create({
+          data: {
+            question: sanitizeText(question).trim(),
+            description: 'Your feedback helps us improve future events — it only takes a minute. Add a comment below too.',
+            slug,
+            allowMultipleChoices: false,
+            allowVoteChange: true,
+            isAnonymous: true,
+            deadline,
+            isPublished: true,
+            eventId,
+            createdBy: authUser.id,
+            options: { create: FEEDBACK_OPTIONS.map((text, index) => ({ text, sortOrder: index })) },
+          },
+          select: { id: true, slug: true, question: true, deadline: true },
+        });
+        created = true;
+      } catch (e) {
+        // A concurrent first-enable can race this same slug into existence
+        // between the findFirst above and this create (unique constraint on
+        // Poll.slug). Reuse the poll the other request just created instead of
+        // surfacing a 500. NOTE: this recovers only a SAME-event race — a
+        // cross-event slug collision (a different event's poll grabbing this
+        // slug via a TOCTOU against generateUniqueSlug) leaves `poll` null and
+        // deliberately falls through to the `if (!poll) throw` guard below (a
+        // safe 500, not silent corruption).
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          poll = await prisma.poll.findFirst({
+            where: { eventId, isPublished: true },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, slug: true, question: true, deadline: true },
+          });
+        } else {
+          throw e;
+        }
+      }
+    }
+    if (!poll) {
+      // Unreachable in practice (create succeeded, or the P2002 recovery found
+      // the concurrently-created poll) — guards against silently continuing
+      // with no poll if it somehow isn't.
+      throw new Error(`Failed to resolve feedback poll for event ${eventId}`);
+    }
+
+    let notified = 0;
+    let emailed = 0;
+    let alreadySent = false;
+    // Set when we won the reservation but delivered nothing (crash or a total
+    // no-op): we roll the reservation back so the one-shot isn't burned.
+    let released = false;
+
+    if (shouldSendNow) {
+      // Atomic reserve-then-send: only the request whose updateMany actually
+      // flips feedbackSentAt from null to non-null goes on to deliver. A
+      // concurrent duplicate call (or a race with the S-10 scheduler, which
+      // reserves the same column) finds `count === 0` and skips — this is what
+      // makes the send happen at most once, replacing the old best-effort
+      // check-then-write that left a window for a double-send.
+      const reserved = await prisma.event.updateMany({
+        where: { id: eventId, feedbackSentAt: null },
+        data: { feedbackSentAt: new Date() },
+      });
+      // Release the reservation we just won (set feedbackSentAt back to null) so
+      // a failed/empty send doesn't permanently mark the event as sent — a retry
+      // or the S-10 scheduler can then still deliver it.
+      const releaseReservation = () =>
+        prisma.event
+          .updateMany({ where: { id: eventId }, data: { feedbackSentAt: null } })
+          .catch((err) => logger.warn('feedbackSentAt release failed', { eventId, error: err instanceof Error ? err.message : String(err) }));
+
+      if (reserved.count === 0) {
+        alreadySent = true;
+      } else if (recipients) {
+        try {
+          if (channels.inApp && recipients.userIds.length > 0) {
+            await broadcastNotification({
+              source: 'AUTO_EVENT',
+              audience: 'CUSTOM',
+              audienceUserIds: recipients.userIds,
+              category: 'event',
+              icon: 'calendar',
+              title: `How was ${event.title}?`,
+              body: 'Share quick feedback — it only takes a minute.',
+              link: `/polls/${poll.slug}`,
+              refEntity: 'event-feedback',
+              refEntityId: eventId,
+              createdById: authUser.id,
+            });
+            notified = recipients.userIds.length;
+          }
+          if (channels.email && recipients.emails.length > 0) {
+            const ok = await emailService.sendEventFeedback(recipients.emails, event.title, poll.slug);
+            if (ok) emailed = recipients.emails.length;
+          }
+        } catch (sendErr) {
+          // A transient failure (e.g. the notification-feed write) must not burn
+          // the one-shot: roll the reservation back, then surface the error.
+          // BUT only if nothing was delivered yet — the bell is sent before the
+          // email, so if it already went out we KEEP the reservation, otherwise a
+          // retry would re-send the bell (duplicate) after the email step threw.
+          if (notified === 0 && emailed === 0) await releaseReservation();
+          throw sendErr;
+        }
+        // Reservation won but nothing actually went out (mailing disabled/soft
+        // failure, or an empty audience): release it so it can be retried.
+        if (notified === 0 && emailed === 0) {
+          await releaseReservation();
+          released = true;
+        }
+      }
+    }
+
+    // `sent` reflects an actual delivery: shouldSendNow, the reservation was won
+    // (not already sent), and it wasn't released for delivering nothing.
+    const sent = shouldSendNow && !alreadySent && !released;
+
+    await auditLog(authUser.id, 'EVENT_FEEDBACK_POLL_ENABLED', 'event', eventId, {
+      pollId: poll.id,
+      pollSlug: poll.slug,
+      created,
+      sentNow: sent,
+      scheduled: willSchedule,
+      alreadySent,
+      audience,
+      notified,
+      emailed,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        poll: { id: poll.id, slug: poll.slug, question: poll.question, deadline: poll.deadline, shareUrl: `${process.env.FRONTEND_URL || ''}/polls/${poll.slug}` },
+        created,
+        sent,
+        scheduled: willSchedule,
+        alreadySent,
+        notified,
+        emailed,
+        audience,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to enable event feedback poll', {
+      eventId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ success: false, error: { message: 'Failed to enable feedback poll' } });
   }
 });
 
@@ -1031,25 +1482,43 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
 eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId, registrationId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID') || !requireUuid(res, registrationId, 'registration ID')) {
+      return;
+    }
     
     const registration = await prisma.eventRegistration.findFirst({
       where: { id: registrationId, eventId },
-      select: { id: true },
+      select: { id: true, userId: true, registrationType: true },
     });
-    
+
     if (!registration) {
       return res.status(404).json({ success: false, error: { message: 'Registration not found' } });
     }
-    
+
     await prisma.eventRegistration.delete({ where: { id: registrationId } });
+    // Removing someone from an event destroys their attendance and QR token with it
+    // (DayAttendance cascades), so the action needs a trail like every other admin
+    // mutation. Note this leaves an ACCEPTED guest invitation pointing at nothing —
+    // use the backdate console's delete to clean the pair up together.
+    const actor = getAuthUser(req);
+    if (actor) {
+      await auditLog(actor.id, 'EVENT_REGISTRATION_DELETE', 'eventRegistration', registrationId, {
+        eventId,
+        targetUserId: registration.userId,
+        registrationType: registration.registrationType,
+      });
+    }
     res.json({ success: true, message: 'Registration deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
 
 eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const formatQuery = typeof req.query.format === 'string' ? req.query.format.trim().toLowerCase() : 'xlsx';
     if (formatQuery !== 'xlsx' && formatQuery !== 'csv') {
       return res.status(400).json({ success: false, error: { message: 'format must be xlsx or csv' } });
@@ -1077,10 +1546,17 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       ? (registrationTypeFilterRaw as RegistrationType)
       : null;
     
+    // Bound the fetch like the list endpoint (5,000 cap — the export was the
+    // only unbounded registrations read) and push the registrationType filter
+    // into the WHERE (exact enum equality, validated above — safe to push).
+    // The fuzzy filters (year/branch/course/role/search) stay in JS: their
+    // trim+lowercase+joined-field semantics aren't expressible in SQL with
+    // byte-identical results, and they run over ≤5,000 rows.
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
       include: {
         registrations: {
+          where: registrationTypeFilter ? { registrationType: registrationTypeFilter } : undefined,
           select: {
             id: true,
             userId: true,
@@ -1111,6 +1587,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
             },
           },
           orderBy: { timestamp: 'asc' },
+          take: 5000,
         },
       },
     });
@@ -1442,35 +1919,67 @@ async function sendNewEventEmailsAsync(event: {
   }
 }
 
-// Helper function to send event registration confirmation email
-async function sendEventRegistrationEmailAsync(
-  userEmail: string,
-  userName: string,
-  event: {
-    title: string;
-    startDate: Date;
-    slug: string;
-    location?: string | null;
-    imageUrl?: string | null;
-  }
-) {
+// ── S-11: event change / cancellation notices ──────────────────────────────
+// When a registered-for event's date or venue changes (or the event is deleted,
+// which we treat as a cancellation), tell exactly the people who registered.
+// Bell (in-app, CUSTOM audience targeting their userIds) + a best-effort email.
+// Guests/speakers (NETWORK role) ARE included here — unlike the all-users blast,
+// these are people actually attending who must hear about the change.
+async function dispatchEventRegistrantNotice(
+  userIds: string[],
+  emails: string[],
+  title: string,
+  slug: string,
+  kind: 'updated' | 'cancelled',
+  summary: string,
+): Promise<void> {
   try {
-    logger.info(`📧 Sending event registration email to ${userEmail}...`);
-
-    await emailService.sendEventRegistration(
-      userEmail,
-      userName,
-      event.title,
-      event.startDate,
-      event.slug,
-      event.location || undefined,
-      event.imageUrl || undefined
-    );
-
-    logger.info(`✅ Event registration email sent to ${userEmail}`);
+    if (userIds.length > 0) {
+      await broadcastNotification({
+        source: 'AUTO_EVENT',
+        audience: 'CUSTOM',
+        audienceUserIds: userIds,
+        category: 'event',
+        icon: 'calendar',
+        title: kind === 'cancelled' ? `Event cancelled: ${title}` : `Event updated: ${title}`,
+        body: summary,
+        link: kind === 'cancelled' ? '/events' : `/events/${slug}`,
+        refEntity: 'event',
+        refEntityId: slug,
+      });
+    }
+    if (emails.length > 0) {
+      await emailService.sendEventUpdate(emails, title, slug, kind, summary);
+    }
   } catch (error) {
-    logger.error('Failed to send event registration email', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+    logger.error('Failed to dispatch event registrant notice', {
+      slug, kind, error: error instanceof Error ? error.message : String(error),
     });
   }
 }
+
+// Query current registrants and notify them (used for the update/change case,
+// where the registrations still exist). Fire-and-forget.
+async function notifyEventRegistrants(
+  eventId: string,
+  title: string,
+  slug: string,
+  kind: 'updated' | 'cancelled',
+  summary: string,
+): Promise<void> {
+  try {
+    const regs = await prisma.eventRegistration.findMany({
+      where: { eventId },
+      select: { userId: true, user: { select: { email: true } } },
+    });
+    if (regs.length === 0) return;
+    const userIds = [...new Set(regs.map((r) => r.userId))];
+    const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+    await dispatchEventRegistrantNotice(userIds, emails, title, slug, kind, summary);
+  } catch (error) {
+    logger.error('Failed to notify event registrants', {
+      eventId, kind, error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+

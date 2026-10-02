@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -22,7 +23,7 @@ import {
   Trophy,
   Rocket,
 } from 'lucide-react';
-import { api, type AuthProviders, type NetworkProfile, type NetworkConnectionType } from '@/lib/api';
+import { api, type AuthProviders, type NetworkConnectionType } from '@/lib/api';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -86,11 +87,6 @@ export default function NetworkPage() {
   const prefersReducedMotion = useReducedMotion();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
 
-  const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
-  const [industries, setIndustries] = useState<string[]>([]);
-  const [connectionTypes, setConnectionTypes] = useState<NetworkConnectionType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [joiningNetwork, setJoiningNetwork] = useState(false);
   const [providers, setProviders] = useState<AuthProviders | null>(null);
 
@@ -170,26 +166,22 @@ export default function NetworkPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const fetchProfiles = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await api.getNetworkProfiles();
-        setProfiles(data.profiles);
-        setIndustries(data.filters.industries);
-        setConnectionTypes(data.filters.connectionTypes);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load network');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (settings?.showNetwork !== false) {
-      fetchProfiles();
-    }
-  }, [settings?.showNetwork]);
+  // React Query so the public network directory rides the app's 5-min cache.
+  // Gated on the network being enabled (mirrors the old `showNetwork !== false`
+  // guard); a disabled network redirects via the effect above.
+  const networkEnabled = settings?.showNetwork !== false;
+  const { data: networkData, isLoading, error: queryError } = useQuery({
+    queryKey: ['network-profiles'],
+    queryFn: () => api.getNetworkProfiles(),
+    enabled: networkEnabled,
+  });
+  // Memoized so the derived arrays keep a stable reference across renders (they
+  // feed the filtering useMemo below — a fresh array each render would defeat it).
+  const profiles = useMemo(() => networkData?.profiles ?? [], [networkData]);
+  const industries = useMemo(() => networkData?.filters.industries ?? [], [networkData]);
+  const connectionTypes = useMemo(() => networkData?.filters.connectionTypes ?? [], [networkData]);
+  const loading = networkEnabled && isLoading;
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load network') : null;
 
   const { visibleProfiles, featuredProfiles, industryProfessionals, alumni, counts } = useMemo(() => {
     const baseFiltered = profiles.filter((profile) => {
@@ -305,7 +297,7 @@ export default function NetworkPage() {
                   code.scriet Network
                 </motion.div>
 
-                <h1 className="max-w-xl text-4xl font-extrabold leading-[1.1] tracking-tight text-gray-900 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
+                <h1 className="max-w-xl text-4xl font-black leading-[1.1] tracking-tight text-gray-900 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
                   Connect with{' '}
                   <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent dark:from-rose-500 dark:to-red-400">
                     Alumni &amp; Professionals
@@ -513,7 +505,7 @@ export default function NetworkPage() {
                 </div>
               </div>
 
-              <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+              <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
                 {categoryFilters.map((filter) => (
                   <Button
                     key={filter.key}
@@ -656,17 +648,21 @@ export default function NetworkPage() {
                       onClear={clearFilters}
                     />
                   ) : (
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex flex-wrap justify-center gap-6">
                       {industryProfessionals.map((profile, index) => (
-                        <MemberCard
+                        <div
                           key={profile.id}
-                          profile={profile}
-                          index={index}
-                          tone="professional"
-                          isMobile={isMobile}
-                          shouldReduceMotion={shouldReduceMotion}
-                          prefersReducedMotion={prefersReducedMotion}
-                        />
+                          className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
+                        >
+                          <MemberCard
+                            profile={profile}
+                            index={index}
+                            tone="professional"
+                            isMobile={isMobile}
+                            shouldReduceMotion={shouldReduceMotion}
+                            prefersReducedMotion={prefersReducedMotion}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
@@ -693,17 +689,21 @@ export default function NetworkPage() {
                       onClear={clearFilters}
                     />
                   ) : (
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex flex-wrap justify-center gap-6">
                       {alumni.map((profile, index) => (
-                        <MemberCard
+                        <div
                           key={profile.id}
-                          profile={profile}
-                          index={index}
-                          tone="alumni"
+                          className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
+                        >
+                          <MemberCard
+                            profile={profile}
+                            index={index}
+                            tone="alumni"
                           isMobile={isMobile}
                           shouldReduceMotion={shouldReduceMotion}
                           prefersReducedMotion={prefersReducedMotion}
-                        />
+                          />
+                        </div>
                       ))}
                     </div>
                   )}

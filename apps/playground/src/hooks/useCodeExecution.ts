@@ -15,6 +15,8 @@ export function useCodeExecution() {
     setIsRunning,
     setExecutionTime,
     setExecutionTier,
+    setExecutionProvider,
+    setServerExecutionTime,
     setStatusMessage,
     setInputPrompt,
     inputResolverRef,
@@ -76,6 +78,8 @@ export function useCodeExecution() {
     setOutput('');
     setError('');
     setExecutionTier(null);
+    setExecutionProvider(null);
+    setServerExecutionTime(null);
     setStatusMessage('');
     const startTime = Date.now();
 
@@ -122,6 +126,18 @@ export function useCodeExecution() {
       const executionTime = calculateExecutionTime(startTime, endTime);
       setExecutionTime(executionTime);
       setExecutionTier(result.tier);
+      setExecutionProvider(
+        result.tier === 'cloud'
+          ? (result.provider && result.provider !== 'codescriet' ? result.provider : 'cloud')
+          : 'client',
+      );
+      setServerExecutionTime(
+        result.tier === 'cloud' && typeof result.serverDurationMs === 'number'
+          ? result.serverDurationMs < 1000
+            ? `${result.serverDurationMs}ms`
+            : `${(result.serverDurationMs / 1000).toFixed(2)}s`
+          : null,
+      );
       setStatusMessage('');
 
       const { output, error, hasError, warning } = formatOutput(result);

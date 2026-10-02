@@ -143,6 +143,7 @@ const subtitleMap: Record<string, string> = {
   COMPLETION:    'of Achievement',
   WINNER:        'of Excellence',
   SPEAKER:       'of Recognition',
+  APPRECIATION:  'of Appreciation',
 };
 
 // Scale name font size for long names (react-pdf has no clamp)
@@ -594,6 +595,12 @@ export function buildDescription(data: CertData, type: string, hasEventName = tr
         hasEventName
           ? 'for sharing their valuable knowledge and expertise as a speaker at'
           : 'for sharing their valuable knowledge and expertise as a speaker.',
+      ];
+    case 'APPRECIATION':
+      return [
+        hasEventName
+          ? 'in sincere appreciation of their dedicated support and valuable contribution to'
+          : 'in sincere appreciation of their dedicated support and valuable contribution.',
       ];
     default:
       return [

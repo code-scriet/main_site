@@ -3,13 +3,15 @@
  * All quiz create/read/edit/delete operations.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { Readable } from 'node:stream';
+import { randomInt } from 'node:crypto';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
@@ -18,8 +20,14 @@ import { getJwtSecret } from '../utils/jwt.js';
 import { QuizCapacityError, quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
 import { socketEvents } from '../utils/socket.js';
+import { uuidParamGuard } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const quizRouter = Router();
+
+// Reject malformed :quizId path params before they hit Prisma (Quiz PK is a uuid).
+// Fires only for routes matching a `:quizId` segment; the `:code` join route is unaffected.
+quizRouter.param('quizId', uuidParamGuard('quiz ID'));
 
 // Rate limit quiz creation: max 10 per hour per IP
 const quizCreateLimiter = rateLimit({
@@ -28,6 +36,7 @@ const quizCreateLimiter = rateLimit({
   message: { error: 'Too many quiz creations, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Rate limit join-code lookups and PIN joins to reduce brute-force attempts
@@ -37,6 +46,7 @@ const quizLookupLimiter = rateLimit({
   message: { error: 'Too many join-code lookups, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const quizJoinLimiter = rateLimit({
@@ -46,6 +56,7 @@ const quizJoinLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const quizImportUpload = multer({
@@ -73,7 +84,11 @@ class QuizImportParseError extends Error {
 }
 
 function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
+  // `purpose` partitions this token out of session auth (audit S1): the auth
+  // middlewares + verifyToken reject any purpose-carrying token, while
+  // quizSocket's verifyQuizAccessToken matches on quizId/userId/accessRole and
+  // ignores the extra claim — so quiz flows are unaffected.
+  return jwt.sign({ ...payload, purpose: 'quiz_access' }, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
 }
 
 // ─── Validation schemas ──────────────────────────────────────────────────
@@ -785,9 +800,11 @@ quizRouter.get('/active', authMiddleware, async (_req: Request, res: Response) =
   }
 });
 
-// ─── GET /api/quiz/history/me — User's quiz history ─────────────────────
+// ─── GET /api/quiz/history/me + /api/quiz/my-history — User's quiz history ──
+// Two routes, one handler: /my-history is a frontend-compat alias and was a
+// byte-identical copy-paste of /history/me.
 
-quizRouter.get('/history/me', authMiddleware, async (req: Request, res: Response) => {
+async function handleMyQuizHistory(req: Request, res: Response) {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
@@ -821,51 +838,13 @@ quizRouter.get('/history/me', authMiddleware, async (req: Request, res: Response
       joinedMidQuiz: p.joinedMidQuiz ?? false,
     })));
   } catch (error) {
-    logger.error('GET /api/quiz/history/me error', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('GET quiz history error', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res);
   }
-});
+}
 
-// ─── GET /api/quiz/my-history — Alias for /history/me (frontend compat) ──
-
-quizRouter.get('/my-history', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user) return ApiResponse.unauthorized(res);
-
-    const participations = await prisma.quizParticipant.findMany({
-      where: { userId: user.id, quiz: { status: 'FINISHED' } },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            endedAt: true,
-            questionCount: true,
-            _count: { select: { participants: true } },
-          },
-        },
-      },
-      orderBy: { quiz: { endedAt: 'desc' } },
-      take: 20,
-    });
-
-    return ApiResponse.success(res, participations.map((p) => ({
-      quizId: p.quiz.id,
-      title: p.quiz.title,
-      endedAt: p.quiz.endedAt,
-      questionCount: p.quiz.questionCount,
-      finalScore: p.finalScore,
-      finalRank: p.finalRank,
-      correctCount: p.correctCount,
-      totalParticipants: p.quiz._count.participants,
-      joinedMidQuiz: p.joinedMidQuiz ?? false,
-    })));
-  } catch (error) {
-    logger.error('GET /api/quiz/my-history error', { error: error instanceof Error ? error.message : String(error) });
-    return ApiResponse.internal(res);
-  }
-});
+quizRouter.get('/history/me', authMiddleware, handleMyQuizHistory);
+quizRouter.get('/my-history', authMiddleware, handleMyQuizHistory);
 
 // ─── GET /api/quiz/lookup/:code — Find quiz by join code (alphanumeric) ──
 
@@ -1140,22 +1119,14 @@ quizRouter.get('/:quizId', authMiddleware, async (req: Request, res: Response) =
   try {
     const { quizId } = req.params;
 
+    // Fetch full question rows once and redact in JS for non-entitled viewers
+    // — the old shape refetched every question (second query) whenever the
+    // quiz was FINISHED or the viewer was the creator.
     const quiz = await prisma.quiz.findUnique({
       where: { id: quizId },
       include: {
         questions: {
           orderBy: { position: 'asc' },
-          select: {
-            id: true,
-            position: true,
-            questionText: true,
-            questionType: true,
-            options: true,
-            timeLimitSeconds: true,
-            points: true,
-            mediaUrl: true,
-            // NO correctAnswer for non-finished quizzes
-          },
         },
         creator: { select: { id: true, name: true } },
         _count: { select: { participants: true } },
@@ -1166,18 +1137,32 @@ quizRouter.get('/:quizId', authMiddleware, async (req: Request, res: Response) =
 
     const user = getAuthUser(req);
     const isCreator = user?.id === quiz.createdBy;
+    const isAdminRole = ['ADMIN', 'PRESIDENT'].includes(user?.role || '');
+    const isHost = isCreator || isAdminRole;
 
-    // Include correct answers only if quiz is finished or user is the creator
-    let questions;
-    if (quiz.status === 'FINISHED' || isCreator) {
-      const fullQuestions = await prisma.quizQuestion.findMany({
-        where: { quizId },
-        orderBy: { position: 'asc' },
-      });
-      questions = fullQuestions;
-    } else {
-      questions = quiz.questions;
-    }
+    // B4: while a quiz is live (or still a draft), non-hosts must not read
+    // question texts over HTTP — a joined player could otherwise fetch every
+    // upcoming question and search answers during the countdowns. Players
+    // receive each question via the socket `show_question` event when it goes
+    // live; only the creator/admin sees the list before the quiz finishes.
+    const questionsHidden = !isHost && quiz.status !== 'FINISHED' && quiz.status !== 'ABANDONED';
+
+    // Include correct answers only if quiz is finished or viewer is the host
+    const questions = questionsHidden
+      ? []
+      : (quiz.status === 'FINISHED' || isHost)
+        ? quiz.questions
+        : quiz.questions.map((q) => ({
+            id: q.id,
+            position: q.position,
+            questionText: q.questionText,
+            questionType: q.questionType,
+            options: q.options,
+            timeLimitSeconds: q.timeLimitSeconds,
+            points: q.points,
+            mediaUrl: q.mediaUrl,
+            // NO correctAnswer for non-finished quizzes
+          }));
 
     return ApiResponse.success(res, {
       id: quiz.id,
@@ -1563,7 +1548,26 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
     const participantMap = new Map(quiz.participants.map((participant) => [participant.userId, participant]));
 
     const ExcelJS = await import('exceljs');
-    const workbook = new ExcelJS.default.Workbook();
+
+    // B6: the buffered Workbook was the platform's most plausible OOM trigger —
+    // the detail sheets are participants × questions × 4 cells and ExcelJS
+    // commonly needs ~0.5–1 KB per in-memory cell, i.e. hundreds of MB at the
+    // 900-player ceiling against a 400 MB heap. The streaming WorkbookWriter
+    // writes each committed row straight to `res`, so peak memory is bounded by
+    // the raw DB rows already loaded above (allAnswers + maps ≈ 15–20 MB at the
+    // 900-player ceiling) plus one row + zip buffers — not the ExcelJS cell
+    // graph. Headers must be set before the writer is constructed (it starts
+    // writing immediately); from here on, failures can only truncate the
+    // download, not return a JSON 500.
+    const filename = `${quiz.title.replace(/[^a-z0-9]/gi, '_')}_results.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const workbook = new ExcelJS.default.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
@@ -1572,6 +1576,20 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 },
       fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } },
       alignment: { horizontal: 'center', vertical: 'middle' },
+    };
+    const thinBorder = {
+      top: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      bottom: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      left: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      right: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+    };
+    // Streaming mode: committed rows are gone, so styles must be applied at
+    // add time (the old post-hoc `eachRow` passes don't exist here).
+    const styleAndCommitHeader = (sheet: import('exceljs').Worksheet) => {
+      const headerRow = sheet.getRow(1);
+      headerRow.eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
+      headerRow.height = 25;
+      headerRow.commit();
     };
 
     // ── Sheet 1: Leaderboard ──
@@ -1587,14 +1605,13 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Avg Time (s)', key: 'avgTime', width: 14 },
       { header: 'Joined Mid-Quiz', key: 'midJoin', width: 16 },
     ];
-    lbSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    lbSheet.getRow(1).height = 25;
+    styleAndCommitHeader(lbSheet);
 
     for (const p of quiz.participants) {
       const accuracy = p.questionsAnswered > 0
         ? Math.round((p.correctCount / p.questionsAnswered) * 100)
         : 0;
-      lbSheet.addRow({
+      const row = lbSheet.addRow({
         rank: p.finalRank ?? '-',
         name: p.displayName,
         score: p.finalScore,
@@ -1607,19 +1624,11 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
           : '-',
         midJoin: p.joinedMidQuiz ? 'Yes' : 'No',
       });
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-    // Alternate row colors
-    lbSheet.eachRow((row, n) => {
-      if (n > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: n % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    lbSheet.commit();
 
     // ── Sheet 2: Question Analytics ──
     const qaSheet = workbook.addWorksheet('Question Analytics');
@@ -1637,8 +1646,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Unanswered', key: 'unanswered', width: 12 },
       { header: 'Most Common Wrong Answer', key: 'commonWrong', width: 28 },
     ];
-    qaSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    qaSheet.getRow(1).height = 25;
+    styleAndCommitHeader(qaSheet);
 
     for (const q of quiz.questions) {
       const isUnscoredType = UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType);
@@ -1666,7 +1674,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         correctAns = `Avg: ${(total / q.totalAnswers).toFixed(1)} ★`;
       }
 
-      qaSheet.addRow({
+      const row = qaSheet.addRow({
         num: q.position + 1,
         question: q.questionText,
         type: q.questionType,
@@ -1680,25 +1688,19 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         unanswered: Math.max(0, quiz.participants.length - q.totalAnswers),
         commonWrong: isUnscoredType ? 'N/A' : commonWrong,
       });
-    }
-    // Color: low accuracy = red tint, high = green tint
-    qaSheet.eachRow((row, n) => {
-      if (n > 1) {
+      // Color: low accuracy = red tint, high = green tint (scored questions only)
+      if (!isUnscoredType) {
         const accuracyCell = row.getCell('accuracy');
-        const val = typeof accuracyCell.value === 'number' ? accuracyCell.value : -1;
-        if (val >= 0 && val < 40) {
+        if (accuracy < 40) {
           accuracyCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFECACA' } };
-        } else if (val >= 80) {
+        } else if (accuracy >= 80) {
           accuracyCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBBF7D0' } };
         }
-        row.border = {
-          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        };
       }
-    });
+      row.border = thinBorder;
+      row.commit();
+    }
+    qaSheet.commit();
 
     // ── Sheet 3: Per-Participant Answers (detailed breakdown) ──
     const detailSheet = workbook.addWorksheet('Detailed Answers');
@@ -1729,8 +1731,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       });
     }
     detailSheet.columns = detailCols;
-    detailSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    detailSheet.getRow(1).height = 25;
+    styleAndCommitHeader(detailSheet);
 
     for (const p of quiz.participants) {
       const rowData: Record<string, unknown> = {
@@ -1747,22 +1748,18 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         rowData[`q${q.position}_pts`] = ans?.pointsAwarded ?? 0;
         rowData[`q${q.position}_time`] = ans ? (ans.answerTimeMs / 1000).toFixed(2) : '-';
       }
-      detailSheet.addRow(rowData);
+      const row = detailSheet.addRow(rowData);
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-    detailSheet.eachRow((row, n) => {
-      if (n > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: n % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    detailSheet.commit();
 
     // ── Sheet 4: All Responses (one row per submitted answer) ──
     const responsesSheet = workbook.addWorksheet('All Responses');
+    // Streaming mode: column-level alignment must ride the column defs (the
+    // old post-hoc getColumn().alignment assignments don't reach committed rows).
+    const wrapTop = { style: { alignment: { vertical: 'top' as const, wrapText: true } } };
     responsesSheet.columns = [
       { header: 'Participant', key: 'participant', width: 28 },
       { header: 'Rank', key: 'rank', width: 8 },
@@ -1771,24 +1768,17 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Question #', key: 'questionNumber', width: 10 },
       { header: 'Question ID', key: 'questionId', width: 30 },
       { header: 'Question Type', key: 'questionType', width: 16 },
-      { header: 'Question', key: 'questionText', width: 48 },
-      { header: 'Available Options', key: 'availableOptions', width: 36 },
-      { header: 'Submitted Answer', key: 'submittedAnswer', width: 38 },
-      { header: 'Submitted Answer (Raw)', key: 'submittedAnswerRaw', width: 38 },
-      { header: 'Correct Answer', key: 'correctAnswer', width: 28 },
-      { header: 'Correct Answer (Raw)', key: 'correctAnswerRaw', width: 28 },
+      { header: 'Question', key: 'questionText', width: 48, ...wrapTop },
+      { header: 'Available Options', key: 'availableOptions', width: 36, ...wrapTop },
+      { header: 'Submitted Answer', key: 'submittedAnswer', width: 38, ...wrapTop },
+      { header: 'Submitted Answer (Raw)', key: 'submittedAnswerRaw', width: 38, ...wrapTop },
+      { header: 'Correct Answer', key: 'correctAnswer', width: 28, ...wrapTop },
+      { header: 'Correct Answer (Raw)', key: 'correctAnswerRaw', width: 28, ...wrapTop },
       { header: 'Result', key: 'result', width: 14 },
       { header: 'Points Awarded', key: 'pointsAwarded', width: 14 },
       { header: 'Answer Time (s)', key: 'answerTimeSeconds', width: 16 },
     ];
-    responsesSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    responsesSheet.getRow(1).height = 25;
-    responsesSheet.getColumn('questionText').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('availableOptions').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('submittedAnswer').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('submittedAnswerRaw').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('correctAnswer').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('correctAnswerRaw').alignment = { vertical: 'top', wrapText: true };
+    styleAndCommitHeader(responsesSheet);
 
     const sortedAnswers = [...allAnswers].sort((left, right) => {
       const leftQuestion = questionMap.get(left.questionId);
@@ -1807,7 +1797,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       if (!question || !participant) continue;
 
       const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType as SupportedQuestionType);
-      responsesSheet.addRow({
+      const row = responsesSheet.addRow({
         participant: participant.displayName,
         rank: participant.finalRank ?? '-',
         userId: answer.userId,
@@ -1833,22 +1823,17 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         pointsAwarded: answer.pointsAwarded,
         answerTimeSeconds: (answer.answerTimeMs / 1000).toFixed(2),
       });
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-
-    responsesSheet.eachRow((row, index) => {
-      if (index > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    responsesSheet.commit();
 
     // ── Sheet 5: Quiz Summary ──
     const summarySheet = workbook.addWorksheet('Quiz Summary');
+    // No header row on this sheet — set widths directly (before any commit).
+    summarySheet.getColumn(1).width = 22;
+    summarySheet.getColumn(2).width = 45;
     const totalScored = quiz.questions.filter(
       (q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType),
     );
@@ -1877,20 +1862,23 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       ['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
     ];
     for (const [label, value] of summaryData) {
-      summarySheet.addRow([label, value]);
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+      row.commit();
     }
-    summarySheet.getColumn(1).width = 22;
-    summarySheet.getColumn(1).font = { bold: true };
-    summarySheet.getColumn(2).width = 45;
+    summarySheet.commit();
 
-    // Send
-    const filename = `${quiz.title.replace(/[^a-z0-9]/gi, '_')}_results.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('GET /api/quiz/:quizId/export error', { error: error instanceof Error ? error.message : String(error) });
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     return ApiResponse.internal(res);
   }
 });
@@ -2006,7 +1994,7 @@ async function generateUniqueJoinCode(): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt++) {
     let code = '';
     for (let i = 0; i < 4; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+      code += chars.charAt(randomInt(chars.length));
     }
     const existing = await prisma.quiz.findUnique({ where: { joinCode: code } });
     if (!existing) return code;
@@ -2019,7 +2007,7 @@ async function generateUniqueJoinCode(): Promise<string> {
 async function generateUniquePin(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
     // Generate 6-digit number between 100000-999999
-    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const pin = String(randomInt(100000, 1000000));
     const existing = await prisma.quiz.findFirst({ where: { pin, pinActive: true } });
     if (!existing) return pin;
   }
@@ -2114,9 +2102,18 @@ quizRouter.get('/admin/list', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     const isAdmin = user.role === 'ADMIN' || user.role === 'PRESIDENT';
 
-    const quizzes = await prisma.quiz.findMany({
-      where: isAdmin ? {} : { createdBy: user.id },
-      select: {
+    // Paged fetch-all support (default 50, max 200/page) + exact total so the
+    // manager can show "{total} total" and know when to fetch more.
+    const rawLimit = Number.parseInt(req.query.limit as string, 10);
+    const rawOffset = Number.parseInt(req.query.offset as string, 10);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+    const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+    const where = isAdmin ? {} : { createdBy: user.id };
+
+    const [rows, total] = await Promise.all([
+      prisma.quiz.findMany({
+        where,
+        select: {
         id: true,
         title: true,
         status: true,
@@ -2128,20 +2125,26 @@ quizRouter.get('/admin/list', authMiddleware, requireRole('CORE_MEMBER'), async 
         _count: { select: { participants: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+      skip: offset,
+      take: limit,
+    }),
+      prisma.quiz.count({ where }),
+    ]);
 
-    return ApiResponse.success(res, quizzes.map((q) => ({
-      id: q.id,
-      title: q.title,
-      status: q.status,
-      questionCount: q.questionCount,
-      participantCount: q._count.participants,
-      createdBy: q.creator,
-      createdAt: q.createdAt,
-      startedAt: q.startedAt,
-      endedAt: q.endedAt,
-    })));
+    return ApiResponse.success(res, {
+      quizzes: rows.map((q) => ({
+        id: q.id,
+        title: q.title,
+        status: q.status,
+        questionCount: q.questionCount,
+        participantCount: q._count.participants,
+        createdBy: q.creator,
+        createdAt: q.createdAt,
+        startedAt: q.startedAt,
+        endedAt: q.endedAt,
+      })),
+      total,
+    });
   } catch (error) {
     logger.error('GET /api/quiz/admin/list error', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res);

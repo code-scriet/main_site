@@ -4,9 +4,11 @@
 import { prisma } from '../lib/prisma.js';
 import { emailService } from './email.js';
 import { logger } from './logger.js';
-import { broadcastQotdLive } from './notifications.js';
+import { broadcastQotdLive, broadcastNotification } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
+import { invalidateQotdTodayCache } from './qotdTodayCache.js';
 import { updateEventStatuses } from './eventStatus.js';
+import { isContestPriorityActive } from '../competition/contestMode.js';
 
 let reminderColumnAvailable = true;
 
@@ -222,6 +224,109 @@ async function sendEventReminders(): Promise<void> {
   }
 }
 
+// ── S-10: post-event feedback requests ──────────────────────────────────────
+// Runs on the same 6h reminder cadence (no extra timer). For each event that
+// (a) ended 2h–96h ago, (b) hasn't had feedback sent, and (c) has a PUBLISHED
+// feedback poll linked (the organizer's opt-in), reserve a per-event marker and
+// notify everyone who attended. The bell is the reliable channel (a DB write);
+// the email is a best-effort nudge, so we don't roll back the reservation if the
+// email fails. Self-disables if the feedback columns aren't migrated yet, so the
+// code can deploy ahead of the migration without erroring every tick.
+const FEEDBACK_MIN_AGE_MS = 2 * 60 * 60 * 1000;   // wait 2h after the event ends
+const FEEDBACK_MAX_AGE_MS = 96 * 60 * 60 * 1000;  // don't chase events older than 4 days
+let feedbackColumnAvailable = true;
+
+async function sendEventFeedbackRequests(): Promise<void> {
+  if (!feedbackColumnAvailable) return;
+  try {
+    const now = Date.now();
+    const minEnd = new Date(now - FEEDBACK_MAX_AGE_MS);
+    const maxEnd = new Date(now - FEEDBACK_MIN_AGE_MS);
+    const candidates = await prisma.event.findMany({
+      where: {
+        feedbackSentAt: null,
+        feedbackPolls: { some: { isPublished: true } },
+        OR: [
+          { endDate: { gte: minEnd, lte: maxEnd } },
+          { endDate: null, startDate: { gte: minEnd, lte: maxEnd } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        feedbackPolls: {
+          where: { isPublished: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { slug: true },
+        },
+      },
+      take: 50,
+    });
+
+    for (const ev of candidates) {
+      const pollSlug = ev.feedbackPolls[0]?.slug;
+      if (!pollSlug) continue;
+
+      // Reserve once: only the tick that flips feedback_sent_at from NULL proceeds.
+      const reserved = await prisma.event.updateMany({
+        where: { id: ev.id, feedbackSentAt: null },
+        data: { feedbackSentAt: new Date() },
+      });
+      if (reserved.count === 0) continue;
+
+      const regs = await prisma.eventRegistration.findMany({
+        where: {
+          eventId: ev.id,
+          OR: [{ attended: true }, { dayAttendances: { some: { attended: true } } }],
+        },
+        select: { userId: true, user: { select: { email: true } } },
+      });
+      if (regs.length === 0) continue; // nobody attended — reserved, won't re-fire
+
+      const userIds = [...new Set(regs.map((r) => r.userId))];
+      const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+
+      // Per-event isolation: one event's failure must not abort the batch, and on
+      // a failed bell/email we release the reservation so a later tick retries it.
+      try {
+        // Bell first — the reliable channel (survives even if email is down).
+        await broadcastNotification({
+          source: 'AUTO_EVENT',
+          audience: 'CUSTOM',
+          audienceUserIds: userIds,
+          category: 'event',
+          icon: 'calendar',
+          title: `How was ${ev.title}?`,
+          body: 'Thanks for coming — share quick feedback (2 questions).',
+          link: `/polls/${pollSlug}`,
+          refEntity: 'event-feedback',
+          refEntityId: ev.id,
+        });
+        if (emails.length > 0) {
+          await emailService.sendEventFeedback(emails, ev.title, pollSlug);
+        }
+        logger.info(`📝 Sent post-event feedback request for "${ev.title}"`, { eventId: ev.id, recipients: emails.length });
+      } catch (sendError) {
+        await prisma.event.updateMany({ where: { id: ev.id }, data: { feedbackSentAt: null } }).catch(() => undefined);
+        logger.error('Post-event feedback send failed; reservation released for retry', {
+          eventId: ev.id, error: sendError instanceof Error ? sendError.message : String(sendError),
+        });
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Specific to the not-yet-migrated state (events.feedback_sent_at ships in the
+    // same migration as polls.event_id, so this one column is a reliable signal).
+    if (msg.includes('feedback_sent_at')) {
+      feedbackColumnAvailable = false;
+      logger.warn('Feedback scheduler disabled: feedback columns missing. Run latest migrations to enable.');
+      return;
+    }
+    logger.error('❌ Error in sendEventFeedbackRequests', { error: msg });
+  }
+}
+
 let reminderInterval: NodeJS.Timeout | null = null;
 let reminderStartupTimeout: NodeJS.Timeout | null = null;
 
@@ -241,6 +346,15 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647; // Node setTimeout ceiling (~24.8 days
 const qotdPublishTimers = new Map<string, NodeJS.Timeout>();
 let qotdSchedulerActive = false;
 let qotdHydrateStartupTimeout: NodeJS.Timeout | null = null;
+
+// The QOTD leaderboard caches (daily/total/weekly) live in routes/qotd.ts, which
+// already imports this scheduler — so we can't import back without a cycle. Instead
+// that module registers its invalidator here at load time and we call it when an
+// auto-publish changes the published-day set (the weekly board's window membership).
+let qotdLeaderboardInvalidator: ((qotdId?: string) => void) | null = null;
+export function setQotdLeaderboardInvalidator(fn: (qotdId?: string) => void): void {
+  qotdLeaderboardInvalidator = fn;
+}
 
 // Flip a single scheduled QOTD to published and fire the bell notification.
 // Idempotent + race-safe: re-reads state and only flips if still unpublished/unheld.
@@ -267,6 +381,8 @@ async function publishDueQotd(id: string): Promise<void> {
     if (flipped.count === 0) return;
 
     invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
+    invalidateQotdTodayCache(); // an auto-published QOTD enters today's row / the published set
+    qotdLeaderboardInvalidator?.(id); // window membership changed → drop the weekly/daily/total board caches
     recomputeStreaksForQOTDSafe(id); // credit anyone who solved while it was scheduled
     broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);
     logger.info(`📅 Auto-published scheduled QOTD "${qotd.question}"`, { qotdId: id });
@@ -445,10 +561,367 @@ export async function reconcileEventStatusesSoon(): Promise<void> {
   await reconcileEventStatuses();
 }
 
+// ── Registration-open announcements: precise per-event timers (no polling) ──
+// S-01. The moment an event's registrationStartDate arrives we fire the (until now
+// unused) "Now Open" email + a bell broadcast, so members learn when they can
+// actually register — not weeks earlier when the event was merely created. Same
+// event-driven shape as the QOTD publisher above.
+//
+// Dedup marker is the bell NotificationFeed row itself (refEntity below) — it
+// persists across restarts, so no schema change is needed. Two safety rules keep
+// this from ever spamming: (1) we only arm FUTURE registrationStartDate moments
+// and never fire past-due on boot (unlike QOTD, which must publish), so stale
+// events are never blasted; (2) before sending we re-check the marker and write it
+// first, so a mid-send crash or a double-arm can't double-deliver.
+const registrationOpenTimers = new Map<string, NodeJS.Timeout>();
+let registrationOpenActive = false;
+let registrationOpenHydrateTimeout: NodeJS.Timeout | null = null;
+const REGISTRATION_OPEN_REF = 'event-registration-open';
+
+async function fireRegistrationOpen(eventId: string): Promise<void> {
+  registrationOpenTimers.delete(eventId);
+  if (!registrationOpenActive) return;
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true, title: true, slug: true, shortDescription: true,
+        imageUrl: true, startDate: true, status: true,
+        registrationStartDate: true, registrationEndDate: true,
+      },
+    });
+    if (!event || !event.registrationStartDate) return;
+    // Don't announce events whose registration window already closed, or that are over.
+    const now = new Date();
+    if (event.status === 'PAST') return;
+    if (event.registrationEndDate && event.registrationEndDate < now) return;
+
+    // Persistent dedup: the bell row IS the marker. If one already exists we've announced.
+    const already = await prisma.notificationFeed.findFirst({
+      where: { refEntity: REGISTRATION_OPEN_REF, refEntityId: eventId },
+      select: { id: true },
+    });
+    if (already) return;
+
+    // Write the bell first (the dedup marker) so a crash mid-fan-out can't double-blast.
+    await broadcastNotification({
+      source: 'AUTO_EVENT',
+      audience: 'ALL',
+      category: 'event',
+      icon: 'calendar',
+      title: `Registration open: ${event.title}`,
+      body: event.shortDescription || 'Registration is now open — grab your spot.',
+      link: `/events/${event.slug}`,
+      refEntity: REGISTRATION_OPEN_REF,
+      refEntityId: eventId,
+    });
+
+    // Email fan-out (best effort), mirroring sendNewEventEmailsAsync's audience.
+    const users = await prisma.user.findMany({
+      where: { email: { not: '' }, role: { not: 'NETWORK' } },
+      select: { email: true },
+    });
+    const emails = users.map((u) => u.email).filter(Boolean) as string[];
+    if (emails.length > 0) {
+      await emailService.sendRegistrationOpens(
+        emails, event.title, event.startDate, event.slug,
+        event.shortDescription ?? undefined, event.imageUrl ?? undefined,
+      );
+    }
+    logger.info(`📣 Registration-open announced for "${event.title}"`, { eventId, recipients: emails.length });
+  } catch (error) {
+    logger.error('❌ Registration-open announcement failed', {
+      eventId, error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function scheduleRegistrationOpenTimer(id: string, at: Date): void {
+  const remaining = at.getTime() - Date.now();
+  if (remaining <= 0) return; // never fire past-due → already-open events are never blasted
+  const delay = Math.min(remaining, MAX_TIMER_DELAY_MS);
+  const handle = setTimeout(() => {
+    registrationOpenTimers.delete(id);
+    // Capped early fire for a very long schedule → re-arm for the remainder.
+    if (at.getTime() - Date.now() > 1000) scheduleRegistrationOpenTimer(id, at);
+    else void fireRegistrationOpen(id);
+  }, delay);
+  if (typeof handle.unref === 'function') handle.unref();
+  registrationOpenTimers.set(id, handle);
+}
+
+/**
+ * Arm (or re-arm) the registration-open announcement timer for one event. No-op
+ * unless the scheduler is active and registrationStartDate is in the future. Safe
+ * to call on every edit — a moved date replaces the old timer, and the persistent
+ * bell-row dedup guarantees at-most-once delivery however often it's called.
+ */
+export function armRegistrationOpenTimer(
+  event: { id: string; registrationStartDate: Date | null; status?: string },
+): void {
+  if (!registrationOpenActive) return;
+  cancelRegistrationOpenTimer(event.id); // drop any stale timer so a changed date is honored
+  if (!event.registrationStartDate) return;
+  if (event.status === 'PAST') return;
+  if (event.registrationStartDate.getTime() <= Date.now()) return;
+  scheduleRegistrationOpenTimer(event.id, event.registrationStartDate);
+}
+
+/** Drop an armed registration-open timer (on event delete). */
+export function cancelRegistrationOpenTimer(eventId: string): void {
+  const handle = registrationOpenTimers.get(eventId);
+  if (handle) {
+    clearTimeout(handle);
+    registrationOpenTimers.delete(eventId);
+  }
+}
+
+// If registration opened while the instance was spun down (free tier), the
+// in-memory timer never fired. On boot we catch up on any event whose
+// registrationStartDate fell within this window and announce it once. Kept tight
+// so genuinely stale events created long ago with a past open-date aren't blasted.
+const REGISTRATION_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000; // 12h
+
+// Startup-only: re-arm timers for future opens + catch up on recently-missed ones.
+async function hydrateRegistrationOpenTimers(): Promise<void> {
+  try {
+    const now = new Date();
+    const pending = await prisma.event.findMany({
+      where: { registrationStartDate: { gt: now }, status: { not: 'PAST' } },
+      select: { id: true, registrationStartDate: true, status: true },
+      orderBy: { registrationStartDate: 'asc' },
+      take: 500,
+    });
+    for (const ev of pending) armRegistrationOpenTimer(ev);
+    if (pending.length > 0) logger.info(`📣 Re-armed ${pending.length} registration-open timer(s) on boot`);
+
+    // Catch-up sweep: opens that fell in the recent past during downtime.
+    // fireRegistrationOpen is dedup-guarded (the persistent bell row IS the marker)
+    // and re-checks the window/status, so an already-announced event is a no-op.
+    const missed = await prisma.event.findMany({
+      where: {
+        registrationStartDate: { gt: new Date(now.getTime() - REGISTRATION_OPEN_CATCHUP_MS), lte: now },
+        status: { not: 'PAST' },
+      },
+      select: { id: true },
+      take: 200,
+    });
+    if (missed.length > 0) {
+      logger.info(`📣 Catching up on ${missed.length} recently-opened event(s) missed during downtime`);
+      for (const ev of missed) void fireRegistrationOpen(ev.id);
+    }
+  } catch (error) {
+    logger.error('❌ Registration-open hydration failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export function startRegistrationOpenScheduler(): void {
+  if (registrationOpenActive) return;
+  registrationOpenActive = true;
+  registrationOpenHydrateTimeout = setTimeout(() => {
+    registrationOpenHydrateTimeout = null;
+    void hydrateRegistrationOpenTimers();
+  }, 15_000); // hydrate once the DB is warm
+  logger.info('📣 Registration-open scheduler started (event-driven timers, no polling)');
+}
+
+export function stopRegistrationOpenScheduler(): void {
+  registrationOpenActive = false;
+  if (registrationOpenHydrateTimeout) {
+    clearTimeout(registrationOpenHydrateTimeout);
+    registrationOpenHydrateTimeout = null;
+  }
+  for (const handle of registrationOpenTimers.values()) clearTimeout(handle);
+  registrationOpenTimers.clear();
+  logger.info('📣 Registration-open scheduler stopped');
+}
+
+// ── Retention pruning: keep the free-tier DB from growing forever (A7) ──
+// Piggybacks on the reminder interval (no extra timer) and self-gates to one
+// pass per 24h. The retention windows + rationale live in one place so the
+// manual script (scripts/prune-old-records.ts) can re-export them.
+//
+//   Execution            (90d)  — playground run history (code + output TEXT)
+//   PlaygroundDailyUsage (60d)  — per-user-per-day quota counters
+//   NotificationFeed     (90d OR expired) — bell broadcasts; the CUSTOM feed
+//                                query (take:50) stays fast forever
+//   CompetitionAutoSave  (round FINISHED >30d) — code blobs superseded the
+//                                moment the round locked; final submissions
+//                                live in CompetitionSubmission and are kept
+//   QuizAnswer           (365d) — OFF by default behind PRUNE_QUIZ_ANSWERS;
+//                                QuizParticipant aggregates (the leaderboard
+//                                history) are NEVER pruned
+//
+// AuditLog is the compliance trail, so automatic pruning is OPT-IN: it runs only
+// when AUDIT_LOG_RETENTION_DAYS is set to a positive integer (≥30, matching the
+// manual DELETE /api/audit-logs/retention floor). Unset ⇒ kept forever (the prior
+// behavior). The manual endpoint remains for one-off cleanups.
+export const EXECUTION_RETENTION_DAYS = 90;
+export const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
+export const NOTIFICATION_FEED_RETENTION_DAYS = 90;
+export const COMPETITION_AUTOSAVE_RETENTION_DAYS = 30;
+export const QUIZ_ANSWER_RETENTION_DAYS = 365;
+const PRUNE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let lastPruneAt = 0;
+
+const PRUNE_BATCH_SIZE = 5000;
+
+/** QuizAnswer pruning is policy-gated (default off) so the owner opts in explicitly. */
+export function isQuizAnswerPruningEnabled(): boolean {
+  return process.env.PRUNE_QUIZ_ANSWERS === 'true';
+}
+
+/**
+ * AuditLog retention window in days, or null when disabled. Owner opts in via
+ * AUDIT_LOG_RETENTION_DAYS; values below the 30-day floor (or non-numeric) are
+ * treated as "disabled" so a typo can't silently start deleting compliance data
+ * with an aggressive window.
+ */
+export function getAuditLogRetentionDays(): number | null {
+  const raw = process.env.AUDIT_LOG_RETENTION_DAYS;
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 30) return null;
+  return parsed;
+}
+
+export function computePruneCutoffs(now: number = Date.now()) {
+  const day = 24 * 60 * 60 * 1000;
+  return {
+    execution: new Date(now - EXECUTION_RETENTION_DAYS * day),
+    playgroundUsage: new Date(now - PLAYGROUND_USAGE_RETENTION_DAYS * day),
+    notificationFeed: new Date(now - NOTIFICATION_FEED_RETENTION_DAYS * day),
+    competitionAutoSave: new Date(now - COMPETITION_AUTOSAVE_RETENTION_DAYS * day),
+    quizAnswer: new Date(now - QUIZ_ANSWER_RETENTION_DAYS * day),
+  };
+}
+
+// TEXT-heavy tables (code + output) can produce very large first-run deletes,
+// so batch by id so no single statement holds the pooled Neon connection for
+// long while the API serves traffic. Generic over the delegate's where shape.
+async function deleteInBatches(
+  findIds: (take: number) => Promise<Array<{ id: string }>>,
+  deleteByIds: (ids: string[]) => Promise<{ count: number }>,
+): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const rows = await findIds(PRUNE_BATCH_SIZE);
+    if (rows.length === 0) break;
+    const { count } = await deleteByIds(rows.map((row) => row.id));
+    total += count;
+    if (rows.length < PRUNE_BATCH_SIZE) break;
+  }
+  return total;
+}
+
+export interface PruneResult {
+  executions: number;
+  dailyUsage: number;
+  notificationFeed: number;
+  competitionAutoSaves: number;
+  quizAnswers: number;
+  auditLogs: number;
+}
+
+export async function pruneOldRecords(): Promise<PruneResult> {
+  const cutoffs = computePruneCutoffs();
+
+  const executions = await deleteInBatches(
+    (take) => prisma.execution.findMany({ where: { executedAt: { lt: cutoffs.execution } }, select: { id: true }, take }),
+    (ids) => prisma.execution.deleteMany({ where: { id: { in: ids } } }),
+  );
+
+  const dailyUsage = await prisma.playgroundDailyUsage.deleteMany({
+    where: { usageDate: { lt: cutoffs.playgroundUsage } },
+  });
+
+  // Expired OR older than the window. Both predicates are covered by the
+  // existing [createdAt] / [audience, createdAt] indexes; a small table so no
+  // batching needed.
+  const notificationFeed = await prisma.notificationFeed.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { not: null, lt: new Date() } },
+        { createdAt: { lt: cutoffs.notificationFeed } },
+      ],
+    },
+  });
+
+  // AutoSaves whose round finished >30d ago are dead weight (final answers are
+  // in CompetitionSubmission). Relation filter on the round's terminal state.
+  const competitionAutoSaves = await prisma.competitionAutoSave.deleteMany({
+    where: { round: { status: 'FINISHED', updatedAt: { lt: cutoffs.competitionAutoSave } } },
+  });
+
+  let quizAnswers = 0;
+  if (isQuizAnswerPruningEnabled()) {
+    quizAnswers = await deleteInBatches(
+      (take) => prisma.quizAnswer.findMany({ where: { submittedAt: { lt: cutoffs.quizAnswer } }, select: { id: true }, take }),
+      (ids) => prisma.quizAnswer.deleteMany({ where: { id: { in: ids } } }),
+    );
+  }
+
+  // AuditLog: opt-in retention (AUDIT_LOG_RETENTION_DAYS). Batched by id — the
+  // table can be large and is never otherwise trimmed, so the first pruned run
+  // must not hold a pooled Neon connection on one giant DELETE. Covered by the
+  // existing [timestamp] indexes.
+  let auditLogs = 0;
+  const auditRetentionDays = getAuditLogRetentionDays();
+  if (auditRetentionDays !== null) {
+    const auditCutoff = new Date(Date.now() - auditRetentionDays * 24 * 60 * 60 * 1000);
+    auditLogs = await deleteInBatches(
+      (take) => prisma.auditLog.findMany({ where: { timestamp: { lt: auditCutoff } }, select: { id: true }, take }),
+      (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }),
+    );
+  }
+
+  const result: PruneResult = {
+    executions,
+    dailyUsage: dailyUsage.count,
+    notificationFeed: notificationFeed.count,
+    competitionAutoSaves: competitionAutoSaves.count,
+    quizAnswers,
+    auditLogs,
+  };
+
+  if (Object.values(result).some((n) => n > 0)) {
+    logger.info('🧹 Pruned old records', { ...result });
+  }
+  return result;
+}
+
+async function pruneOldRecordsIfDue(): Promise<void> {
+  if (Date.now() - lastPruneAt < PRUNE_MIN_INTERVAL_MS) return;
+  lastPruneAt = Date.now();
+  try {
+    await pruneOldRecords();
+  } catch (error) {
+    logger.error('❌ Retention pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Start the reminder scheduler
  * Checks every 6 hours for events needing reminders
  */
+// One 6h tick of the non-essential background work. Skipped entirely while a contest
+// round is ACTIVE (contest priority mode) so the live contest gets the headroom — the
+// work simply runs on the next tick after the round ends. Reminders are time-windowed
+// and pruning is at-most-once/24h, so a skipped tick is harmless.
+function runReminderTick(): void {
+  if (isContestPriorityActive()) {
+    logger.info('⏭️ Contest priority mode active — deferring reminder/feedback/prune tick');
+    return;
+  }
+  sendEventReminders();
+  void sendEventFeedbackRequests();
+  void pruneOldRecordsIfDue();
+}
+
 export function startReminderScheduler(): void {
   if (reminderInterval || reminderStartupTimeout) {
     return;
@@ -457,14 +930,12 @@ export function startReminderScheduler(): void {
   // Run immediately on startup
   reminderStartupTimeout = setTimeout(() => {
     reminderStartupTimeout = null;
-    sendEventReminders();
+    runReminderTick();
   }, 10000); // Wait 10 seconds after startup
-  
+
   // Then run every 6 hours (4 times a day is efficient)
-  reminderInterval = setInterval(() => {
-    sendEventReminders();
-  }, 6 * 60 * 60 * 1000); // Every 6 hours
-  
+  reminderInterval = setInterval(runReminderTick, 6 * 60 * 60 * 1000); // Every 6 hours
+
   logger.info('🔔 Event reminder scheduler started (checks every 6 hours)');
 }
 
@@ -491,8 +962,6 @@ export async function triggerReminderCheck(): Promise<{ sent: number; events: st
     return { sent: 0, events: [] };
   }
 
-  const events: string[] = [];
-  
   try {
     const result = await processReminders(
       { minHours: 20, maxHours: 28 },
@@ -506,10 +975,10 @@ export async function triggerReminderCheck(): Promise<{ sent: number; events: st
       return { sent: 0, events: [] };
     }
 
-    logger.error('Error in manual reminder trigger:', { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.error('Error in manual reminder trigger:', {
+      error: error instanceof Error ? error.message : String(error)
     });
   }
-  
-  return { sent: 0, events };
+
+  return { sent: 0, events: [] };
 }

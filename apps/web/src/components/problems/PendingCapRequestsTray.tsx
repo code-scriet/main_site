@@ -47,6 +47,7 @@ export function PendingCapRequestsTray({
     queryFn: () => api.adminGetPendingCapRequests(filters, token!),
     enabled: Boolean(token),
     refetchInterval: refetchIntervalMs,
+    refetchIntervalInBackground: false,
   });
 
   const grantMutation = useMutation({

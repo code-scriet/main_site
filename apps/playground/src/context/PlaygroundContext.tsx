@@ -37,11 +37,15 @@ interface PlaygroundState {
   error: string;
   isRunning: boolean;
   executionTime: string;
+  /** Server-measured execution time label (from backend meta), null if unknown */
+  serverExecutionTime: string | null;
   fontSize: number;
-  showProblemPanel: boolean;
-  currentProblem: Problem | null;
   /** Which tier ran the last execution ('client' | 'cloud' | null) */
   executionTier: 'client' | 'cloud' | null;
+  /** Actual upstream host for cloud runs (codebox|wandbox|godbolt), null otherwise */
+  executionProvider: string | null;
+  /** Display "via X" badges on run outputs (admin toggle, default true) */
+  showExecutionSource: boolean;
   /** Status message shown during execution (e.g. "Loading Python runtime...") */
   statusMessage: string;
   /** Whether to run Python locally (Pyodide) or via cloud */
@@ -60,13 +64,13 @@ interface PlaygroundContextType extends PlaygroundState {
   setError: (error: string) => void;
   setIsRunning: (isRunning: boolean) => void;
   setExecutionTime: (time: string) => void;
+  setServerExecutionTime: (time: string | null) => void;
   setExecutionTier: (tier: 'client' | 'cloud' | null) => void;
+  setExecutionProvider: (provider: string | null) => void;
   setStatusMessage: (message: string) => void;
   resetCode: () => void;
   increaseFontSize: () => void;
   decreaseFontSize: () => void;
-  toggleProblemPanel: () => void;
-  setCurrentProblem: (problem: Problem | null) => void;
   clearOutput: () => void;
   /** Trigger download + warm-up of Pyodide for local Python execution */
   startLocalPython: () => void;
@@ -112,7 +116,9 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
           output: '',
           error: '',
           executionTime: '',
+          serverExecutionTime: null,
           executionTier: null,
+          executionProvider: null,
           statusMessage: '',
         };
       } catch (error) {
@@ -129,10 +135,10 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       error: '',
       isRunning: false,
       executionTime: '',
+      serverExecutionTime: null,
       fontSize: 14,
-      showProblemPanel: false,
-      currentProblem: null,
       executionTier: null,
+      executionProvider: null,
       statusMessage: '',
     };
   });
@@ -247,10 +253,40 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
   const setExecutionTime = (executionTime: string) => {
     setState((prev) => ({ ...prev, executionTime }));
   };
+  const setServerExecutionTime = (serverExecutionTime: string | null) => {
+    setState((prev) => ({ ...prev, serverExecutionTime }));
+  };
 
   const setExecutionTier = (executionTier: 'client' | 'cloud' | null) => {
     setState((prev) => ({ ...prev, executionTier }));
   };
+
+  const setExecutionProvider = (executionProvider: string | null) => {
+    setState((prev) => ({ ...prev, executionProvider }));
+  };
+
+  const [showExecutionSource, setShowExecutionSource] = useState(true);
+
+  // Display flag for "via X" badges (president/super-admin toggle, default on).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = (import.meta.env.VITE_MAIN_API_URL as string | undefined)?.replace(/\/+$/, '');
+        if (!base) return;
+        const res = await fetch(`${base}/api/settings/public`);
+        const json = await res.json();
+        if (!cancelled && json?.data && typeof json.data.showExecutionSource === 'boolean') {
+          setShowExecutionSource(json.data.showExecutionSource);
+        }
+      } catch {
+        /* offline/error: keep default true */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setStatusMessage = (statusMessage: string) => {
     setState((prev) => ({ ...prev, statusMessage }));
@@ -263,6 +299,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       output: '',
       error: '',
       executionTime: '',
+      serverExecutionTime: null,
     }));
   };
 
@@ -280,21 +317,6 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     }));
   };
 
-  const toggleProblemPanel = () => {
-    setState((prev) => ({
-      ...prev,
-      showProblemPanel: !prev.showProblemPanel,
-    }));
-  };
-
-  const setCurrentProblem = (problem: Problem | null) => {
-    setState((prev) => ({
-      ...prev,
-      currentProblem: problem,
-      showProblemPanel: problem !== null,
-    }));
-  };
-
   const clearOutput = () => {
     setState((prev) => ({
       ...prev,
@@ -302,6 +324,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       error: '',
       executionTime: '',
       executionTier: null,
+      executionProvider: null,
+      serverExecutionTime: null,
       statusMessage: '',
     }));
   };
@@ -315,13 +339,14 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setError,
     setIsRunning,
     setExecutionTime,
+    setServerExecutionTime,
     setExecutionTier,
+    setExecutionProvider,
+    showExecutionSource,
     setStatusMessage,
     resetCode,
     increaseFontSize,
     decreaseFontSize,
-    toggleProblemPanel,
-    setCurrentProblem,
     clearOutput,
     startLocalPython,
     revertToCloudPython,

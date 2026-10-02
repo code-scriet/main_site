@@ -29,6 +29,16 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+  requestPasswordReset: (email: string) =>
+    request<{ message: string }>('/auth/request-password-reset', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (email: string, token: string, newPassword: string) =>
+    request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, token, newPassword }),
+    }),
   exchangeAuthCode: (code: string) =>
     request<{ token: string; intent?: string; network_type?: 'professional' | 'alumni' }>('/auth/exchange-code', {
       method: 'POST',

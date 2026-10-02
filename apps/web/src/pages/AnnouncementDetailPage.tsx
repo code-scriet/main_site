@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
@@ -14,7 +15,7 @@ import {
   Bell, User, ExternalLink, Image as ImageIcon, FileText, 
   Link as LinkIcon, Tag, Pin, Star, Share2, Clock
 } from 'lucide-react';
-import { api, type Announcement } from '@/lib/api';
+import { api } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 
@@ -44,37 +45,27 @@ export default function AnnouncementDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showShareToast, setShowShareToast] = useState(false);
 
+  // React Query (keyed by slug/id) so the announcement rides the app's 5-min
+  // cache. Fetching by id OR slug is server-supported; the canonical-slug
+  // redirect below preserves the original behavior.
+  const { data: announcement = null, isLoading, error: queryError } = useQuery({
+    queryKey: ['announcement', id],
+    queryFn: () => api.getAnnouncement(id!),
+    enabled: !!id,
+  });
+  const loading = !!id && isLoading;
+  const error = !id
+    ? 'Announcement not found'
+    : (queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load announcement') : null);
+
+  // Canonical redirect: if the URL used the id (or a legacy slug), swap to the slug.
   useEffect(() => {
-    const fetchAnnouncement = async () => {
-      if (!id) {
-        setError('Announcement not found');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await api.getAnnouncement(id);
-        if (data.slug && id !== data.slug) {
-          navigate(`/announcements/${data.slug}`, { replace: true });
-          return;
-        }
-        setAnnouncement(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load announcement');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAnnouncement();
-  }, [id, navigate]);
+    if (announcement?.slug && id && id !== announcement.slug) {
+      navigate(`/announcements/${announcement.slug}`, { replace: true });
+    }
+  }, [announcement, id, navigate]);
 
   const handleShare = async () => {
     const url = window.location.href;

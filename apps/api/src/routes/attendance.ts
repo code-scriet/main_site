@@ -19,6 +19,7 @@ import {
   AttendanceBulkUpdateConflictError,
   CLIENT_SCAN_FUTURE_TOLERANCE_MS,
   CLIENT_SCAN_MAX_AGE_MS,
+  editDayAttendance,
   isRegistrationBoundToPayload,
   markDayAttendanceAtomic,
   normalizeEventDays,
@@ -30,10 +31,13 @@ import {
   resolveStoredAttendanceTokenPayloads,
   syncRegistrationAttendance,
   unmarkDayAttendanceAtomic,
-  type AttendanceTokenPayload,
 } from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { resolveBackdate } from '../utils/backdate.js';
+import { isUuid, requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const router = Router();
 
@@ -42,23 +46,37 @@ const beaconLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
-const uuidSchema = z.string().uuid();
 const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
+
+// Fire-and-forget beacon batches run AFTER the 204 — an uncapped array would
+// hold the event loop + Neon pool indefinitely. 100 scans ≈ one full scanner
+// offline session; larger batches must be split client-side.
+const MAX_BEACON_SCANS = 100;
+
+const beaconScanItemSchema = z.object({
+  token: z.string().min(1).max(2048),
+  scannedAtLocal: z.string().max(64).optional(),
+  localId: z.string().min(1).max(128),
+  dayNumber: z.number().int().positive().max(60).optional(),
+});
+
+const beaconBodySchema = z.object({
+  // Bearer-in-body is a deliberate fallback, not laziness: navigator.sendBeacon
+  // is cross-origin (codescriet.dev → api.codescriet.dev) so it can send
+  // NEITHER cookies NOR an Authorization header. Cookie is preferred whenever
+  // present; the body token is accepted only if JWT-shaped and is never logged.
+  authToken: z.string().regex(jwtLikePattern).optional(),
+  scans: z.array(beaconScanItemSchema).min(1).max(MAX_BEACON_SCANS),
+  eventId: z.string().uuid(),
+  bypassWindow: z.boolean().optional(),
+});
 const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
 const ATTENDANCE_REGENERATE_BATCH_SIZE = 200;
-
-function requireUuid(res: Response, value: unknown, label: string): value is string {
-  if (typeof value !== 'string' || !uuidSchema.safeParse(value).success) {
-    ApiResponse.badRequest(res, `Invalid ${label} format`);
-    return false;
-  }
-
-  return true;
-}
 
 function getCookie(req: Request, name: string): string | undefined {
   const raw = req.headers.cookie;
@@ -206,12 +224,13 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    // Event status check: only allow scans for ONGOING events.
-    // Admins can bypass to scan UPCOMING events only when explicitly requested.
+    // Event status check: ONGOING always allowed. UPCOMING/PAST allowed when
+    // bypassWindow is explicitly enabled — the scanner UI stays mounted for all
+    // statuses so late / correction marks never lose their surface.
     const isOngoingEvent = registration.event.status === 'ONGOING';
-    const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-    if (!isOngoingEvent && !canBypassUpcoming) {
-      return ApiResponse.forbidden(res, 'Attendance scanning is allowed only for ongoing events');
+    const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+    if (!isOngoingEvent && !canBypassStatus) {
+      return ApiResponse.forbidden(res, 'Attendance scanning is allowed only for ongoing events (enable Bypass scan window for upcoming/past events)');
     }
 
     // Scan window check: allow startDate - 30min to endDate || startDate + 4h
@@ -418,9 +437,9 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       }
 
       const isOngoingEvent = registration.event.status === 'ONGOING';
-      const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-      if (!isOngoingEvent && !canBypassUpcoming) {
-        results.push({ localId: item.localId, status: 'error', message: 'Attendance scanning is allowed only for ongoing events' });
+      const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+      if (!isOngoingEvent && !canBypassStatus) {
+        results.push({ localId: item.localId, status: 'error', message: 'Attendance scanning is allowed only for ongoing events (enable Bypass scan window for upcoming/past events)' });
         errCount++;
         continue;
       }
@@ -494,39 +513,25 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
 // ────────────────────────────────────────────────────────────
 // 4. POST /scan-beacon — Fire-and-forget beacon scan (no auth header)
 // ────────────────────────────────────────────────────────────
-router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async (req: Request, res: Response) => {
+router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*', limit: '512kb' }), async (req: Request, res: Response) => {
   try {
-    let body: {
-      authToken?: string;
-      scans?: Array<{ token: string; scannedAtLocal?: string; localId: string; dayNumber?: number }>;
-      eventId?: string;
-      bypassWindow?: boolean;
-    };
+    let raw: unknown;
     try {
-      body = JSON.parse(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+      raw = JSON.parse(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     } catch {
       return res.status(400).send();
     }
 
-    const { authToken, scans, eventId, bypassWindow } = body;
-
-    if (
-      !Array.isArray(scans) ||
-      scans.length === 0 ||
-      typeof eventId !== 'string'
-    ) {
+    const parsed = beaconBodySchema.safeParse(raw);
+    if (!parsed.success) {
       return res.status(400).send();
     }
-    if (!uuidSchema.safeParse(eventId).success) {
-      return res.status(400).send();
-    }
+    const { authToken, scans, eventId, bypassWindow } = parsed.data;
 
-    // Verify the auth token manually (beacon cannot set Authorization header)
+    // Verify the auth token manually — cookie preferred (see schema comment
+    // for why the JWT-shaped body fallback exists). Never log either token.
     const cookieToken = getCookie(req, 'scriet_session');
-    const bodyToken = typeof authToken === 'string' && jwtLikePattern.test(authToken)
-      ? authToken
-      : undefined;
-    const effectiveToken = cookieToken || bodyToken;
+    const effectiveToken = cookieToken || authToken;
 
     if (!effectiveToken) {
       return res.status(401).send();
@@ -559,11 +564,7 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     let failedCount = 0;
 
     const fallbackPayloadMap = await resolveStoredAttendanceTokenPayloads(
-      scans
-        .filter((scan): scan is { token: string; scannedAtLocal?: string; localId: string; dayNumber?: number } =>
-          Boolean(scan && typeof scan === 'object' && typeof scan.token === 'string'),
-        )
-        .map((scan) => scan.token),
+      scans.map((scan) => scan.token),
     );
 
     try {
@@ -571,11 +572,6 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
       // server-side and not surfaced back to the client after the 204 response.
       for (const scan of scans) {
         try {
-          if (!scan || typeof scan !== 'object' || typeof scan.token !== 'string') {
-            failedCount++;
-            continue;
-          }
-
           const normalizedToken = scan.token.trim();
           if (!normalizedToken) {
             failedCount++;
@@ -615,8 +611,8 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
           }
 
           const isOngoingEvent = registration.event.status === 'ONGOING';
-          const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
-          if (!isOngoingEvent && !canBypassUpcoming) {
+          const canBypassStatus = bypassWindow === true && (registration.event.status === 'UPCOMING' || registration.event.status === 'PAST');
+          if (!isOngoingEvent && !canBypassStatus) {
             failedCount++;
             continue;
           }
@@ -706,7 +702,13 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.unauthorized(res);
     }
 
-    const { registrationId, dayNumber } = req.body as { registrationId?: string; dayNumber?: number };
+    const { registrationId, dayNumber, scannedAt: requestedScannedAt } = req.body as {
+      registrationId?: string;
+      dayNumber?: number;
+      // Optional backdate (PRES/SA only) — check someone in as of the event's own
+      // date rather than now. Omitted by the live scanner, which always means "now".
+      scannedAt?: string | null;
+    };
 
     if (!requireUuid(res, registrationId, 'registration ID')) {
       return;
@@ -716,7 +718,7 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       where: { id: registrationId },
       include: {
         user: { select: { id: true, name: true } },
-        event: { select: { eventDays: true } },
+        event: { select: { eventDays: true, startDate: true } },
       },
     });
 
@@ -730,13 +732,31 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const scannedAt = new Date();
+    let scannedAt = new Date();
+    let backdatedBy: string | undefined;
+    if (requestedScannedAt) {
+      if (!isPresidentOrSuperAdmin(admin)) {
+        return ApiResponse.forbidden(res, 'Only the President or super admin can backdate a check-in');
+      }
+      const resolution = resolveBackdate({
+        requested: requestedScannedAt,
+        now: scannedAt,
+        eventStart: registration.event.startDate,
+      });
+      if (!resolution.ok) {
+        return ApiResponse.badRequest(res, resolution.message);
+      }
+      scannedAt = resolution.at;
+      backdatedBy = resolution.isBackdated ? admin.id : undefined;
+    }
+
     const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
       registrationId,
       dayNumber: effectiveDayNumber,
       scannedAt,
       scannedBy: admin.id,
       manualOverride: true,
+      backdatedBy,
     }));
 
     if (outcome === 'duplicate') {
@@ -754,11 +774,12 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       scannedBy: admin.id,
     });
 
-    await auditLog(admin.id, 'ATTENDANCE_MANUAL', 'eventRegistration', registrationId, {
+    await auditLog(admin.id, backdatedBy ? 'ATTENDANCE_MANUAL_BACKDATED' : 'ATTENDANCE_MANUAL', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       userId: registration.user.id,
       userName: registration.user.name,
       dayNumber: effectiveDayNumber,
+      ...(backdatedBy ? { backdatedTo: scannedAt.toISOString() } : {}),
     });
 
     return ApiResponse.success(res, {
@@ -869,7 +890,7 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
     }
     const defaultDayNumber = requestedDayNumber ?? 1;
 
-    const invalidRegistrationId = registrationIds.find((registrationId) => !uuidSchema.safeParse(registrationId).success);
+    const invalidRegistrationId = registrationIds.find((registrationId) => !isUuid(registrationId));
     if (invalidRegistrationId) {
       return ApiResponse.badRequest(res, `Invalid registration ID format: ${invalidRegistrationId}`);
     }
@@ -1039,7 +1060,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
       include: {
-        event: { select: { eventDays: true } },
+        event: { select: { eventDays: true, startDate: true } },
       },
     });
 
@@ -1054,13 +1075,19 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const updateData: Record<string, unknown> = {};
-    let shouldMarkAttended: boolean | undefined;
+    // Translate the HTTP body into a domain edit intent. Request-shape
+    // validation stays here; the DayAttendance write (and the legacy-sync
+    // invariant) lives behind editDayAttendance.
+    const changes: Record<string, unknown> = {};
+    let attendance: { kind: 'mark'; scannedAt: Date } | { kind: 'unmark' } | undefined;
+    // Actor id when the resolved timestamp is a genuine backdate — threaded into the
+    // DayAttendance write so a retroactive mark is distinguishable from a live one.
+    let backdatedBy: string | null = null;
 
     if (scannedAt !== undefined) {
       if (scannedAt === null || scannedAt === '') {
-        updateData.scannedAt = null;
-        shouldMarkAttended = false;
+        attendance = { kind: 'unmark' };
+        changes.scannedAt = null;
       } else if (typeof scannedAt !== 'string') {
         return ApiResponse.badRequest(res, 'scannedAt must be an ISO string, empty string, or null');
       } else {
@@ -1071,63 +1098,55 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
 
         const nowMs = Date.now();
         const parsedMs = parsed.getTime();
-        if (
-          parsedMs > nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS ||
-          parsedMs < nowMs - CLIENT_SCAN_MAX_AGE_MS
-        ) {
-          return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
+        const withinNormalWindow =
+          parsedMs <= nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS &&
+          parsedMs >= nowMs - CLIENT_SCAN_MAX_AGE_MS;
+
+        if (!withinNormalWindow) {
+          // Outside the routine 24h correction window this is a backdate, which only
+          // PRESIDENT / super admin may perform, and only back to the event's start.
+          // CORE_MEMBER and plain ADMIN keep exactly the old behaviour.
+          if (!isPresidentOrSuperAdmin(admin)) {
+            return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
+          }
+
+          const resolution = resolveBackdate({
+            requested: parsed,
+            now: new Date(nowMs),
+            eventStart: registration.event.startDate,
+          });
+          if (!resolution.ok) {
+            return ApiResponse.badRequest(res, resolution.message);
+          }
+          if (resolution.isBackdated) {
+            backdatedBy = admin.id;
+          }
         }
 
-        updateData.scannedAt = parsed;
-        shouldMarkAttended = true;
+        attendance = { kind: 'mark', scannedAt: parsed };
+        changes.scannedAt = parsed;
+        if (backdatedBy) {
+          changes.backdated = true;
+        }
       }
     }
 
     if (manualOverride !== undefined) {
-      updateData.manualOverride = manualOverride;
+      changes.manualOverride = manualOverride;
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (attendance === undefined && manualOverride === undefined) {
       return ApiResponse.badRequest(res, 'At least one field (scannedAt, manualOverride) must be provided');
     }
 
-    const existingDay = await prisma.dayAttendance.findUnique({
-      where: {
-        registrationId_dayNumber: {
-          registrationId,
-          dayNumber: effectiveDayNumber,
-        },
-      },
-    });
-
-    if (!existingDay) {
-      await prisma.dayAttendance.create({
-        data: {
-          registrationId,
-          dayNumber: effectiveDayNumber,
-          attended: shouldMarkAttended ?? false,
-          scannedAt: (updateData.scannedAt as Date | null | undefined) ?? null,
-          scannedBy: shouldMarkAttended ? admin.id : null,
-          manualOverride: typeof updateData.manualOverride === 'boolean' ? updateData.manualOverride : false,
-        },
-      });
-    } else {
-      await prisma.dayAttendance.update({
-        where: {
-          registrationId_dayNumber: {
-            registrationId,
-            dayNumber: effectiveDayNumber,
-          },
-        },
-        data: {
-          ...(updateData.scannedAt !== undefined && { scannedAt: updateData.scannedAt as Date | null }),
-          ...(updateData.manualOverride !== undefined && { manualOverride: updateData.manualOverride as boolean }),
-          ...(shouldMarkAttended !== undefined && { attended: shouldMarkAttended }),
-          ...(shouldMarkAttended === false && { scannedBy: null }),
-          ...(shouldMarkAttended === true && { scannedBy: admin.id }),
-        },
-      });
-    }
+    await withRetry(() => editDayAttendance(prisma, {
+      registrationId,
+      dayNumber: effectiveDayNumber,
+      editorId: admin.id,
+      attendance,
+      manualOverride,
+      backdatedBy,
+    }));
 
     await syncRegistrationAttendance(registrationId);
 
@@ -1140,10 +1159,10 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       },
     });
 
-    await auditLog(admin.id, 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
+    await auditLog(admin.id, backdatedBy ? 'ATTENDANCE_EDIT_BACKDATED' : 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       dayNumber: effectiveDayNumber,
-      changes: updateData,
+      changes,
     });
 
     return ApiResponse.success(res, updated);
@@ -1164,6 +1183,9 @@ router.post('/regenerate-token/:registrationId', authMiddleware, requireRole('AD
     }
 
     const { registrationId } = req.params;
+    if (!requireUuid(res, registrationId, 'registration ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
@@ -1569,8 +1591,6 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       ],
     });
 
-    const workbook = new ExcelJS.Workbook();
-
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
@@ -1604,6 +1624,26 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
         columns.push({ header: 'Days Attended', key: 'daysAttended', width: 14 });
       }
     }
+
+    const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+    const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
+
+    // Streaming export (mirrors GET /api/quiz/:quizId/export): the buffered
+    // Workbook held the full cell graph + serialized buffer in RAM at once —
+    // at the 10k-registration cap × multi-day columns that's a large transient
+    // against the 400 MB heap. The WorkbookWriter writes each committed row
+    // straight to `res`, so peak memory is bounded by the raw DB rows already
+    // loaded above plus one row + zip buffers. Headers must be set before the
+    // writer is constructed (it starts writing immediately); from here on,
+    // failures can only truncate the download, not return a JSON error.
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}${daySuffix}.xlsx"`);
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
 
     const buildWorksheet = (
       sheetName: string,
@@ -1650,26 +1690,27 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
           }
         }
 
-        worksheet.addRow(row);
+        worksheet.addRow(row).commit();
       }
+
+      worksheet.commit();
     };
 
     buildWorksheet('Participants', registrations.filter(isParticipant));
     buildWorksheet('Guests', registrations.filter(isGuest));
 
-    const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
-    const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}${daySuffix}.xlsx"`);
-
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('Failed to export attendance', { error: error instanceof Error ? error.message : String(error) });
-    if (!res.headersSent) {
-      return ApiResponse.internal(res, 'Failed to export attendance');
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
     }
+    return ApiResponse.internal(res, 'Failed to export attendance');
   }
 });
 
@@ -1850,6 +1891,9 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       return ApiResponse.badRequest(res, `minDays must be between 1 and ${eventDays}`);
     }
 
+    // Bounded read: real events are hundreds of rows; the cap + flag below
+    // keep one giant event from OOMing the response instead of failing loudly.
+    const RECIPIENT_LIST_CAP = 5000;
     const [registrations, guestInvitations, existingCerts] = await Promise.all([
       prisma.eventRegistration.findMany({
         // Certificate participants remain the participant lane; guests are returned in a dedicated payload below.
@@ -1870,6 +1914,8 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
             orderBy: { dayNumber: 'asc' },
           },
         },
+        orderBy: { id: 'asc' },
+        take: RECIPIENT_LIST_CAP,
       }),
       prisma.eventInvitation.findMany({
         where: {
@@ -1981,10 +2027,16 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
     const totalAttended = registrations.filter((r) => r.attended).length;
     const alreadyCertified = certsByEmail.size;
 
+    const truncated = registrations.length === RECIPIENT_LIST_CAP;
+    if (truncated) {
+      logger.warn('Certificate recipient list truncated at cap', { eventId, cap: RECIPIENT_LIST_CAP });
+    }
+
     return ApiResponse.success(res, {
       participants: recipients,
       guests,
       recipients,
+      truncated,
       stats: {
         totalRegistered,
         totalAttended,
@@ -2094,7 +2146,7 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
     const eventDays = normalizeEventDays(event.eventDays);
     const dayLabels = parseDayLabels(event.dayLabels, eventDays);
 
-    const [total, attended, daySummary] = await Promise.all([
+    const [total, attended, dayGroups] = await Promise.all([
       // Hard Constraint #11: summary KPIs reflect the participant lane only.
       prisma.eventRegistration.count({
         where: { eventId, ...participantsOnly },
@@ -2102,19 +2154,23 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
       prisma.eventRegistration.count({
         where: { eventId, ...participantsOnly, attended: true },
       }),
-      Promise.all(
-        Array.from({ length: eventDays }, (_, index) => index + 1).map(async (dayNumber) => ({
-          dayNumber,
-          attended: await prisma.dayAttendance.count({
-            where: {
-              dayNumber,
-              attended: true,
-              registration: { eventId, ...participantsOnly },
-            },
-          }),
-        })),
-      ),
+      // One groupBy replaces a count query per event day (≤10) — same pattern
+      // as /live/:eventId above.
+      prisma.dayAttendance.groupBy({
+        by: ['dayNumber'],
+        where: {
+          attended: true,
+          registration: { eventId, ...participantsOnly },
+        },
+        _count: { id: true },
+      }),
     ]);
+
+    const attendedByDay = new Map(dayGroups.map((g) => [g.dayNumber, g._count.id]));
+    const daySummary = Array.from({ length: eventDays }, (_, index) => index + 1).map((dayNumber) => ({
+      dayNumber,
+      attended: attendedByDay.get(dayNumber) ?? 0,
+    }));
 
     return ApiResponse.success(res, { total, attended, eventDays, dayLabels, daySummary });
   } catch (error) {

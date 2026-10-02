@@ -281,7 +281,18 @@ function AuditRow({ log, expanded, onToggle, onOpenUser }: { log: AuditLogEntry;
             <Pill tone={actionTone(log.action)} size="xs" title={log.action}>{actionLabel(log.action)}</Pill>
             <span className="text-[11px] text-[var(--ds-text-3)]">on</span>
             <MonoChip>{entityLabel(log.entity)}</MonoChip>
-            {log.entityId && <MonoChip>{log.entityId.slice(0, 8)}</MonoChip>}
+            {log.entityId && (
+              // `user` and `user_block` rows both carry a user id as entityId
+              // (BLOCK_USER/UNBLOCK_USER both stamp the target user id; the
+              // UserBlock row id lives in metadata), so both are clickable.
+              log.entity === 'user' || log.entity === 'user_block' ? (
+                <button type="button" onClick={() => onOpenUser(log.entityId!)} title="Open this user" className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded">
+                  <MonoChip>{log.entityId.slice(0, 8)}</MonoChip>
+                </button>
+              ) : (
+                <MonoChip>{log.entityId.slice(0, 8)}</MonoChip>
+              )
+            )}
             <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums ml-auto" title={new Date(log.timestamp).toLocaleString()}>
               {relativeTime(log.timestamp)}
             </span>

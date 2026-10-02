@@ -4,6 +4,45 @@
 // certificates, and timed competition rounds.
 
 import { API_URL, request } from './_internal';
+
+export type MessageRegistrantsAudience = 'all' | 'participants' | 'guests' | 'attended' | 'absent';
+
+export const EVENT_AUDIENCE_OPTIONS: { value: MessageRegistrantsAudience; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'participants', label: 'Participants' },
+  { value: 'guests', label: 'Guests' },
+  { value: 'attended', label: 'Attended' },
+  { value: 'absent', label: 'Absent' },
+];
+
+export interface MessageRegistrantsPayload {
+  subject: string;
+  body: string;
+  bodyType?: 'markdown' | 'html';
+  channels: { email: boolean; inApp: boolean };
+  audience?: MessageRegistrantsAudience;
+  dayNumber?: number;
+}
+
+export interface EnableFeedbackPollPayload {
+  audience?: MessageRegistrantsAudience;
+  dayNumber?: number;
+  channels?: { email: boolean; inApp: boolean };
+  sendNow?: boolean;
+}
+
+export interface EnableFeedbackPollResult {
+  poll: { id: string; slug: string; question: string; deadline: string | null; shareUrl: string };
+  created: boolean;
+  sent: boolean;
+  scheduled: boolean;
+  /** True when the feedback send was skipped because it had already been sent (idempotent). */
+  alreadySent?: boolean;
+  notified: number;
+  emailed: number;
+  audience: MessageRegistrantsAudience;
+}
+
 import type {
   AttendanceCertificateRecipientsResponse,
   AttendanceHistoryEvent,
@@ -11,22 +50,27 @@ import type {
   AttendanceQR,
   AttendanceRecord,
   AttendanceSearchResult,
+  BackdateEventSnapshot,
+  BackdateRegistrationInput,
+  BackdateRegistrationResult,
   CertType,
   CertificateBulkGenerateInput,
   CertificateBulkGenerateResponse,
   CertificateDetail,
   CertificateUpdateInput,
+  CompetitionClarification,
   CompetitionMissingTeam,
+  CompetitionMonitorResponse,
+  CompetitionPlagiarismFlag,
   CompetitionResult,
   CompetitionResultsSummaryResponse,
   CompetitionRound,
   CompetitionRoundPreview,
   CompetitionSubmission,
+  EventFinalResponse,
   EventInvitation,
   EventTeam,
   EventTeamMemberInfo,
-  ProblemLanguage,
-  SubmissionResult,
 } from '../api';
 
 export const eventOpsApi = {
@@ -107,6 +151,10 @@ export const eventOpsApi = {
   },
   emailAbsentees: (eventId: string, subject: string, body: string, token: string, dayNumber?: number) =>
     request<{ emailed: number; sent?: number; dayNumber?: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body, dayNumber }), token }),
+  messageEventRegistrants: (eventId: string, payload: MessageRegistrantsPayload, token: string) =>
+    request<{ notified: number; emailed: number; audience: MessageRegistrantsAudience }>(`/events/${eventId}/message-registrants`, { method: 'POST', body: JSON.stringify(payload), token }),
+  enableEventFeedbackPoll: (eventId: string, payload: EnableFeedbackPollPayload, token: string) =>
+    request<EnableFeedbackPollResult>(`/events/${eventId}/feedback-poll`, { method: 'POST', body: JSON.stringify(payload), token }),
   getAttendanceCertRecipients: (eventId: string, token: string, minDays?: number, includeGuestNonAttendees?: boolean) => {
     const params = new URLSearchParams();
     if (typeof minDays === 'number') params.set('minDays', String(minDays));
@@ -221,6 +269,12 @@ export const eventOpsApi = {
     targetImageUrl?: string;
     problemIds?: string[];
     problems?: Array<{ problemId: string; displayOrder?: number; points?: number }>;
+    finalWeight?: number;
+    proctored?: boolean;
+    penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
+    leaderboardFreezeMinutes?: number | null;
+    difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>
     request<{ round: CompetitionRound }>('/competition', { method: 'POST', body: JSON.stringify(data), token }),
   getCompetitionRoundsAdmin: (eventId: string, token: string) =>
@@ -237,8 +291,10 @@ export const eventOpsApi = {
     request<{ round: CompetitionRound }>(`/competition/${roundId}/finish`, { method: 'PATCH', token }),
   saveCompetitionCode: (roundId: string, data: { code: string }, token: string) =>
     request<{ savedAt: string; serverTime: string }>(`/competition/${roundId}/save`, { method: 'POST', body: JSON.stringify(data), token }),
-  submitCompetitionCode: (roundId: string, data: { code: string; problemId?: string; language?: ProblemLanguage }, token: string) =>
-    request<{ submission?: { id: string; submittedAt: string }; result?: SubmissionResult; message: string }>(`/competition/${roundId}/submit`, { method: 'POST', body: JSON.stringify(data), token }),
+  // No web client for the IMAGE_TARGET final submit: it's posted directly from the
+  // playground build editor (apps/playground CompetitionPage), and DSA rounds submit
+  // through the Problems judge (`/api/problems/:id/submit`, CONTEST context). The old
+  // `submitCompetitionCode` here had no caller and was removed.
   getMyCompetitionSubmission: (roundId: string, token: string) =>
     request<{
       submission: (CompetitionSubmission & { submittedAt: string }) | null;
@@ -252,10 +308,45 @@ export const eventOpsApi = {
     }>(`/competition/${roundId}/submissions`, { token }),
   scoreCompetitionSubmission: (roundId: string, submissionId: string, data: { score?: number; rank?: number; adminNotes?: string }, token: string) =>
     request<{ submission: CompetitionSubmission }>(`/competition/${roundId}/score/${submissionId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+  // Proctoring (admin): release / apply a participant's proctor lock.
+  unlockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
+    request<{ unlocked: boolean }>(`/competition/${roundId}/proctor/unlock/${userId}`, { method: 'POST', token }),
+  lockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
+    request<{ locked: boolean }>(`/competition/${roundId}/proctor/lock/${userId}`, { method: 'POST', token }),
+  // Admin power-ups (Phase H3): extend a live round, rejudge all, export the monitor.
+  extendCompetitionRound: (roundId: string, addMinutes: number, token: string) =>
+    request<{ duration: number; remainingSeconds: number }>(`/competition/${roundId}/extend`, { method: 'PATCH', body: JSON.stringify({ addMinutes }), token }),
+  rejudgeCompetitionRound: (roundId: string, token: string) =>
+    request<{ jobIds: string[] }>(`/competition/${roundId}/rejudge`, { method: 'POST', token }),
+  exportCompetitionMonitor: async (roundId: string, token: string, sheet?: 'violations') => {
+    const q = sheet ? `?sheet=${sheet}` : '';
+    const res = await fetch(`${API_URL}/competition/${roundId}/monitor/export${q}`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+    if (!res.ok) throw new Error('Export failed');
+    return res.blob();
+  },
+  // Live monitor + clarifications (Phase E).
+  getCompetitionMonitor: (roundId: string, token: string) =>
+    request<CompetitionMonitorResponse>(`/competition/${roundId}/monitor`, { token }),
+  getCompetitionClarifications: (roundId: string, token: string) =>
+    request<{ clarifications: CompetitionClarification[] }>(`/competition/${roundId}/clarifications`, { token }),
+  // Plagiarism (Phase H4) — admin-triggered, human-in-the-loop review.
+  runPlagiarismCheck: (roundId: string, token: string, threshold?: number) =>
+    request<{ flagged: number; threshold: number }>(`/competition/${roundId}/plagiarism/run`, { method: 'POST', body: JSON.stringify(threshold !== undefined ? { threshold } : {}), token }),
+  getPlagiarismFlags: (roundId: string, token: string) =>
+    request<{ flags: CompetitionPlagiarismFlag[] }>(`/competition/${roundId}/plagiarism`, { token }),
+  reviewPlagiarismFlag: (roundId: string, flagId: string, status: 'PENDING' | 'REVIEWED' | 'DISMISSED', token: string) =>
+    request<{ flag: { id: string; status: string } }>(`/competition/${roundId}/plagiarism/${flagId}`, { method: 'PATCH', body: JSON.stringify({ status }), token }),
+  postCompetitionClarification: (roundId: string, message: string, token: string) =>
+    request<{ clarification: CompetitionClarification }>(`/competition/${roundId}/clarifications`, { method: 'POST', body: JSON.stringify({ message }), token }),
   getCompetitionResults: (roundId: string) =>
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
   getCompetitionResultsSummary: (eventId: string, token: string) =>
     request<CompetitionResultsSummaryResponse>(`/competition/event/${eventId}/results-summary`, { token }),
+  // Event-final standings (Phase F): combined weighted standings across FINISHED rounds.
+  getEventFinal: (eventId: string, token?: string) =>
+    request<EventFinalResponse>(`/competition/event/${eventId}/final`, { ...(token ? { token } : {}) }),
+  publishEventFinal: (eventId: string, publish: boolean, token: string) =>
+    request<{ published: boolean }>(`/competition/event/${eventId}/publish-final`, { method: 'POST', body: JSON.stringify({ publish }), token }),
   deleteCompetitionRound: (roundId: string, token: string) =>
     request<{ message: string }>(`/competition/${roundId}`, { method: 'DELETE', token }),
   updateCompetitionRound: (roundId: string, data: {
@@ -269,12 +360,39 @@ export const eventOpsApi = {
     targetImageUrl?: string | null;
     problemIds?: string[];
     problems?: Array<{ problemId: string; displayOrder?: number; points?: number }>;
+    finalWeight?: number;
+    proctored?: boolean;
+    penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
+    leaderboardFreezeMinutes?: number | null;
+    difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>
     request<{ round: CompetitionRound }>(`/competition/${roundId}`, { method: 'PUT', body: JSON.stringify(data), token }),
   publishContestAsPractice: (roundId: string, token: string) =>
     request<{ success: boolean }>(`/competition/${roundId}/publish-as-practice`, { method: 'POST', token }),
   raiseContestCap: (roundId: string, input: { userId?: string; problemId?: string; newCap: number }, token: string) =>
     request<{ success: boolean; affected: number }>(`/competition/${roundId}/raise-cap`, { method: 'POST', body: JSON.stringify(input), token }),
+  // Backdate console (PRES/SA only) — retroactive event records. The server enforces
+  // the authority check and the date bounds; these are thin wrappers.
+  getBackdateEventSnapshot: (eventId: string, token: string) =>
+    request<BackdateEventSnapshot>(`/backdate/event/${eventId}`, { token }),
+  createBackdatedRegistration: (eventId: string, data: BackdateRegistrationInput, token: string) =>
+    request<BackdateRegistrationResult>(`/backdate/event/${eventId}/registration`, { method: 'POST', body: JSON.stringify(data), token }),
+  setBackdatedAttendance: (
+    registrationId: string,
+    data: { dayNumber: number; attended: boolean; scannedAt?: string | null; reason?: string | null },
+    token: string,
+  ) =>
+    request<{ registrationId: string; dayNumber: number; attended: boolean; scannedAt: string | null }>(
+      `/backdate/registration/${registrationId}/attendance`,
+      { method: 'PATCH', body: JSON.stringify(data), token },
+    ),
+  deleteBackdatedRegistration: (registrationId: string, token: string, dropInvitation = false) =>
+    request<{ registrationId: string }>(
+      `/backdate/registration/${registrationId}${dropInvitation ? '?dropInvitation=true' : ''}`,
+      { method: 'DELETE', token },
+    ),
+
   exportCompetitionResults: async (roundId: string, token: string) => {
     const res = await fetch(`${API_URL}/competition/${roundId}/results/export?format=xlsx`, {
       headers: { Authorization: `Bearer ${token}` },

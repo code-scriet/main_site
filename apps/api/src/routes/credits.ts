@@ -6,9 +6,10 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
+import { isUuid as isValidUuid } from '../utils/idParams.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
 
 export const creditsRouter = Router();
-const uuidSchema = z.string().uuid();
 
 const teamMemberSelect = {
   id: true,
@@ -42,10 +43,6 @@ const reorderSchema = z.object({
   ).max(500),
 });
 
-function isValidUuid(value: unknown): value is string {
-  return typeof value === 'string' && uuidSchema.safeParse(value).success;
-}
-
 // GET /api/credits — list all credits (public)
 creditsRouter.get('/', async (req: Request, res: Response) => {
   try {
@@ -54,7 +51,7 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
     const where: Record<string, unknown> = {};
     if (teamMemberId !== undefined) {
       if (!isValidUuid(teamMemberId)) {
-        return res.status(400).json({ success: false, error: { message: 'Invalid team member ID format' } });
+        return ApiResponse.badRequest(res, 'Invalid team member ID format');
       }
       where.teamMemberId = teamMemberId;
     }
@@ -65,10 +62,12 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     });
 
-    res.json({ success: true, data: credits });
+    // Public list — no per-user fields.
+    setSharedPublicCache(req, res, 60);
+    ApiResponse.success(res, credits);
   } catch (error) {
     logger.error('Failed to fetch credits', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch credits' } });
+    ApiResponse.internal(res, 'Failed to fetch credits');
   }
 });
 
@@ -76,7 +75,7 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
 creditsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
     if (!isValidUuid(req.params.id)) {
-      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+      return ApiResponse.badRequest(res, 'Invalid credit ID format');
     }
 
     const credit = await prisma.credit.findUnique({
@@ -85,13 +84,13 @@ creditsRouter.get('/:id', async (req: Request, res: Response) => {
     });
 
     if (!credit) {
-      return res.status(404).json({ success: false, error: { message: 'Credit not found' } });
+      return ApiResponse.notFound(res, 'Credit not found');
     }
 
-    res.json({ success: true, data: credit });
+    ApiResponse.success(res, credit);
   } catch (error) {
     logger.error('Failed to fetch credit', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch credit' } });
+    ApiResponse.internal(res, 'Failed to fetch credit');
   }
 });
 
@@ -100,7 +99,7 @@ creditsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
   try {
     const parsed = createCreditSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Validation failed' } });
+      return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Validation failed');
     }
 
     const { title, description, category, teamMemberId, order } = parsed.data;
@@ -109,7 +108,7 @@ creditsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
     if (teamMemberId) {
       const member = await prisma.teamMember.findUnique({ where: { id: teamMemberId } });
       if (!member) {
-        return res.status(400).json({ success: false, error: { message: 'Team member not found' } });
+        return ApiResponse.badRequest(res, 'Team member not found');
       }
     }
 
@@ -129,10 +128,10 @@ creditsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       await auditLog(authUser.id, 'CREATE', 'credit', credit.id, { title, category });
     }
 
-    res.status(201).json({ success: true, data: credit, message: 'Credit created successfully' });
+    ApiResponse.created(res, credit, 'Credit created successfully');
   } catch (error) {
     logger.error('Failed to create credit', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to create credit' } });
+    ApiResponse.internal(res, 'Failed to create credit');
   }
 });
 
@@ -140,17 +139,17 @@ creditsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!isValidUuid(req.params.id)) {
-      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+      return ApiResponse.badRequest(res, 'Invalid credit ID format');
     }
 
     const parsed = updateCreditSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Validation failed' } });
+      return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Validation failed');
     }
 
     const existing = await prisma.credit.findUnique({ where: { id: req.params.id } });
     if (!existing) {
-      return res.status(404).json({ success: false, error: { message: 'Credit not found' } });
+      return ApiResponse.notFound(res, 'Credit not found');
     }
 
     const { title, description, category, teamMemberId, order } = parsed.data;
@@ -159,7 +158,7 @@ creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
     if (teamMemberId) {
       const member = await prisma.teamMember.findUnique({ where: { id: teamMemberId } });
       if (!member) {
-        return res.status(400).json({ success: false, error: { message: 'Team member not found' } });
+        return ApiResponse.badRequest(res, 'Team member not found');
       }
     }
 
@@ -181,10 +180,10 @@ creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
       await auditLog(authUser.id, 'UPDATE', 'credit', credit.id, { title: credit.title });
     }
 
-    res.json({ success: true, data: credit, message: 'Credit updated successfully' });
+    ApiResponse.success(res, credit, 'Credit updated successfully');
   } catch (error) {
     logger.error('Failed to update credit', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to update credit' } });
+    ApiResponse.internal(res, 'Failed to update credit');
   }
 });
 
@@ -192,12 +191,12 @@ creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
 creditsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!isValidUuid(req.params.id)) {
-      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+      return ApiResponse.badRequest(res, 'Invalid credit ID format');
     }
 
     const existing = await prisma.credit.findUnique({ where: { id: req.params.id } });
     if (!existing) {
-      return res.status(404).json({ success: false, error: { message: 'Credit not found' } });
+      return ApiResponse.notFound(res, 'Credit not found');
     }
 
     await prisma.credit.delete({ where: { id: req.params.id } });
@@ -207,10 +206,10 @@ creditsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: R
       await auditLog(authUser.id, 'DELETE', 'credit', req.params.id, { title: existing.title });
     }
 
-    res.json({ success: true, message: 'Credit deleted successfully' });
+    ApiResponse.success(res, undefined, 'Credit deleted successfully');
   } catch (error) {
     logger.error('Failed to delete credit', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to delete credit' } });
+    ApiResponse.internal(res, 'Failed to delete credit');
   }
 });
 
@@ -219,7 +218,7 @@ creditsRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req
   try {
     const parsed = reorderSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Validation failed' } });
+      return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Validation failed');
     }
 
     const creditIds = Array.from(new Set(parsed.data.credits.map(({ id }) => id)));
@@ -230,10 +229,7 @@ creditsRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req
     const existingCreditIds = new Set(existingCredits.map(({ id }) => id));
     const invalidIds = creditIds.filter((id) => !existingCreditIds.has(id));
     if (invalidIds.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: { message: `Unknown credit IDs: ${invalidIds.join(', ')}` },
-      });
+      return ApiResponse.badRequest(res, `Unknown credit IDs: ${invalidIds.join(', ')}`);
     }
 
     await prisma.$transaction(
@@ -247,9 +243,9 @@ creditsRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req
       await auditLog(authUser.id, 'UPDATE', 'credit', 'reorder', { count: parsed.data.credits.length });
     }
 
-    res.json({ success: true, message: 'Credits reordered successfully' });
+    ApiResponse.success(res, undefined, 'Credits reordered successfully');
   } catch (error) {
     logger.error('Failed to reorder credits', { error });
-    res.status(500).json({ success: false, error: { message: 'Failed to reorder credits' } });
+    ApiResponse.internal(res, 'Failed to reorder credits');
   }
 });

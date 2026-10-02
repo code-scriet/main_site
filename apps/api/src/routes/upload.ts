@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import multer from 'multer';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -104,16 +105,17 @@ uploadRouter.post(
 
       const authUser = getAuthUser(req)!;
 
-      // Upload to Cloudinary
+      // Upload to Cloudinary — store the ORIGINAL bytes (no incoming transformation).
+      // A `transformation` on upload is DESTRUCTIVE: Cloudinary stores the transformed
+      // image and discards the upload, so the old `width:2000 limit + quality:auto:good`
+      // silently degraded every image (downscaled + recompressed) — "upload original"
+      // never actually kept the original. Optimisation now happens at DELIVERY time via
+      // processImageUrl()'s q_auto/f_auto presets (non-destructive URL transforms), so
+      // the canonical asset — and any "copy link" use of it — stays full quality.
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           folder: 'club-events', // Store in 'club-events' folder in Cloudinary
           resource_type: 'image',
-          transformation: [
-            { width: 2000, crop: 'limit' }, // Max width 2000px
-            { quality: 'auto:good' }, // Automatic quality optimization
-            { fetch_format: 'auto' }, // Automatic format (WebP if supported)
-          ],
         },
         async (error, result) => {
           if (error) {
@@ -133,43 +135,21 @@ uploadRouter.post(
             });
           }
 
-          // Persist image record for the upload-history library. Await the
-          // write so we never leave dangling promises on the hot path; a DB
-          // failure is logged and surfaced via `historyPersisted: false` but
-          // does not break the upload response (the Cloudinary URL is the
-          // primary contract).
-          let historyPersisted = true;
-          try {
-            await prisma.uploadedImage.create({
-              data: {
-                userId: authUser.id,
-                url: result.secure_url,
-                publicId: result.public_id,
-                filename: req.file?.originalname ?? null,
-                bytes: req.file?.buffer?.length ?? null,
-                width: result.width ?? null,
-                height: result.height ?? null,
-                format: result.format ?? null,
-              },
-            });
-          } catch (dbErr) {
-            historyPersisted = false;
-            logger.error('Failed to persist uploaded_image record', {
-              publicId: result.public_id,
-              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
-            });
-          }
-
-          // Return the Cloudinary URL
+          // No server-side persistence by design: the image library is owned by
+          // the client (localStorage on the uploader's browser), so no image link
+          // is recorded in the database. We hand back the Cloudinary URL plus the
+          // metadata the client needs to render its local gallery (size/dimensions/
+          // format). The Cloudinary asset itself is the only durable artefact.
           res.status(201);
           ApiResponse.success(res, {
             url: result.secure_url,
             publicId: result.public_id,
-            width: result.width,
-            height: result.height,
-            format: result.format,
+            bytes: result.bytes ?? req.file?.buffer?.length ?? null,
+            width: result.width ?? null,
+            height: result.height ?? null,
+            format: result.format ?? null,
+            filename: req.file?.originalname ?? null,
             uploadedBy: authUser.id,
-            historyPersisted,
           }, 'Image uploaded successfully');
         }
       );
@@ -181,6 +161,82 @@ uploadRouter.post(
       ApiResponse.error(res, {
         code: ErrorCodes.INTERNAL_ERROR,
         message: error instanceof Error ? error.message : 'Failed to upload image',
+        status: 500,
+      });
+    }
+  }
+);
+
+/**
+ * Upload a streak-share card (S-03).
+ * POST /api/upload/streak-card
+ *
+ * Distinct from /image on purpose: the card lands in a dedicated `streak-cards/`
+ * folder and does NOT write an UploadedImage gallery row — it's a transient share
+ * asset (the og:image of /share/streak/:id), not a library upload, so it must never
+ * appear in the member's upload gallery or inflate counts.uploadedImages. Any
+ * authenticated user may upload their OWN card (unlike /image, which is CORE_MEMBER+).
+ * The previous card is destroyed by POST /users/me/streak-card when the new URL is
+ * persisted, so storage stays ~1 asset per user.
+ */
+uploadRouter.post(
+  '/streak-card',
+  authMiddleware,
+  upload.single('image'),
+  uploadErrorHandler,
+  async (req: Request, res: Response) => {
+    try {
+      if (!isCloudinaryConfigured) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.INTERNAL_ERROR,
+          message: 'Image upload is not configured. Please contact the administrator.',
+          status: 503,
+        });
+      }
+
+      if (!req.file) {
+        return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'No image file provided', status: 400 });
+      }
+
+      // Same magic-byte gate as /image — don't trust the client mimetype.
+      if (!validateImageMagicBytes(req.file.buffer)) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Invalid image file. Only JPEG, PNG, GIF, and WebP are allowed.',
+          status: 400,
+        });
+      }
+
+      const authUser = getAuthUser(req)!;
+      const buffer = req.file.buffer;
+      const uploaded = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'streak-cards',
+            resource_type: 'image',
+            // 1200px wide covers the 1200×630 OG target; no fetch_format:auto so
+            // crawlers get a stable format regardless of Accept negotiation.
+            transformation: [{ width: 1200, crop: 'limit' }, { quality: 'auto:good' }],
+          },
+          (error, result) => {
+            if (error || !result) return reject(error ?? new Error('Upload failed - no result'));
+            resolve(result as { secure_url: string; public_id: string });
+          },
+        );
+        stream.end(buffer);
+      });
+
+      res.status(201);
+      return ApiResponse.success(res, {
+        url: uploaded.secure_url,
+        publicId: uploaded.public_id,
+        uploadedBy: authUser.id,
+      }, 'Streak card uploaded successfully');
+    } catch (error) {
+      logger.error('Streak card upload error:', { error: error instanceof Error ? error.message : String(error) });
+      return ApiResponse.error(res, {
+        code: ErrorCodes.INTERNAL_ERROR,
+        message: 'Failed to upload streak card',
         status: 500,
       });
     }

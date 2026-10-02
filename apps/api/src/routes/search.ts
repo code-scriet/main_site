@@ -6,8 +6,10 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
+import { roleTier } from '../middleware/role.js';
 import { ApiResponse } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const searchRouter = Router();
 
@@ -24,9 +26,8 @@ interface SearchHit {
   route: string;
 }
 
-const ROLE_TIERS: Record<string, number> = {
-  PUBLIC: 0, USER: 1, NETWORK: 1, MEMBER: 2, CORE_MEMBER: 3, ADMIN: 4, PRESIDENT: 4,
-};
+// Role tiers come from middleware/role.ts (the single source of truth) — a local copy
+// would silently miss a future role addition.
 
 // Mirrors the DashboardLayout sidebar route metadata. Longer-term, move this
 // into a shared web/API route manifest once the monorepo has a shared package
@@ -44,7 +45,7 @@ const STATIC_PAGES: Array<{ label: string; route: string; icon: string; tags: st
   { label: 'Take Attendance',   route: 'attendance',        icon: 'scan',     tags: ['attendance', 'scan', 'qr'],                        minTier: 3 },
   { label: 'Create Event',      route: 'create-event',      icon: 'plus',     tags: ['create', 'event', 'new'],                          minTier: 3 },
   { label: 'Create Announcement', route: 'create-announcement', icon: 'megaphone', tags: ['create', 'announcement', 'post'],            minTier: 3 },
-  { label: 'Manage QOTD',       route: 'manage-qotd',       icon: 'zap',      tags: ['qotd', 'schedule', 'publish'],                     minTier: 3 },
+  { label: 'Propose QOTD',      route: 'manage-qotd',       icon: 'zap',      tags: ['qotd', 'schedule', 'publish', 'propose'],          minTier: 3 },
   { label: 'Quiz Manager',      route: 'quiz-manager',      icon: 'play',     tags: ['quiz', 'manager', 'host'],                         minTier: 3 },
   { label: 'Upload Image',      route: 'upload-image',      icon: 'upload',   tags: ['upload', 'image', 'gallery'],                      minTier: 3 },
   { label: 'User Management',   route: 'admin-users',       icon: 'users',    tags: ['users', 'admin', 'members'],                       minTier: 4 },
@@ -71,11 +72,20 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
   }
   const q = parsed.data.q;
   const limit = parsed.data.limit ?? 5;
-  const tier = ROLE_TIERS[auth.role] ?? 0;
+  const tier = roleTier(auth.role);
   const isAdmin = tier >= 4;
-  const isCore = tier >= 3;
 
   try {
+    // Respect the problems feature gate. routes/problems.ts and routes/problemSheets.ts
+    // both 404 non-admins when problemsEnabled is off; without the same check here, Cmd+K
+    // kept surfacing problem titles to every member after an admin switched the feature
+    // off — i.e. the gate wasn't actually a gate. Settings are already cached 5 min, so
+    // this adds no DB round-trip on the hot path. Fails CLOSED for non-admins on a
+    // degraded settings read (getCachedSettings returns null), matching problems.ts's
+    // `!== true` test.
+    const settings = await getCachedSettings();
+    const problemsVisible = isAdmin || settings?.problemsEnabled === true;
+
     const [events, problems, polls, people, announcements] = await Promise.all([
       prisma.event.findMany({
         where: { OR: [{ title: { contains: q, mode: 'insensitive' } }, { slug: { contains: q, mode: 'insensitive' } }] },
@@ -83,19 +93,21 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
         orderBy: { startDate: 'desc' },
         take: limit,
       }),
-      prisma.problem.findMany({
-        where: {
-          ...(isAdmin ? {} : { isPublished: true }),
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { slug: { contains: q, mode: 'insensitive' } },
-            { tags: { has: q.toLowerCase() } },
-          ],
-        },
-        select: { id: true, slug: true, title: true, difficulty: true },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
+      problemsVisible
+        ? prisma.problem.findMany({
+            where: {
+              ...(isAdmin ? {} : { isPublished: true }),
+              OR: [
+                { title: { contains: q, mode: 'insensitive' } },
+                { slug: { contains: q, mode: 'insensitive' } },
+                { tags: { has: q.toLowerCase() } },
+              ],
+            },
+            select: { id: true, slug: true, title: true, difficulty: true },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+          })
+        : Promise.resolve([]),
       prisma.poll.findMany({
         where: {
           ...(isAdmin ? {} : { isPublished: true }),
@@ -124,9 +136,16 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
         : Promise.resolve([]),
       prisma.announcement.findMany({
         where: {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { slug: { contains: q, mode: 'insensitive' } },
+          AND: [
+            {
+              OR: [
+                { title: { contains: q, mode: 'insensitive' } },
+                { slug: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            // Don't surface announcements that have already expired — they're
+            // hidden everywhere else, so they shouldn't appear in search.
+            { OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
           ],
         },
         select: { id: true, slug: true, title: true },

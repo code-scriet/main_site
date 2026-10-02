@@ -1,49 +1,52 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { CertType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
-import { generateCertId } from '../utils/generateCertId.js';
-import { formatPosition, generateCertificatePDF } from '../utils/generateCertificatePDF.js';
-import { uploadCertificate } from '../utils/uploadCertificate.js';
+import { formatPosition } from '../utils/generateCertificatePDF.js';
+import {
+  resolveSignatory,
+  issueOneCertificate,
+  renderAndUploadCertificatePdf,
+  recoverMissingCertificateCloudAsset,
+  CertificateIssuanceError,
+} from '../utils/certificateIssuance.js';
+import {
+  updateCertificateWithSchemaFallback,
+  isCertificateIdCollisionError,
+  isCertificateSchemaDriftError,
+  readCertificateTeamName,
+} from '../utils/certificatePersistence.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { resolveBackdate } from '../utils/backdate.js';
 import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { recordCertificateView } from '../utils/certificateViewCounter.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
+// Matches generateCertId output (XXXX-XXXX-XXXX) while tolerating legacy IDs —
+// same loose pattern as the public PDF-download route. Early-rejects garbage
+// before it reaches Prisma lookups or audit-log metadata.
+const CERT_ID_PARAM_PATTERN = /^[A-Z0-9-]{10,20}$/i;
 
-// Pre-load logos as base64 at startup so they're available to PDF generation.
-// Fails gracefully (undefined) if the files are not yet present on this server instance.
-function loadLogoBase64(filename: string): string | undefined {
-  const logoPath = path.join(LOGOS_DIR, filename);
-  try {
-    if (fs.existsSync(logoPath)) {
-      const ext = path.extname(filename).replace('.', '');
-      const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
-      const b64 = fs.readFileSync(logoPath).toString('base64');
-      return `data:${mime};base64,${b64}`;
-    }
-  } catch { /* file missing or unreadable — skip */ }
-  return undefined;
-}
-
-const CODESCRIET_LOGO = loadLogoBase64('codescriet.png') ?? loadLogoBase64('codescriet.jpg') ?? loadLogoBase64('codescriet.jpeg');
-const CCSU_LOGO       = loadLogoBase64('ccsu.png') ?? loadLogoBase64('ccsu.jpg') ?? loadLogoBase64('ccsu.jpeg');
+const requireValidCertIdParam = (res: Response, certId: string): boolean => {
+  if (CERT_ID_PARAM_PATTERN.test(certId)) return true;
+  ApiResponse.badRequest(res, 'Invalid certificate ID format');
+  return false;
+};
 
 export const certificatesRouter = Router();
 
@@ -53,6 +56,7 @@ const certificateVerifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { valid: false, reason: 'rate_limited' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const certificateDownloadLimiter = rateLimit({
@@ -61,13 +65,82 @@ const certificateDownloadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many download attempts, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
-const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+// Bulk generation renders a PDF + Cloudinary upload + email PER recipient
+// (up to 200). Without a limiter, one compromised admin token (or a stuck
+// retry loop) can burn the Cloudinary/Brevo budget in minutes.
+const certificateBulkLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many bulk generations, please try again later.' } },
+  keyGenerator: (req) => getAuthUser(req)?.id ?? getClientIp(req),
+});
+
+const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
 const certificateSources = ['attendance', 'competition', 'generic'] as const;
 const competitionGenerationStrategies = ['specific_round', 'best_selected_rounds', 'average_selected_rounds'] as const;
 const certificateTemplateVariablePattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+
+// Backdating (PRES/SA only) — `issuedAt` becomes the certificate's effective date
+// everywhere it is shown: the public verify page, the recipient's dashboard, the
+// issued-on line of the email, and the LinkedIn "add to profile" link. Shared by the
+// single-issue and bulk schemas so the two can never drift.
+const backdateFields = {
+  issuedAt: z.string().min(4).max(40).optional().nullable(),
+  backdateReason: z.string().max(300).optional().nullable(),
+};
+
+/**
+ * Resolve the effective issue date for a certificate request, enforcing that only
+ * PRESIDENT / super-admin may backdate. Returns a ready-to-persist triple, or an
+ * error message for the caller to 400/403 with.
+ *
+ * `eventId` is looked up for its startDate so an event-linked certificate cannot be
+ * dated before the event it certifies. Callers that already validated the event pass
+ * the startDate they fetched.
+ */
+type BackdateOutcome =
+  | { ok: true; issuedAt: Date; backdatedBy: string | null; backdateReason: string | null }
+  | { ok: false; status: 403 | 400; message: string };
+
+function resolveCertificateBackdate(params: {
+  requested: string | null | undefined;
+  reason: string | null | undefined;
+  actor: { id: string; email?: string | null; role?: string | null };
+  eventStart: Date | null;
+}): BackdateOutcome {
+  const { requested, reason, actor, eventStart } = params;
+
+  if (!requested) {
+    return { ok: true, issuedAt: new Date(), backdatedBy: null, backdateReason: null };
+  }
+
+  if (!isPresidentOrSuperAdmin(actor)) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'Only the President or super admin can backdate a certificate',
+    };
+  }
+
+  const resolution = resolveBackdate({ requested, now: new Date(), eventStart });
+  if (!resolution.ok) {
+    return { ok: false, status: 400, message: resolution.message };
+  }
+
+  return {
+    ok: true,
+    issuedAt: resolution.at,
+    // A date that rounds to "now" is not a backdate — don't stamp provenance on it.
+    backdatedBy: resolution.isBackdated ? actor.id : null,
+    backdateReason: resolution.isBackdated ? sanitizeOptionalText(reason) : null,
+  };
+}
 
 const generateSchema = z.object({
   recipientName: z.string().min(2).max(100),
@@ -92,7 +165,11 @@ const generateSchema = z.object({
   sendEmail: z.boolean().default(false),
   emailTemplate: z.enum(['default', 'faculty_distribution', 'custom']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+<<<<<<< HEAD
   emailCustomBody: z.string().max(2000).optional().nullable(),
+=======
+  ...backdateFields,
+>>>>>>> origin/main
 });
 
 const bulkRecipientSchema = z.object({
@@ -129,7 +206,11 @@ const bulkSchema = z.object({
   sendEmail: z.boolean().default(false),
   emailTemplate: z.enum(['default', 'faculty_distribution', 'custom']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+<<<<<<< HEAD
   emailCustomBody: z.string().max(2000).optional().nullable(),
+=======
+  ...backdateFields,
+>>>>>>> origin/main
 }).superRefine((value, ctx) => {
   if (!value.type && value.recipients.some((recipient) => !recipient.type)) {
     ctx.addIssue({
@@ -161,10 +242,6 @@ const editCertificateSchema = z.object({
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'No fields provided to update',
 });
-
-const isSchemaDriftError = (error: unknown): error is Prisma.PrismaClientKnownRequestError => (
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
-);
 
 type CertificateFileRecord = {
   certId: string;
@@ -489,72 +566,6 @@ async function fetchCertificateFileRecord(certId: string): Promise<CertificateFi
   });
 }
 
-async function recoverMissingCertificateCloudAsset(certId: string): Promise<string | null> {
-  if (!isCloudinaryConfigured) {
-    return null;
-  }
-
-  try {
-    const certificate = await prisma.certificate.findUnique({
-      where: { certId },
-      select: {
-        certId: true,
-        recipientName: true,
-        eventName: true,
-        type: true,
-        position: true,
-        domain: true,
-        description: true,
-        issuedAt: true,
-        signatoryName: true,
-        signatoryTitle: true,
-        signatoryImageUrl: true,
-        facultyName: true,
-        facultyTitle: true,
-        facultySignatoryImageUrl: true,
-      },
-    });
-
-    if (!certificate) {
-      return null;
-    }
-
-    const pdfBuffer = await generateCertificatePDF({
-      recipientName: sanitizeText(certificate.recipientName),
-      eventName: sanitizeText(certificate.eventName),
-      type: certificate.type,
-      position: certificate.position ? sanitizeText(certificate.position) : undefined,
-      domain: certificate.domain ? sanitizeText(certificate.domain) : undefined,
-      description: certificate.description ? sanitizeText(certificate.description) : undefined,
-      certId: certificate.certId,
-      issuedAt: certificate.issuedAt,
-      signatoryName: sanitizeText(certificate.signatoryName),
-      signatoryTitle: sanitizeText(certificate.signatoryTitle),
-      signatoryImageUrl: certificate.signatoryImageUrl || undefined,
-      facultyName: certificate.facultyName ? sanitizeText(certificate.facultyName) : undefined,
-      facultyTitle: certificate.facultyTitle ? sanitizeText(certificate.facultyTitle) : undefined,
-      facultySignatoryImageUrl: certificate.facultySignatoryImageUrl || undefined,
-      codescrietLogoUrl: CODESCRIET_LOGO,
-      ccsuLogoUrl: CCSU_LOGO,
-    });
-
-    const cloudUrl = await uploadCertificate(certificate.certId, pdfBuffer);
-    await prisma.certificate.update({
-      where: { certId: certificate.certId },
-      data: { pdfUrl: cloudUrl },
-    });
-
-    logger.info('Recovered missing certificate cloud asset by regeneration', { certId: certificate.certId });
-    return cloudUrl;
-  } catch (error) {
-    logger.error('Failed to recover missing certificate cloud asset', {
-      certId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
 async function sendCertificateFile(
   res: Response,
   cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
@@ -615,6 +626,7 @@ function buildCertificateEventScope(eventName: string | null | undefined, eventI
   };
 }
 
+<<<<<<< HEAD
 interface ResolvedSignatory {
   id: string | null;
   name: string;
@@ -863,6 +875,8 @@ async function issueOneCertificate(params: IssueCertificateParams): Promise<Issu
   throw new CertificateIssuanceError('Failed to generate unique certificate ID');
 }
 
+=======
+>>>>>>> origin/main
 // ──────────────────────────────────────────────────────────────────
 // PUBLIC: Legacy certificate file endpoint retained for backward compatibility.
 // Internally resolves to a Cloudinary URL and redirects.
@@ -954,13 +968,14 @@ certificatesRouter.get('/verify/:certId/download', certificateDownloadLimiter, a
 });
 
 // ──────────────────────────────────────────────────────────────────
-// PRIVATE: Admin list all certificates with pagination + filters
+// PRIVATE: Admin list all certificates with cursor pagination + filters
 // GET /api/certificates
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    // Support both legacy page/limit and new cursor pagination
+    const cursor = typeof req.query.cursor === 'string' && req.query.cursor.length > 0 ? req.query.cursor : null;
+    const take = Math.min(100, Math.max(1, Number(req.query.take) || 50));
     const type = req.query.type as string | undefined;
     const search = req.query.search as string | undefined;
     const eventId = req.query.eventId as string | undefined;
@@ -979,12 +994,14 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
       ];
     }
 
-    const [certificates, total] = await Promise.all([
+    // Use cursor pagination (like users) — take+1 to detect hasMore
+    const [total, certificates] = await Promise.all([
+      prisma.certificate.count({ where }),
       prisma.certificate.findMany({
         where,
         orderBy: { issuedAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         select: {
           id: true,
           certId: true,
@@ -1002,10 +1019,22 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
           viewCount: true,
         },
       }),
-      prisma.certificate.count({ where }),
     ]);
 
-    return ApiResponse.success(res, { certificates, total, page, totalPages: Math.ceil(total / limit) });
+    const hasMore = certificates.length > take;
+    const slice = hasMore ? certificates.slice(0, take) : certificates;
+    const nextCursor = hasMore ? slice[slice.length - 1]?.id ?? null : null;
+
+    return ApiResponse.success(res, {
+      certificates: slice,
+      meta: {
+        totalCertificates: total,
+        returned: slice.length,
+        nextCursor,
+        hasMore,
+        mode: 'cursor',
+      },
+    });
   } catch (error) {
     logger.error('Failed to list certificates', { error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to fetch certificates', status: 500 });
@@ -1039,7 +1068,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     eventId, eventName, type, position, domain, teamName, template,
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
+<<<<<<< HEAD
     description, sendEmail, emailTemplate, emailSignerName, emailCustomBody,
+=======
+    description, sendEmail, emailTemplate, emailSignerName,
+    issuedAt: requestedIssuedAt, backdateReason,
+>>>>>>> origin/main
   } = validation.data;
 
   try {
@@ -1055,12 +1089,29 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       resolvedRecipientId = await findRecipientIdByEmail(recipientEmail);
     }
 
-    // Validate eventId exists if provided
+    // Validate eventId exists if provided. startDate doubles as the floor for a
+    // backdated issue date — an event-linked certificate cannot predate its event.
+    let eventStart: Date | null = null;
     if (eventId) {
-      const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+      const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, startDate: true } });
       if (!eventExists) {
         return ApiResponse.badRequest(res, 'Event not found');
       }
+      eventStart = eventExists.startDate;
+    }
+
+    const backdate = resolveCertificateBackdate({
+      requested: requestedIssuedAt,
+      reason: backdateReason,
+      actor: authUser,
+      eventStart,
+    });
+    if (!backdate.ok) {
+      return ApiResponse.error(res, {
+        code: backdate.status === 403 ? ErrorCodes.FORBIDDEN : ErrorCodes.VALIDATION_ERROR,
+        message: backdate.message,
+        status: backdate.status,
+      });
     }
 
     // Resolve signatories: ID → DB+image, inline base64 → processed image, text → cursive fallback
@@ -1133,7 +1184,13 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         issuedBy: authUser.id,
         emailTemplate,
         emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+<<<<<<< HEAD
         emailCustomBody: emailTemplate === 'custom' ? emailCustomBody : null,
+=======
+        issuedAt: backdate.issuedAt,
+        backdatedBy: backdate.backdatedBy,
+        backdateReason: backdate.backdateReason,
+>>>>>>> origin/main
       });
       certId = issued.certId;
       pdfUrl = issued.pdfUrl;
@@ -1172,7 +1229,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
             signerName: emailSignerName,
             certType: normalizedCertType,
           })
-        : emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl);
+        : emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl, backdate.issuedAt);
       emailPromise
         .then(async (sent) => {
           if (sent) {
@@ -1189,8 +1246,23 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         .catch(err => logger.error('Certificate email failed', { certId, error: err.message }));
     }
 
-    logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id });
-    await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName: safeEventName, type });
+    logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id, backdated: Boolean(backdate.backdatedBy) });
+    // The audit row's own `timestamp` is real wall-clock time — only the certificate's
+    // effective date moves, so a backdate is always traceable to when it really happened.
+    await auditLog(
+      authUser.id,
+      backdate.backdatedBy ? 'CERTIFICATE_GENERATE_BACKDATED' : 'CERTIFICATE_GENERATE',
+      'certificate',
+      certId,
+      {
+        recipientEmail,
+        eventName: safeEventName,
+        type,
+        ...(backdate.backdatedBy
+          ? { backdatedTo: backdate.issuedAt.toISOString(), backdateReason: backdate.backdateReason }
+          : {}),
+      },
+    );
 
     // Dashboard v2: push to the recipient's bell menu (best-effort, no-op if no userId).
     if (resolvedRecipientId) {
@@ -1228,7 +1300,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 // PRIVATE: Bulk certificate generation
 // POST /api/certificates/bulk
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), certificateBulkLimiter, async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
 
   // Check feature toggle
@@ -1251,15 +1323,38 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, domain, sendEmail, source, generationStrategy, selectedRoundIds,
+<<<<<<< HEAD
     emailTemplate, emailSignerName, emailCustomBody,
+=======
+    emailTemplate, emailSignerName,
+    issuedAt: requestedIssuedAt, backdateReason,
+>>>>>>> origin/main
   } = validation.data;
 
-  // Validate eventId if provided
+  // Validate eventId if provided. startDate doubles as the backdate floor below.
+  let eventStart: Date | null = null;
   if (eventId) {
-    const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+    const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, startDate: true } });
     if (!eventExists) {
       return ApiResponse.badRequest(res, 'Event not found');
     }
+    eventStart = eventExists.startDate;
+  }
+
+  // Resolved once for the whole batch so every certificate in it carries the same
+  // effective date — a batch that straddled two dates would be indefensible.
+  const backdate = resolveCertificateBackdate({
+    requested: requestedIssuedAt,
+    reason: backdateReason,
+    actor: authUser,
+    eventStart,
+  });
+  if (!backdate.ok) {
+    return ApiResponse.error(res, {
+      code: backdate.status === 403 ? ErrorCodes.FORBIDDEN : ErrorCodes.VALIDATION_ERROR,
+      message: backdate.message,
+      status: backdate.status,
+    });
   }
 
   // Resolve signatories once for the entire batch (image processing is expensive)
@@ -1435,7 +1530,13 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               // template later — even when no email is sent at creation time.
               emailTemplate,
               emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+<<<<<<< HEAD
               emailCustomBody: emailTemplate === 'custom' ? emailCustomBody : null,
+=======
+              issuedAt: backdate.issuedAt,
+              backdatedBy: backdate.backdatedBy,
+              backdateReason: backdate.backdateReason,
+>>>>>>> origin/main
             });
             certId = issued.certId;
             pdfUrl = issued.pdfUrl;
@@ -1480,7 +1581,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
                     signerName: emailSignerName,
                     certType: r.type,
                   })
-                : await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl);
+                : await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl, backdate.issuedAt);
               if (sent) {
                 emailsSent++;
                 await updateCertificateWithSchemaFallback(
@@ -1541,9 +1642,12 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     };
   }, {});
 
-  await auditLog(authUser.id, 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
+  await auditLog(authUser.id, backdate.backdatedBy ? 'CERTIFICATE_BULK_GENERATE_BACKDATED' : 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
     eventName: safeEventName,
     type: type || null,
+    ...(backdate.backdatedBy
+      ? { backdatedTo: backdate.issuedAt.toISOString(), backdateReason: backdate.backdateReason }
+      : {}),
     generated: successes.length,
     failed: failures.length,
     total: recipients.length,
@@ -1598,11 +1702,10 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
       return res.status(200).json({ valid: false, reason: 'revoked', revokedReason: cert.revokedReason });
     }
 
-    // Increment view count asynchronously
-    prisma.certificate.update({
-      where: { certId: cert.certId },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {});
+    // Buffer the view; flushed as one set-based statement every 30s (see
+    // utils/certificateViewCounter.ts). This endpoint is public + unauthenticated, so a
+    // write per read was pure amplification against the pooled Neon connection.
+    recordCertificateView(cert.certId);
 
     return res.status(200).json({
       valid: true,
@@ -1646,7 +1749,7 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
       ],
       isRevoked: false,
     };
-    if (type && ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'].includes(type.toUpperCase())) {
+    if (type && (certTypes as readonly string[]).includes(type.toUpperCase())) {
       where.type = type.toUpperCase();
     }
 
@@ -1667,6 +1770,7 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
           template: true,
           issuedAt: true,
           pdfUrl: true,
+          viewCount: true, // S-03: surface "viewed N times" to the recipient
           event: {
             select: {
               title: true,
@@ -1720,6 +1824,9 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
 certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   const validation = revokeSchema.safeParse(req.body);
   if (!validation.success) {
@@ -1770,6 +1877,9 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
 certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   const validation = editCertificateSchema.safeParse(req.body);
   if (!validation.success) {
@@ -1784,6 +1894,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
   };
 
   try {
+<<<<<<< HEAD
     const cert = await prisma.certificate.findUnique({
       where: { certId: upperCertId },
       select: {
@@ -1795,6 +1906,35 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
         emailTemplate: true, emailSignerName: true, emailCustomBody: true,
       },
     });
+=======
+    const baseEditSelect = {
+      certId: true, recipientId: true, recipientName: true, recipientEmail: true,
+      eventId: true, eventName: true, type: true, position: true, domain: true,
+      description: true, issuedAt: true, isRevoked: true,
+      signatoryName: true, signatoryTitle: true, signatoryImageUrl: true,
+      facultyName: true, facultyTitle: true, facultySignatoryImageUrl: true,
+    } as const;
+    let cert;
+    try {
+      cert = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: { ...baseEditSelect, emailTemplate: true, emailSignerName: true },
+      });
+    } catch (error) {
+      if (!isCertificateSchemaDriftError(error)) {
+        throw error;
+      }
+      // Same drift tolerance as GET /:certId — a DB predating the email-template
+      // columns must still be able to edit printed fields (the write below
+      // already strips those columns via updateCertificateWithSchemaFallback).
+      logger.warn('Certificate schema drift detected during edit lookup; retrying with legacy columns only', { certId: upperCertId });
+      const legacy = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: baseEditSelect,
+      });
+      cert = legacy ? { ...legacy, emailTemplate: null as string | null, emailSignerName: null as string | null } : null;
+    }
+>>>>>>> origin/main
 
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
@@ -1893,7 +2033,10 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
     }
 
     // ── Regenerate the PDF from the merged values FIRST, then write the DB once,
-    //    so a render/upload failure leaves the record completely unchanged.
+    //    so a render/upload failure leaves the record completely unchanged. (If the
+    //    upload succeeds but the DB write then fails, the stored PDF is ahead of the
+    //    record until the admin retries the edit — acceptable: same certId, and a
+    //    retry converges both.)
     if (regenerate) {
       if (!isCloudinaryConfigured) {
         return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Cloudinary is not configured — cannot regenerate certificate', status: 500 });
@@ -1906,26 +2049,27 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
         domain: data.domain !== undefined ? (data.domain as string | null) : cert.domain,
         description: data.description !== undefined ? (data.description as string | null) : cert.description,
       };
-      const pdfBuffer = await generateCertificatePDF({
-        recipientName: sanitizeText(merged.recipientName),
-        eventName: sanitizeText(merged.eventName),
-        type: merged.type,
-        position: merged.position ? sanitizeText(merged.position) : undefined,
-        domain: merged.domain ? sanitizeText(merged.domain) : undefined,
-        description: merged.description ? sanitizeText(merged.description) : undefined,
+      // Restore the persisted team name (graceful — null on an un-migrated DB).
+      const regenTeamName = await readCertificateTeamName(cert.certId);
+      // Single render+upload seam. overwrite:true replaces the same public_id
+      // (certificates/<certId>) + invalidates the CDN.
+      data.pdfUrl = await renderAndUploadCertificatePdf({
         certId: cert.certId,
+        recipientName: merged.recipientName,
+        eventName: merged.eventName,
+        type: merged.type,
+        position: merged.position,
+        domain: merged.domain,
+        teamName: regenTeamName,
+        description: merged.description,
         issuedAt: cert.issuedAt,
-        signatoryName: sanitizeText(cert.signatoryName),
-        signatoryTitle: sanitizeText(cert.signatoryTitle),
-        signatoryImageUrl: cert.signatoryImageUrl || undefined,
-        facultyName: cert.facultyName ? sanitizeText(cert.facultyName) : undefined,
-        facultyTitle: cert.facultyTitle ? sanitizeText(cert.facultyTitle) : undefined,
-        facultySignatoryImageUrl: cert.facultySignatoryImageUrl || undefined,
-        codescrietLogoUrl: CODESCRIET_LOGO,
-        ccsuLogoUrl: CCSU_LOGO,
-      });
-      // overwrite:true replaces the same public_id (certificates/<certId>) + invalidates CDN.
-      data.pdfUrl = await uploadCertificate(cert.certId, pdfBuffer, { overwrite: true });
+        signatoryName: cert.signatoryName ?? '',
+        signatoryTitle: cert.signatoryTitle ?? '',
+        signatoryImageUrl: cert.signatoryImageUrl,
+        facultyName: cert.facultyName,
+        facultyTitle: cert.facultyTitle,
+        facultySignatoryImageUrl: cert.facultySignatoryImageUrl,
+      }, { overwrite: true });
     }
 
     // Single write. Legacy fallback omits the email-template columns if the DB predates them.
@@ -1962,6 +2106,9 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
 certificatesRouter.delete('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   try {
     const cert = await prisma.certificate.findUnique({
@@ -1991,6 +2138,9 @@ certificatesRouter.delete('/:certId', authMiddleware, requireRole('ADMIN'), asyn
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   try {
     let cert:
@@ -2006,6 +2156,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           emailCustomBody: string | null;
           pdfUrl: string | null;
           isRevoked: boolean;
+          issuedAt: Date;
           lastEmailResentAt: Date | null;
         }
       | null;
@@ -2025,11 +2176,12 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           emailCustomBody: true,
           pdfUrl: true,
           isRevoked: true,
+          issuedAt: true,
           lastEmailResentAt: true,
         },
       });
     } catch (error) {
-      if (!isSchemaDriftError(error)) {
+      if (!isCertificateSchemaDriftError(error)) {
         throw error;
       }
 
@@ -2045,6 +2197,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           description: true,
           pdfUrl: true,
           isRevoked: true,
+          issuedAt: true,
         },
       });
       cert = legacyCert
@@ -2092,6 +2245,9 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           cert.eventName,
           cert.certId,
           downloadUrl,
+          // Replay the certificate's stored effective date — a resend must not
+          // re-stamp a backdated certificate with today.
+          cert.issuedAt,
         );
 
     if (sent) {
@@ -2116,6 +2272,9 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { certId } = req.params;
+  if (!requireValidCertIdParam(res, certId)) {
+    return;
+  }
 
   try {
     let cert;
@@ -2160,7 +2319,7 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
         },
       });
     } catch (error) {
-      if (!isSchemaDriftError(error)) {
+      if (!isCertificateSchemaDriftError(error)) {
         throw error;
       }
 

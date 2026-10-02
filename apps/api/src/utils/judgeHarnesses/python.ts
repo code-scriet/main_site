@@ -3,6 +3,12 @@ export function buildHarness(opts: {
   testCases: Array<{ id: string; input: string }>;
   approach: 'A' | 'B';
   timeLimitMs: number;
+  /**
+   * Deliberately UNUSED here. The frame nonce reaches this harness through the
+   * judge stdin, never through the generated source — embedding it would let a
+   * submission recover it by reading its own program file.
+   */
+  nonce: string;
 }): string {
   const userSource = JSON.stringify(opts.userCode);
   const timeLimitMs = Math.max(100, Math.floor(opts.timeLimitMs));
@@ -11,6 +17,7 @@ export function buildHarness(opts: {
 
 _USER_SOURCE = ${userSource}
 _TIME_LIMIT_MS = ${timeLimitMs}
+_NONCE = ""
 
 def _readline_bytes():
     line = sys.stdin.buffer.readline()
@@ -79,6 +86,10 @@ def _run_one(input_str):
     return out, runtime, err[0], timed_out
 
 try:
+    _nonce_header = _readline_bytes()
+    if not _nonce_header.startswith("__NONCE="):
+        raise RuntimeError("invalid judge input")
+    _NONCE = _nonce_header.split("=", 1)[1]
     for test_id, body in _read_tests():
         out, rt, err, timed_out = _run_one(body)
         if timed_out:
@@ -91,9 +102,10 @@ try:
             payload = out
             status = "RESULT"
         encoded = base64.b64encode(payload.encode("utf-8")).decode("ascii")
-        print(f"__JUDGE:{test_id}:{status}:{rt}:{encoded}")
+        print(f"__JUDGE_{_NONCE}:{test_id}:{status}:{rt}:{encoded}")
+    print(f"__JUDGE_{_NONCE}:__end:OK:0:")
 except BaseException:
     encoded = base64.b64encode(traceback.format_exc().encode("utf-8")).decode("ascii")
-    print(f"__JUDGE:__harness:FAIL:0:{encoded}")
+    print(f"__JUDGE_{_NONCE}:__harness:FAIL:0:{encoded}")
 `;
 }

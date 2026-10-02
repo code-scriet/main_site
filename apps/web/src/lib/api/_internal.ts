@@ -1,7 +1,7 @@
 // Internal helpers shared by every per-domain api module. Not part of the
 // public surface — import from '@/lib/api' (the barrel) instead.
 
-import { extractApiErrorMessage } from '@/lib/error';
+import { extractApiErrorMessage, extractFieldErrors } from '@/lib/error';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -11,6 +11,38 @@ export class UnauthorizedError extends Error {
     super(message);
     this.name = 'UnauthorizedError';
   }
+}
+
+// Error thrown for any non-OK response (other than 401). Carries the HTTP
+// status and any server-side per-field validation errors so forms can render
+// them inline next to the matching input (see extractFieldErrors). Existing
+// `catch (e) { e.message }` call sites keep working since ApiError extends Error.
+export class ApiError extends Error {
+  readonly status?: number;
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(
+    message: string,
+    options: { status?: number; fieldErrors?: Record<string, string> } = {}
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = options.status;
+    this.fieldErrors = options.fieldErrors ?? {};
+  }
+}
+
+// Single throw path for failed responses — keeps message extraction, 401
+// auto-logout signalling, and field-error propagation consistent everywhere.
+function throwResponseError(response: Response, errorData: unknown): never {
+  const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
+  if (response.status === 401) {
+    throw new UnauthorizedError(message);
+  }
+  throw new ApiError(message, {
+    status: response.status,
+    fieldErrors: extractFieldErrors(errorData),
+  });
 }
 
 export interface RequestOptions extends RequestInit {
@@ -97,11 +129,7 @@ async function executeJsonRequest(endpoint: string, options: RequestOptions = {}
 
   if (!response.ok) {
     const errorData = await readErrorPayload(response);
-    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
-    if (response.status === 401) {
-      throw new UnauthorizedError(message);
-    }
-    throw new Error(message);
+    throwResponseError(response, errorData);
   }
 
   return response.json();
@@ -143,11 +171,7 @@ export async function requestForm<T>(endpoint: string, formData: FormData, optio
 
   if (!response.ok) {
     const errorData = await readErrorPayload(response);
-    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
-    if (response.status === 401) {
-      throw new UnauthorizedError(message);
-    }
-    throw new Error(message);
+    throwResponseError(response, errorData);
   }
 
   const json = await response.json() as ApiEnvelope<T>;
@@ -190,11 +214,7 @@ export async function requestBlob(endpoint: string, options: RequestOptions = {}
 
   if (!response.ok) {
     const errorData = await readErrorPayload(response);
-    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
-    if (response.status === 401) {
-      throw new UnauthorizedError(message);
-    }
-    throw new Error(message);
+    throwResponseError(response, errorData);
   }
 
   return response.blob();

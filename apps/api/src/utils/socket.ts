@@ -1,50 +1,149 @@
-import { Server as SocketIOServer, Socket } from 'socket.io';
+import { Server as SocketIOServer, type ServerOptions, type Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import { createRequire } from 'node:module';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
+import { getSocketClientIp } from './clientIp.js';
+import { resolveSocketConnectKey } from './socketConnectKey.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from './internalApi.js';
 
 let io: SocketIOServer | null = null;
 
+// S7a: sync CJS require inside this ESM module — used to lazy-load the OPTIONAL
+// native `eiows` engine, which is the DEFAULT WebSocket engine (see
+// resolveWsEngine below); a require failure falls back to stock `ws`.
+const nodeRequire = createRequire(import.meta.url);
+
+// ─── WebSocket engine selection (S7a) ────────────────────────────────────────
+// eiows (a µWebSockets C++ fork) is the DEFAULT engine — ≈5-8x lower
+// per-connection memory than stock JS `ws`, the lever that raises the
+// ~900-concurrent socket ceiling. It stays an optionalDependency, so the
+// selection can never hard-break startup:
+//   • (default)             → use eiows
+//   • WS_ENGINE=ws          → force stock `ws` (instant, no-code rollback)
+//   • eiows unavailable     → AUTOMATICALLY fall back to `ws`, but LOUDLY (error
+//                             log + the /health `wsEngine` field), so a silent
+//                             native-build regression can't quietly cost you the
+//                             headroom while you believe eiows is active
+//   • WS_ENGINE_STRICT=true → refuse to boot instead of falling back, so a
+//                             regressed build fails the DEPLOY, not production
+// The Socket.IO wire protocol is identical either way — socket.io-client on
+// web/playground is unaffected.
+export type WsEngineName = 'eiows' | 'ws';
+
+// Pure, unit-tested decision core: given the env intent + a loader (which throws
+// when eiows can't be required), pick the engine. `strict` turns a load failure
+// into a thrown error instead of a `ws` fallback; the load error is returned (not
+// swallowed) so the caller can log it.
+export function chooseWsEngine(opts: {
+  forceStock: boolean;
+  strict: boolean;
+  loadEiows: () => { Server: unknown };
+}): { engine: WsEngineName; server: unknown; error?: unknown } {
+  if (opts.forceStock) return { engine: 'ws', server: undefined };
+  try {
+    const mod = opts.loadEiows();
+    return { engine: 'eiows', server: mod.Server };
+  } catch (err) {
+    if (opts.strict) throw err;
+    return { engine: 'ws', server: undefined, error: err };
+  }
+}
+
+let activeWsEngine: WsEngineName = 'ws';
+/** The WebSocket engine actually in use after initializeSocket() — surfaced on /health. */
+export function getActiveWsEngine(): WsEngineName {
+  return activeWsEngine;
+}
+
+function resolveWsEngine(): ServerOptions['wsEngine'] {
+  const forceStock = process.env.WS_ENGINE === 'ws';
+  const strict = process.env.WS_ENGINE_STRICT === 'true';
+  let result: ReturnType<typeof chooseWsEngine>;
+  try {
+    result = chooseWsEngine({
+      forceStock,
+      strict,
+      loadEiows: () => nodeRequire('eiows') as { Server: unknown },
+    });
+  } catch (err) {
+    // Only reachable with WS_ENGINE_STRICT=true and eiows unavailable: fail loud.
+    logger.error('Socket.IO: eiows required (WS_ENGINE_STRICT=true) but failed to load — refusing to start', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+  activeWsEngine = result.engine;
+  if (result.engine === 'eiows') {
+    logger.info('Socket.IO: using eiows (C++) WebSocket engine (low-memory default)');
+  } else if (forceStock) {
+    logger.info('Socket.IO: WebSocket engine forced to stock `ws` (WS_ENGINE=ws)');
+  } else {
+    logger.error(
+      'Socket.IO: eiows unavailable — FELL BACK to stock `ws`. The ~5-8x per-connection memory headroom is NOT active. Rebuild eiows, or set WS_ENGINE=ws to make this intentional (or WS_ENGINE_STRICT=true to fail the deploy instead).',
+      { err: result.error instanceof Error ? result.error.message : String(result.error) },
+    );
+  }
+  return result.server as ServerOptions['wsEngine'];
+}
+
 const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
+// Allowance PER BUCKET KEY. The key is now NAT-safe (resolveSocketConnectKey):
+// a verified session gets a `u:<userId>` bucket, anonymous/invalid handshakes
+// share the `ip:<ip>` bucket. 30/60s is the same budget the whole IP had
+// before — now it's PER PERSON for authenticated users (sockets legitimately
+// reconnect on tab refocus / network blips), while anonymous handshakes keep
+// 30/IP/60s as pure abuse protection (they're rejected by namespace auth
+// anyway). The 200-250 student campus-NAT contest hall is no longer capped at
+// 30 dashboard/notification sockets per minute campus-wide.
 const SOCKET_CONNECT_MAX_PER_WINDOW = 30;
+// Bounded: one entry per active bucket key in a 2×window span (~250 users ⇒
+// ~250 entries), swept below. Keyed by the resolveSocketConnectKey string.
 const socketConnectionRateMap = new Map<string, { count: number; windowStart: number }>();
 const SOCKET_PING_TIMEOUT_MS = Number(process.env.SOCKET_PING_TIMEOUT_MS || 30000);
 const SOCKET_PING_INTERVAL_MS = Number(process.env.SOCKET_PING_INTERVAL_MS || 10000);
 
-function getSocketClientIp(socket: Socket): string {
-  const forwardedFor = socket.handshake.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
-    return forwardedFor.split(',')[0].trim();
-  }
+// S2: IP resolution moved to utils/clientIp.ts. The old local version keyed
+// the limiter on the FIRST X-Forwarded-For entry — fully client-controlled,
+// so a direct-to-origin client could rotate XFF to defeat the 30-conn/min cap.
+// Campus-NAT fix: the limiter now keys on resolveSocketConnectKey (per-user for
+// verified sessions, per-IP otherwise) instead of the raw IP.
 
-  return socket.handshake.address || 'unknown';
-}
-
-function isConnectionAllowed(ip: string): boolean {
+function isConnectionAllowed(key: string): boolean {
   const now = Date.now();
-  const current = socketConnectionRateMap.get(ip);
+  const current = socketConnectionRateMap.get(key);
 
   if (!current || now - current.windowStart > SOCKET_CONNECT_WINDOW_MS) {
-    socketConnectionRateMap.set(ip, { count: 1, windowStart: now });
+    socketConnectionRateMap.set(key, { count: 1, windowStart: now });
     return true;
   }
 
   current.count += 1;
-  socketConnectionRateMap.set(ip, current);
+  socketConnectionRateMap.set(key, current);
   return current.count <= SOCKET_CONNECT_MAX_PER_WINDOW;
+}
+
+/** Resolve the NAT-safe bucket key for a handshake (per-user or per-IP). */
+function socketConnectKey(socket: Socket): string {
+  return resolveSocketConnectKey({
+    ip: getSocketClientIp(socket),
+    auth: socket.handshake.auth,
+    headers: socket.handshake.headers,
+  });
 }
 
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, entry] of socketConnectionRateMap.entries()) {
+  for (const [key, entry] of socketConnectionRateMap.entries()) {
     if (now - entry.windowStart > SOCKET_CONNECT_WINDOW_MS * 2) {
-      socketConnectionRateMap.delete(ip);
+      socketConnectionRateMap.delete(key);
     }
   }
 }, SOCKET_CONNECT_WINDOW_MS).unref();
 
 export function initializeSocket(httpServer: HTTPServer) {
   const isDevelopment = process.env.NODE_ENV === 'development';
+  const wsEngine = resolveWsEngine();
 
   io = new SocketIOServer(httpServer, {
     cors: {
@@ -95,12 +194,17 @@ export function initializeSocket(httpServer: HTTPServer) {
     transports: ['websocket'],
     maxHttpBufferSize: 1e6,
     upgradeTimeout: 10000,
+    // S7a: opt-in native engine (WS_ENGINE=eiows). The key MUST be omitted (not
+    // set to undefined) when unused: engine.io merges opts with Object.assign,
+    // which copies an explicit `wsEngine: undefined` OVER its `ws` default and
+    // would crash every connection. Every option above is preserved either way.
+    ...(wsEngine ? { wsEngine } : {}),
   });
 
   io.use((socket, next) => {
-    const ip = getSocketClientIp(socket);
-    if (!isConnectionAllowed(ip)) {
-      logger.warn('Socket connection rate limit exceeded', { ip });
+    const connectKey = socketConnectKey(socket);
+    if (!isConnectionAllowed(connectKey)) {
+      logger.warn('Socket connection rate limit exceeded', { key: connectKey });
       next(new Error('RATE_LIMITED'));
       return;
     }
@@ -129,8 +233,9 @@ export function initializeSocket(httpServer: HTTPServer) {
   // just one socket connection per active client, events fan out to room only.
   const notificationsNs = io.of('/notifications');
   notificationsNs.use((socket, next) => {
-    const ip = getSocketClientIp(socket);
-    if (!isConnectionAllowed(ip)) {
+    const connectKey = socketConnectKey(socket);
+    if (!isConnectionAllowed(connectKey)) {
+      logger.warn('Socket connection rate limit exceeded', { key: connectKey, ns: '/notifications' });
       next(new Error('RATE_LIMITED'));
       return;
     }
@@ -166,7 +271,20 @@ export function getIO(): SocketIOServer | null {
  * Safe to call when Socket.io isn't initialized (no-op).
  */
 export async function disconnectUserSockets(userId: string): Promise<void> {
-  if (!io || !userId) return;
+  if (!userId) return;
+  // The /competition namespace lives on the playground relay — tell it to drop this
+  // user's contest sockets too (best-effort; force-logout still works without it).
+  const relayBase = getPlaygroundRelayBase();
+  const relaySecret = getInternalApiSecret();
+  if (relayBase && relaySecret) {
+    void fetch(`${relayBase}/internal/disconnect-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': relaySecret },
+      body: JSON.stringify({ userId }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => undefined);
+  }
+  if (!io) return;
   const namespaces = ['/', '/quiz', '/notifications', '/attendance'];
   for (const nsName of namespaces) {
     try {

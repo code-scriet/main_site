@@ -22,10 +22,17 @@ export interface CertificateCardData {
   isRevoked?: boolean;
   revokedReason?: string | null;
   recipientName?: string;
+  viewCount?: number;
 }
 
 export function getCertificateCover(index: number): string {
   return COVER_GRADIENTS[index % COVER_GRADIENTS.length];
+}
+
+// Build a safe CSS background-image value: quote the URL and drop characters that
+// could break out of the url("…") wrapper (quotes, backslash, parens, whitespace).
+function cssBackgroundImage(url: string): string {
+  return `url("${url.replace(/["\\()\s]/g, '')}")`;
 }
 
 export function CertificateCard({
@@ -52,7 +59,7 @@ export function CertificateCard({
           'aspect-[1.4/1] bg-gradient-to-br p-4 text-white flex flex-col justify-between relative overflow-hidden',
           !hasEventImage && cover,
         )}
-        style={hasEventImage ? { backgroundImage: `url(${cert.eventImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+        style={hasEventImage ? { backgroundImage: cssBackgroundImage(cert.eventImageUrl!), backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
       >
         {hasEventImage && (
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.25),rgba(0,0,0,0.78))]" />

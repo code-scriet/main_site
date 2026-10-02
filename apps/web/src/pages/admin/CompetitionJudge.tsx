@@ -568,6 +568,9 @@ export default function CompetitionJudge() {
                       </td>
                       <td className="py-3 px-3">
                         <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => openCodeModal(submission)} className="gap-1.5">
+                            <FileCode2 className="h-3.5 w-3.5" /> Code
+                          </Button>
                           <select
                             defaultValue=""
                             onChange={(event) => {
@@ -1030,7 +1033,12 @@ export default function CompetitionJudge() {
               {activeCodeSubmission?.teamName || activeCodeSubmission?.userName || 'Submission'}
             </DialogTitle>
             <DialogDescription>
-              Characters: {activeCodeSubmission?.code.length || 0}
+              {[
+                activeCodeSubmission?.problemTitle,
+                activeCodeSubmission?.language,
+                activeCodeSubmission?.verdict,
+                `${activeCodeSubmission?.code.length || 0} chars`,
+              ].filter(Boolean).join(' · ')}
             </DialogDescription>
           </DialogHeader>
 

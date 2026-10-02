@@ -23,24 +23,38 @@ export interface BroadcastInput {
   createdById?: string | null;
 }
 
+// Resolves to the created row, or `null` if persistence failed. Most callers
+// fire-and-forget (`void broadcastNotification(...)`), so a rejecting DB write
+// would surface as an unhandledRejection and drop the bell silently. Swallowing
+// the write error here (logged) makes EVERY current and future void caller safe;
+// the one caller that needs the row (admin compose) handles null explicitly.
 export async function broadcastNotification(input: BroadcastInput) {
-  const created = await prisma.notificationFeed.create({
-    data: {
-      source: input.source,
-      audience: input.audience,
-      audienceRoles: input.audienceRoles ? (input.audienceRoles as unknown as Prisma.InputJsonValue) : undefined,
-      audienceUserIds: input.audienceUserIds ? (input.audienceUserIds as unknown as Prisma.InputJsonValue) : undefined,
-      category: input.category ?? 'system',
-      icon: input.icon ?? 'bell',
-      title: input.title.slice(0, 200),
-      body: input.body?.slice(0, 2000),
-      link: input.link?.slice(0, 500),
-      refEntity: input.refEntity,
-      refEntityId: input.refEntityId,
-      expiresAt: input.expiresAt,
-      createdById: input.createdById ?? null,
-    },
-  });
+  let created: Awaited<ReturnType<typeof prisma.notificationFeed.create>>;
+  try {
+    created = await prisma.notificationFeed.create({
+      data: {
+        source: input.source,
+        audience: input.audience,
+        audienceRoles: input.audienceRoles ? (input.audienceRoles as unknown as Prisma.InputJsonValue) : undefined,
+        audienceUserIds: input.audienceUserIds ? (input.audienceUserIds as unknown as Prisma.InputJsonValue) : undefined,
+        category: input.category ?? 'system',
+        icon: input.icon ?? 'bell',
+        title: input.title.slice(0, 200),
+        body: input.body?.slice(0, 2000),
+        link: input.link?.slice(0, 500),
+        refEntity: input.refEntity,
+        refEntityId: input.refEntityId,
+        expiresAt: input.expiresAt,
+        createdById: input.createdById ?? null,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to persist notification broadcast', {
+      source: input.source, audience: input.audience,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 
   // Live ping: every connected /notifications client gets a heads-up to refetch.
   // We don't push the payload itself (clients fetch the full aggregate to apply audience filters).

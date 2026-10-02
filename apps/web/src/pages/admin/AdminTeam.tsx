@@ -96,6 +96,19 @@ export default function AdminTeam() {
     return m;
   }, [members]);
 
+  // Team options follow the data, not a hardcoded list: the distinct teams
+  // already in use (sorted). The dropdown always contains every real group,
+  // so it can never display a wrong value for members outside the old list.
+  const teamOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      const t = (m.team || '').trim();
+      if (t) set.add(t);
+    }
+    const opts = [...set].sort((a, b) => a.localeCompare(b));
+    return opts.length ? opts : TEAM_GROUPS;
+  }, [members]);
+
   const saveMut = useMutation({
     mutationFn: async () => {
       const payload: Partial<TeamMember> & { userId?: string | null } = {
@@ -122,7 +135,7 @@ export default function AdminTeam() {
       setEditOpen(false);
       qc.invalidateQueries({ queryKey: ['admin-team'] });
     },
-    onError: () => toast.error('Save failed'),
+    onError: (e: unknown) => toast.error(e instanceof Error && e.message ? e.message : 'Save failed'),
   });
 
   const deleteMut = useMutation({
@@ -132,11 +145,19 @@ export default function AdminTeam() {
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ['admin-team'] });
     },
-    onError: () => toast.error('Delete failed'),
+    onError: (e: unknown) => {
+      // 404 = the row was already gone server-side (stale list); refresh instead of alarming.
+      if (e instanceof Error && (e as { status?: number }).status === 404) {
+        qc.invalidateQueries({ queryKey: ['admin-team'] });
+        toast.error('Team member was already removed — list refreshed');
+        return;
+      }
+      toast.error(e instanceof Error && e.message ? e.message : 'Delete failed');
+    },
   });
 
   const openCreate = () => {
-    setEdit({ ...EMPTY, order: members.length });
+    setEdit({ ...EMPTY, order: members.length, team: teamOptions[0] ?? EMPTY.team });
     setEditTarget(null);
     setRichOpen(false);
     setLinkUserId(null);
@@ -304,6 +325,9 @@ export default function AdminTeam() {
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
           <h1 className="text-[24px] font-semibold tracking-tight mt-1">Team</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The public Team page renders this list, grouped by team.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${members.length} total`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild>
@@ -380,8 +404,8 @@ export default function AdminTeam() {
                       {m.website && <SocialChip icon={Globe} href={m.website} />}
                     </div>
 
-                    {/* Hover-reveal Edit + Remove actions */}
-                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    {/* Edit + Remove actions — always visible (touch users can't hover) */}
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button
                         onClick={() => openEdit(m)}
                         className="size-7 rounded-[6px] hover:bg-[var(--bg-raised)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center border border-[var(--border-subtle)]"
@@ -422,10 +446,14 @@ export default function AdminTeam() {
                 onChange={(e) => setEdit({ ...edit, team: e.target.value })}
                 className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
               >
-                {TEAM_GROUPS.map((t) => <option key={t} value={t}>{t}</option>)}
+                {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                {/* Keep the staged value selectable when the list is momentarily stale. */}
+                {!teamOptions.includes(edit.team) && edit.team.trim() !== '' && (
+                  <option key={edit.team} value={edit.team}>{edit.team}</option>
+                )}
               </select>
             </Field>
-            <Field label="Image URL" className="sm:col-span-2" badge={syncBadge(edit.imageUrl, linkUserId, syncedFrom.imageUrl)}>
+            <Field label="Image URL" required className="sm:col-span-2" badge={syncBadge(edit.imageUrl, linkUserId, syncedFrom.imageUrl)}>
               <Input value={edit.imageUrl} onChange={(e) => setEdit({ ...edit, imageUrl: e.target.value })} placeholder={linkUser?.avatar || 'https://…'} />
             </Field>
             <Field label="GitHub" badge={syncBadge(edit.github, linkUserId, syncedFrom.github)}>

@@ -1,5 +1,6 @@
-import { Router, Request, Response } from 'express';
-import { Prisma, ProblemLanguage } from '@prisma/client';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { prisma, withRetry } from '../lib/prisma.js';
@@ -9,11 +10,40 @@ import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import { ProblemHttpError, submitProblemForUser } from '../utils/problemsCore.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { uuidParamGuard } from '../utils/idParams.js';
+import { computeRanksFromScores } from '../utils/competitionRanks.js';
+import { normalizeWeights } from '../utils/contestScoring.js';
+import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
+import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
+import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
+import { getInternalApiSecret, getPlaygroundRelayBase } from '../utils/internalApi.js';
+import { getCachedRound, invalidateRoundCache, isRegisteredCached } from '../competition/roundCache.js';
+import { getProblemTests } from '../utils/problemsCore.js';
+import { findPlagiarismPairs, type PlagiarismInput, type PlagiarismPair } from '../competition/plagiarism.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
+
+// Reject malformed ids before they hit Prisma — every competition path param
+// is a uuid PK. Mirrors the router.param guards in users.ts / quizRouter.ts.
+competitionRouter.param('roundId', uuidParamGuard('round ID'));
+competitionRouter.param('eventId', uuidParamGuard('event ID'));
+competitionRouter.param('submissionId', uuidParamGuard('submission ID'));
+competitionRouter.param('userId', uuidParamGuard('user ID'));
+competitionRouter.param('flagId', uuidParamGuard('flag ID'));
+
+// Instant-lock violation kinds. A reflexive Ctrl-V/-C or an OS/trackpad-driven fullscreen
+// exit fires these with no prior on-screen grace (unlike tab-away, which only trips after
+// AWAY_LOCK_MS continuously hidden — a deliberate departure). Locking on the very first one
+// would catch a genuinely reflexive slip, so a single warning is allowed: the first instant
+// violation warns, the next locks. Every violation is still logged + counted (the schema's
+// violationCount); only the lock decision is softened. Tab-away still locks on its first
+// trip. (Copy / cut / paste all map to COPY_PASTE; dev-tools / print / right-click report
+// as OTHER and are logged-but-not-auto-locked — see the proctor/violation handler.)
+const INSTANT_VIOLATION_KINDS = ['COPY_PASTE', 'FULLSCREEN_EXIT'] as const;
+const INSTANT_VIOLATION_BUDGET = 1; // 1 warning, then the next instant violation locks
+const isInstantViolation = (kind: string): boolean => (INSTANT_VIOLATION_KINDS as readonly string[]).includes(kind);
 
 // Feature gate: the `competitionEnabled` setting hides the UI but, prior to
 // this gate, the API still served reads, saves, submits and admin actions.
@@ -59,11 +89,28 @@ const submitLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many submit attempts. Please wait.' } },
 });
 
+// Contest-config fields shared by create + update (Phase B). finalWeight is the round's
+// raw weight in the event-final aggregation; difficultyWeights are optional EASY/MED/HARD
+// presets the admin UI uses to seed per-problem weights (the raw weight still lives on
+// each problem's `points`).
+const contestConfigShape = {
+  finalWeight: z.number().min(0).max(1000).optional(),
+  proctored: z.boolean().optional(),
+  penaltyModel: z.enum(['BEST_SCORE', 'ICPC']).optional(),
+  teamAggregation: z.enum(['BEST_PER_PROBLEM', 'AVERAGE', 'BEST_MEMBER']).optional(),
+  leaderboardFreezeMinutes: z.number().int().min(0).max(1440).nullable().optional(),
+  difficultyWeights: z.object({
+    EASY: z.number().min(0).max(1000),
+    MEDIUM: z.number().min(0).max(1000),
+    HARD: z.number().min(0).max(1000),
+  }).partial().nullable().optional(),
+};
+
 const createRoundSchema = z.object({
   eventId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  duration: z.number().int().min(300).max(7200),
+  duration: z.number().int().min(300).max(14400),
   roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
@@ -75,12 +122,13 @@ const createRoundSchema = z.object({
     points: z.number().int().min(1).max(1000).optional(),
     displayOrder: z.number().int().min(0).optional(),
   })).max(50).optional(),
+  ...contestConfigShape,
 });
 
 const updateRoundSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
-  duration: z.number().int().min(300).max(7200).optional(),
+  duration: z.number().int().min(300).max(14400).optional(),
   roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
@@ -92,6 +140,7 @@ const updateRoundSchema = z.object({
     points: z.number().int().min(1).max(1000).optional(),
     displayOrder: z.number().int().min(0).optional(),
   })).max(50).optional(),
+  ...contestConfigShape,
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field is required',
 });
@@ -102,8 +151,6 @@ const saveSchema = z.object({
 
 const submitSchema = z.object({
   code: z.string().max(MAX_CODE_BYTES),
-  problemId: z.string().uuid().optional(),
-  language: z.nativeEnum(ProblemLanguage).optional(),
 });
 
 const scoreSchema = z.object({
@@ -186,63 +233,38 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
   };
 }
 
-async function ensureRegisteredForRound(roundId: string, userId: string) {
-  const round = await prisma.competitionRound.findUnique({
-    where: { id: roundId },
-    select: {
-      id: true,
-      eventId: true,
-      title: true,
-      description: true,
-      duration: true,
-      status: true,
-      roundType: true,
-      startedAt: true,
-      lockedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      targetImageUrl: true,
-      participantScope: true,
-      leadersOnly: true,
-      allowedTeamIds: true,
-      problems: {
-        orderBy: { displayOrder: 'asc' },
-        include: {
-          problem: {
-            select: {
-              id: true,
-              slug: true,
-              title: true,
-              difficulty: true,
-              allowedLanguages: true,
-              isPublished: true,
-            },
-          },
-        },
-      },
-      event: {
-        select: {
-          teamRegistration: true,
-        },
-      },
-    },
-  });
+// Cached round + registration gate for the contest polling endpoints (GET /:roundId,
+// proctor heartbeat/me, save/submit/my-submission, violation). The round select shape
+// lives in roundCache.ts (roundCacheSelect) — same returned object, same throws (404
+// round / 403 not registered) as the old inline queries, but 120–250 students polling
+// every 15s now share ONE round query per 10s window and one registration query per
+// user per 30s instead of two fresh queries per poll each. Every round/problem write
+// below calls invalidateRoundCache.
+//
+// `liveRegistration`: endpoints that PERSIST contest artifacts (IMAGE_TARGET
+// /save + /submit) pass true to re-check the registration fresh — the 30s
+// positive-registration staleness window applies ONLY to read-only polls and the
+// harmless heartbeat. (DSA submits never come through here; they're gated live in
+// problemsCore.validateProblemContext.) Tradeoff details in roundCache.ts.
+async function ensureRegisteredForRound(
+  roundId: string,
+  userId: string,
+  opts: { liveRegistration?: boolean } = {},
+) {
+  const round = await getCachedRound(roundId);
 
   if (!round) {
     throw { status: 404, code: ErrorCodes.NOT_FOUND, message: 'Competition round not found' };
   }
 
-  const registration = await prisma.eventRegistration.findUnique({
-    where: {
-      userId_eventId: {
-        userId,
-        eventId: round.eventId,
-      },
-    },
-    select: { id: true },
-  });
+  const registered = opts.liveRegistration
+    ? (await prisma.eventRegistration.findUnique({
+        where: { userId_eventId: { userId, eventId: round.eventId } },
+        select: { id: true },
+      })) !== null
+    : await isRegisteredCached(userId, round.eventId);
 
-  if (!registration) {
+  if (!registered) {
     throw {
       status: 403,
       code: ErrorCodes.FORBIDDEN,
@@ -270,12 +292,15 @@ function getRoundParticipationError(
 
 async function autoLockRound(roundId: string): Promise<boolean> {
   try {
-    await prisma.$transaction(async (tx) => {
+    // Returns whether THIS call performed the ACTIVE→LOCKED transition (false on a race
+    // where another path already locked it) so we decrement the priority counter exactly
+    // once per real transition.
+    const didLock = await prisma.$transaction(async (tx) => {
       const round = await tx.competitionRound.findUnique({
         where: { id: roundId },
         select: { id: true, status: true, participantScope: true, leadersOnly: true, allowedTeamIds: true },
       });
-      if (!round || round.status !== 'ACTIVE') return;
+      if (!round || round.status !== 'ACTIVE') return false;
 
       await tx.competitionRound.update({
         where: { id: roundId },
@@ -362,13 +387,27 @@ async function autoLockRound(roundId: string): Promise<boolean> {
       }
 
       await tx.competitionAutoSave.deleteMany({ where: { roundId } });
+      return true;
     });
 
     const timer = activeTimers.get(roundId);
     if (timer) clearTimeout(timer);
     activeTimers.delete(roundId);
 
-    logger.info('Competition round auto-locked', { roundId });
+    // The status just changed (or another path changed it moments ago) — drop the cached
+    // round so the very next poll sees LOCKED. Unconditional: invalidation is a cheap
+    // Map.delete and GET /:roundId re-reads through this cache right after auto-locking.
+    invalidateRoundCache(roundId);
+
+    // ACTIVE → LOCKED: leave contest priority mode + push the status so arenas flip to
+    // the read-only/locked view without a reload. Only on a real transition (not a race
+    // where another path already locked it).
+    if (didLock) {
+      decActiveRounds();
+      emitRoundStatus(roundId, 'LOCKED');
+    }
+
+    logger.info('Competition round auto-locked', { roundId, didLock });
     return true;
   } catch (error) {
     logger.error('Failed to auto-lock competition round', {
@@ -412,6 +451,51 @@ export async function recoverActiveRounds(): Promise<void> {
     scheduleRoundLock(round.id, remaining);
     logger.info('Recovered competition timer', { roundId: round.id, remainingSeconds: remaining });
   }
+
+  // Seed the contest-priority counter to the rounds still ACTIVE after recovery (some
+  // expired ones were just auto-locked above). Absolute set, so it's correct regardless
+  // of the dec() calls autoLockRound made during the loop.
+  setActiveRoundCount(await prisma.competitionRound.count({ where: { status: 'ACTIVE' } }));
+}
+
+// Standard competition ranking (1224) from scores: highest score = rank 1, equal
+// scores share a rank, earlier submission sorts first for display. Single source of
+// truth for both the finish (initial publish) path AND re-scoring an already-FINISHED
+// round — without the latter, a corrected score would leave `rank` stale (results +
+// exports read `rank`, so a stale rank silently misorders the podium).
+async function recomputeRoundRanks(
+  tx: Prisma.TransactionClient,
+  roundId: string,
+): Promise<number> {
+  const submissions = await tx.competitionSubmission.findMany({
+    where: { roundId },
+    select: { id: true, score: true },
+    orderBy: [
+      // `score` is nullable; Postgres sorts NULLs FIRST on DESC, which would rank an
+      // unscored row #1. `nulls: 'last'` keeps any unscored row at the bottom. (Finish
+      // already guards all-scored, and a FINISHED re-score never reintroduces a null —
+      // this just makes the query own the ordering the unit test documents.)
+      { score: { sort: 'desc', nulls: 'last' } },
+      { submittedAt: 'asc' },
+    ],
+  });
+  if (submissions.length === 0) return 0;
+
+  // Pure 1224 ranking lives in utils (unit-tested); this layer owns the query + write.
+  const ranked = computeRanksFromScores(submissions);
+  const ids = ranked.map((row) => row.id);
+  const ranks = ranked.map((row) => row.rank);
+
+  // One set-based UPDATE zips ids[]↔ranks[] via unnest (mirrors the raise-cap
+  // optimization) instead of N per-row updates inside the txn. `rank` has no @map;
+  // updated_at (@updatedAt) has no DB default, so raw SQL supplies it.
+  await tx.$executeRaw`
+    UPDATE competition_submissions AS cs
+    SET rank = v.rank, updated_at = now()
+    FROM unnest(${ids}::text[], ${ranks}::int[]) AS v(id, rank)
+    WHERE cs.id = v.id;
+  `;
+  return submissions.length;
 }
 
 competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
@@ -485,6 +569,12 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         allowedTeamIds,
         targetImageUrl: roundType === 'DSA' ? null : (parsed.data.targetImageUrl || null),
         status: 'DRAFT',
+        ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
+        ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
+        ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+        ...(parsed.data.teamAggregation !== undefined ? { teamAggregation: parsed.data.teamAggregation } : {}),
+        ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
+        ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         ...(roundType === 'DSA' ? {
           problems: {
             create: linkedProblems.map((item) => ({
@@ -518,7 +608,7 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
   try {
     const user = getAuthUser(req);
     const { eventId } = req.params;
-    const canViewTeamSelection = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+    const canViewTeamSelection = user ? hasPermission(user.role, 'ADMIN') : false;
     const event = await prisma.event.findUnique({
       where: { id: eventId },
       select: { id: true, teamRegistration: true },
@@ -586,6 +676,12 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: canViewTeamSelection ? round.allowedTeamIds : undefined,
+      finalWeight: round.finalWeight,
+      proctored: round.proctored,
+      penaltyModel: round.penaltyModel,
+      teamAggregation: round.teamAggregation,
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
+      difficultyWeights: canViewTeamSelection ? round.difficultyWeights : undefined,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       problems: round.problems.map((link) => ({
@@ -652,6 +748,89 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
   }
 });
 
+// DSA contest rounds score via the Problems judge (ProblemSubmission), not
+// CompetitionSubmission — so the IMAGE_TARGET results-summary query returns nothing for
+// them. Compute their standings here in the SAME shape (rank/score + team/member or solo
+// + attendance) so DSA contest WINNERS are certifiable through the existing
+// EventCertificateWizard, exactly like image-target rounds.
+type ResultsSummarySubmission = {
+  submissionId: string; rank: number | null; score: number | null; submittedAt: string;
+  teamId?: string; teamName?: string;
+  members?: Array<{ userId: string; name: string; email: string; attended: boolean }>;
+  userId?: string; userName?: string; userEmail?: string; attended?: boolean;
+};
+
+async function buildDsaRoundSummary(
+  roundId: string,
+  event: { id: string; teamRegistration: boolean },
+): Promise<ResultsSummarySubmission[]> {
+  const lb = await computeContestLeaderboard(roundId, 100000);
+  const rows = lb?.results ?? [];
+  if (rows.length === 0) return [];
+  // DSA has no single submission instant, and the cert wizard re-ranks candidates by
+  // (score desc, then submittedAt asc). Encoding the round's AUTHORITATIVE rank as the
+  // timestamp makes that re-rank reproduce the contest order exactly — including the
+  // ICPC penalty / completion tie-breaks already baked into `rank` (score is monotonic
+  // with rank in both penalty models, so the score-primary sort never fights it). The
+  // field is internal-only (never displayed), so a synthetic epoch is safe.
+  const rankStamp = (rank: number | null): string => new Date((rank ?? rows.length + 1) * 1000).toISOString();
+
+  if (event.teamRegistration) {
+    // Team leaderboard rows are keyed by teamId (row.userId == teamId). Enrich with the
+    // full member list + per-member attendance so the wizard can gate + issue per member.
+    const teams = await prisma.eventTeam.findMany({
+      where: { id: { in: rows.map((r) => r.userId) } },
+      select: {
+        id: true, teamName: true,
+        members: {
+          orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
+          select: {
+            user: { select: { id: true, name: true, email: true } },
+            registration: { select: { attended: true } },
+          },
+        },
+      },
+    });
+    const teamById = new Map(teams.map((t) => [t.id, t]));
+    return rows.map((row) => {
+      const team = teamById.get(row.userId);
+      return {
+        submissionId: `dsa:${roundId}:${row.userId}`,
+        rank: row.rank,
+        score: row.totalScore,
+        submittedAt: rankStamp(row.rank),
+        teamId: row.userId,
+        teamName: team?.teamName ?? row.userName,
+        members: (team?.members ?? []).map((m) => ({
+          userId: m.user.id, name: m.user.name, email: m.user.email, attended: m.registration.attended,
+        })),
+      };
+    });
+  }
+
+  // Solo leaderboard rows are keyed by userId. Enrich with email + attendance.
+  const userIds = rows.map((r) => r.userId);
+  const [users, regs] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }),
+    prisma.eventRegistration.findMany({ where: { eventId: event.id, userId: { in: userIds } }, select: { userId: true, attended: true } }),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const attendedByUser = new Map(regs.map((r) => [r.userId, r.attended]));
+  return rows.map((row) => {
+    const u = userById.get(row.userId);
+    return {
+      submissionId: `dsa:${roundId}:${row.userId}`,
+      rank: row.rank,
+      score: row.totalScore,
+      submittedAt: rankStamp(row.rank),
+      userId: row.userId,
+      userName: u?.name ?? row.userName,
+      userEmail: u?.email ?? '',
+      attended: attendedByUser.get(row.userId) ?? false,
+    };
+  });
+}
+
 competitionRouter.get('/event/:eventId/results-summary', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
@@ -677,6 +856,7 @@ competitionRouter.get('/event/:eventId/results-summary', authMiddleware, require
       select: {
         id: true,
         title: true,
+        roundType: true,
         submissions: {
           orderBy: [
             { rank: 'asc' },
@@ -751,9 +931,18 @@ competitionRouter.get('/event/:eventId/results-summary', authMiddleware, require
       individualAttendance.map((registration) => [registration.userId, registration.attended]),
     );
 
-    return ApiResponse.success(res, {
-      rounds: rounds.map((round) => ({
+    // Build per-round summaries. DSA rounds compute standings from the Problems judge
+    // (buildDsaRoundSummary); image-target rounds map their CompetitionSubmission rows.
+    // Sequential (not Promise.all) to respect the frozen Prisma pool — bounded by round count.
+    const roundSummaries: Array<{ roundId: string; title: string; roundType: string; submissions: ResultsSummarySubmission[] }> = [];
+    for (const round of rounds) {
+      if (round.roundType === 'DSA') {
+        roundSummaries.push({ roundId: round.id, title: round.title, roundType: round.roundType, submissions: await buildDsaRoundSummary(round.id, event) });
+        continue;
+      }
+      roundSummaries.push({
         roundId: round.id,
+        roundType: round.roundType,
         title: round.title,
         submissions: round.submissions.map((submission) => {
           if (event.teamRegistration && submission.team) {
@@ -784,14 +973,127 @@ competitionRouter.get('/event/:eventId/results-summary', authMiddleware, require
             attended: attendanceByUserId.get(submission.user.id) ?? false,
           };
         }),
-      })),
-    });
+      });
+    }
+
+    return ApiResponse.success(res, { rounds: roundSummaries });
   } catch (error) {
     logger.error('Failed to fetch competition results summary', {
       eventId: req.params.eventId,
       error: error instanceof Error ? error.message : String(error),
     });
     return ApiResponse.internal(res, 'Failed to fetch competition results summary');
+  }
+});
+
+// ─── Event-final standings (Phase F) ─────────────────────────────────────────
+// Combine an event's FINISHED rounds by their normalized finalWeight into one capped
+// 0–100 standing per entrant (team for team events, user for solo), with a per-round
+// breakdown. Admins always see the draft; the public sees it once published.
+
+type FinalEntrant = { id: string; name: string; isTeam: boolean; perRound: Map<string, number>; final: number };
+
+// Per-round entrant→score(0–100). DSA uses the team-aware leaderboard; IMAGE_TARGET uses
+// the admin-scored CompetitionSubmission rows (keyed by team for team events, else user).
+async function getRoundStandings(round: { id: string; roundType: string }, teamRegistration: boolean): Promise<Map<string, { name: string; score: number; isTeam: boolean }>> {
+  const out = new Map<string, { name: string; score: number; isTeam: boolean }>();
+  if (round.roundType === 'DSA') {
+    const lb = await computeContestLeaderboard(round.id, 100000);
+    for (const row of lb?.results ?? []) {
+      out.set(row.userId, { name: row.userName, score: row.totalScore, isTeam: Boolean(row.isTeam) });
+    }
+    return out;
+  }
+  const subs = await prisma.competitionSubmission.findMany({
+    where: { roundId: round.id },
+    select: { score: true, userId: true, user: { select: { name: true } }, team: { select: { id: true, teamName: true } } },
+  });
+  for (const s of subs) {
+    if (teamRegistration && s.team) out.set(s.team.id, { name: s.team.teamName, score: s.score ?? 0, isTeam: true });
+    else out.set(s.userId, { name: s.user.name, score: s.score ?? 0, isTeam: false });
+  }
+  return out;
+}
+
+async function computeEventFinal(eventId: string) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, title: true, teamRegistration: true, competitionFinalPublishedAt: true },
+  });
+  if (!event) return null;
+  const rounds = await prisma.competitionRound.findMany({
+    where: { eventId, status: 'FINISHED' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, title: true, roundType: true, finalWeight: true },
+  });
+  const normWeights = normalizeWeights(rounds.map((r) => r.finalWeight));
+  const weightByRound = new Map(rounds.map((r, i) => [r.id, normWeights[i]]));
+
+  const entrants = new Map<string, FinalEntrant>();
+  for (const round of rounds) {
+    const standings = await getRoundStandings(round, event.teamRegistration);
+    const w = weightByRound.get(round.id) ?? 0;
+    for (const [id, row] of standings) {
+      const e = entrants.get(id) ?? { id, name: row.name, isTeam: row.isTeam, perRound: new Map(), final: 0 };
+      e.name = row.name; // freshest display name
+      e.perRound.set(round.id, row.score);
+      e.final += row.score * w;
+      entrants.set(id, e);
+    }
+  }
+
+  const ranked = Array.from(entrants.values())
+    .map((e) => ({ ...e, final: Math.round(Math.min(100, e.final) * 100) / 100 }))
+    .sort((a, b) => b.final - a.final);
+  let currentRank = 1;
+  const standings = ranked.map((e, i) => {
+    if (i > 0 && e.final !== ranked[i - 1].final) currentRank = i + 1;
+    return {
+      rank: currentRank,
+      entrantId: e.id,
+      name: e.name,
+      isTeam: e.isTeam,
+      final: e.final,
+      perRound: rounds.map((r) => ({ roundId: r.id, title: r.title, score: e.perRound.get(r.id) ?? null })),
+    };
+  });
+
+  return {
+    event: { id: event.id, title: event.title, teamRegistration: event.teamRegistration, publishedAt: event.competitionFinalPublishedAt?.toISOString() ?? null },
+    rounds: rounds.map((r, i) => ({ id: r.id, title: r.title, weight: normWeights[i] })),
+    standings,
+  };
+}
+
+competitionRouter.get('/event/:eventId/final', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const isAdmin = Boolean(user && hasPermission(user.role, 'ADMIN'));
+    const final = await computeEventFinal(req.params.eventId);
+    if (!final) return ApiResponse.notFound(res, 'Event not found');
+    if (!isAdmin && !final.event.publishedAt) {
+      return ApiResponse.forbidden(res, 'Final standings are not published yet');
+    }
+    return ApiResponse.success(res, final);
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to compute event final');
+  }
+});
+
+competitionRouter.post('/event/:eventId/publish-final', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const event = await prisma.event.findUnique({ where: { id: req.params.eventId }, select: { id: true } });
+    if (!event) return ApiResponse.notFound(res, 'Event not found');
+    const publish = req.body?.publish !== false; // default true; pass { publish:false } to unpublish
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { competitionFinalPublishedAt: publish ? new Date() : null },
+    });
+    await auditLog(admin.id, publish ? 'COMPETITION_FINAL_PUBLISHED' : 'COMPETITION_FINAL_UNPUBLISHED', 'Event', event.id, {});
+    return ApiResponse.success(res, { published: publish });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to publish event final');
   }
 });
 
@@ -819,37 +1121,41 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
     }
-    const hasSubmittedByUser = await prisma.competitionSubmission.findUnique({
-      where: {
-        roundId_userId: { roundId, userId: user.id },
-      },
-      select: { id: true },
-    });
-    const hasSubmittedByTeam = myTeam
-      ? await prisma.competitionSubmission.findUnique({
-          where: {
-            roundId_teamId: { roundId, teamId: myTeam.id },
-          },
-          select: { id: true },
-        })
-      : null;
-    const myProblemSubmissions = round.roundType === 'DSA'
-      ? await prisma.problemSubmission.findMany({
-          where: {
-            userId: user.id,
-            contextType: 'CONTEST',
-            contextKey: round.id,
-          },
-          select: { problemId: true, score: true, verdict: true, updatedAt: true },
-        })
-      : [];
-
+    // These four lookups are mutually independent once myTeam is resolved —
+    // one parallel stage instead of four sequential round-trips on a page the
+    // solve UI polls while a round is live.
     const isAdmin = hasPermission(user.role, 'ADMIN');
-    const pendingCapRequests = isAdmin && round.roundType === 'DSA'
-      ? await prisma.problemSubmissionCounter.count({
-          where: { contextType: 'CONTEST', contextKey: round.id, pendingRequest: true },
-        })
-      : 0;
+    const [hasSubmittedByUser, hasSubmittedByTeam, myProblemSubmissions, pendingCapRequests] = await Promise.all([
+      prisma.competitionSubmission.findUnique({
+        where: {
+          roundId_userId: { roundId, userId: user.id },
+        },
+        select: { id: true },
+      }),
+      myTeam
+        ? prisma.competitionSubmission.findUnique({
+            where: {
+              roundId_teamId: { roundId, teamId: myTeam.id },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      round.roundType === 'DSA'
+        ? prisma.problemSubmission.findMany({
+            where: {
+              userId: user.id,
+              contextType: 'CONTEST',
+              contextKey: round.id,
+            },
+            select: { problemId: true, score: true, verdict: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+      isAdmin && round.roundType === 'DSA'
+        ? prisma.problemSubmissionCounter.count({
+            where: { contextType: 'CONTEST', contextKey: round.id, pendingRequest: true },
+          })
+        : Promise.resolve(0),
+    ]);
 
     return ApiResponse.success(res, {
       id: round.id,
@@ -862,6 +1168,9 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: round.allowedTeamIds,
+      proctored: round.proctored,
+      penaltyModel: round.penaltyModel,
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       problems: round.problems.map((link) => ({
@@ -904,7 +1213,10 @@ competitionRouter.patch('/:roundId/start', authMiddleware, requireRole('ADMIN'),
     const admin = getAuthUser(req)!;
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, status: true, duration: true, eventId: true, title: true },
+      select: {
+        id: true, status: true, duration: true, eventId: true, title: true, roundType: true,
+        problems: { select: { problem: { select: { title: true, hiddenTests: true } } } },
+      },
     });
 
     if (!round) return ApiResponse.notFound(res, 'Round not found');
@@ -912,13 +1224,54 @@ competitionRouter.patch('/:roundId/start', authMiddleware, requireRole('ADMIN'),
       return ApiResponse.badRequest(res, 'Only draft rounds can be started');
     }
 
+    // A DSA round scores CONTEST submissions on PRIVATE (hidden) tests only — sample
+    // tests carry 0 weight. A linked problem with no hidden tests therefore scores every
+    // contestant 0 with no error during the live round (they'd see passing samples but a 0
+    // score, and an all-zero board). Block the start until each problem has hidden tests,
+    // when there's still time to fix it, rather than failing silently mid-contest.
+    if (round.roundType === 'DSA') {
+      const noHidden = round.problems
+        .filter((link) => getProblemTests({ sampleTests: [], hiddenTests: link.problem.hiddenTests }).hiddenTests.length === 0)
+        .map((link) => link.problem.title);
+      if (noHidden.length > 0) {
+        return ApiResponse.badRequest(
+          res,
+          `Cannot start: these problems have no hidden tests, so they would score every contestant 0 — ${noHidden.join(', ')}. Add hidden tests before starting.`,
+        );
+      }
+    }
+
     const startedAt = new Date();
-    const updated = await withRetry(() => prisma.competitionRound.update({
-      where: { id: round.id },
+    // Atomic DRAFT → ACTIVE: the read-above status check is TOCTOU-racy (two concurrent
+    // start clicks could both pass it), and a non-conditional update would let BOTH
+    // increment the contest-priority counter — leaving it stuck > 0 so non-essential
+    // background work stays paused until a restart. The conditional updateMany makes
+    // exactly one caller the winner; the loser sees count === 0 and bails. Mirrors the
+    // atomic-attendance / quiz start-guard pattern.
+    //
+    // Deliberately NOT wrapped in withRetry: a retry-after-commit would re-run the
+    // conditional update, find status already ACTIVE → count 0, and we'd skip arming the
+    // timer/counter while the row is in fact ACTIVE (a round that never auto-locks). A
+    // single attempt is all-or-nothing — a transient error throws → 500, the row stays
+    // DRAFT, the admin retries. (The findUnique above is likewise un-retried.)
+    const claim = await prisma.competitionRound.updateMany({
+      where: { id: round.id, status: 'DRAFT' },
       data: { status: 'ACTIVE', startedAt, lockedAt: null },
-    }));
+    });
+    if (claim.count === 0) {
+      // Lost the race (a concurrent click won and already armed everything) or no longer
+      // DRAFT — either way there's nothing for this request to start.
+      return ApiResponse.badRequest(res, 'Only draft rounds can be started');
+    }
+    // DRAFT → ACTIVE just landed: drop the cached round so contestants' next poll sees it.
+    invalidateRoundCache(round.id);
+    const updated = await prisma.competitionRound.findUniqueOrThrow({ where: { id: round.id } });
 
     scheduleRoundLock(round.id, round.duration);
+    // DRAFT → ACTIVE: enter contest priority mode + push synced start to the lobby.
+    // Only the winner of the atomic claim above reaches here, so this increments once.
+    incActiveRounds();
+    emitRoundStatus(round.id, 'ACTIVE');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_STARTED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -997,6 +1350,8 @@ competitionRouter.patch('/:roundId/judging', authMiddleware, requireRole('ADMIN'
       where: { id: round.id },
       data: { status: 'JUDGING' },
     });
+    invalidateRoundCache(round.id);
+    emitRoundStatus(round.id, 'JUDGING');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_JUDGING', 'CompetitionRound', round.id, {
       title: round.title,
@@ -1033,10 +1388,21 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       if (!['LOCKED', 'JUDGING'].includes(round.status)) {
         return ApiResponse.badRequest(res, 'Only locked or judging DSA rounds can be finished');
       }
-      const updated = await prisma.competitionRound.update({
-        where: { id: round.id },
-        data: { status: 'FINISHED' },
+      const updated = await prisma.$transaction(async (tx) => {
+        // The contest is over: release every participant lock so nobody is left stuck and
+        // the monitor reads 0 locked ("everything zero"). The arena already gates solving
+        // on ACTIVE, so this only clears proctor state.
+        await tx.competitionParticipantState.updateMany({
+          where: { roundId: round.id, locked: true },
+          data: { locked: false, lockReason: null, unlockedAt: new Date() },
+        });
+        return tx.competitionRound.update({
+          where: { id: round.id },
+          data: { status: 'FINISHED' },
+        });
       });
+      invalidateRoundCache(round.id);
+      emitRoundStatus(round.id, 'FINISHED');
       await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
         title: round.title,
         eventId: round.eventId,
@@ -1065,51 +1431,27 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       return ApiResponse.badRequest(res, 'All submissions must have a score before publishing results');
     }
 
-    // Auto-compute ranks from scores using standard competition ranking (1224).
-    // Earlier submissions still sort first for display, but equal scores share the same rank.
-    const submissions = await prisma.competitionSubmission.findMany({
-      where: { roundId: round.id },
-      select: { id: true, score: true, submittedAt: true },
-      orderBy: [
-        { score: 'desc' },
-        { submittedAt: 'asc' },
-      ],
-    });
-
-    let currentRank = 1;
-    const rankedSubmissions = submissions.map((submission, index) => {
-      if (index > 0 && submission.score !== submissions[index - 1].score) {
-        currentRank = index + 1;
-      }
-
-      return {
-        id: submission.id,
-        rank: currentRank,
-      };
-    });
-
-    // Assign ranks and update round status in a single transaction
-    await prisma.$transaction([
-      ...rankedSubmissions.map((submission) =>
-        prisma.competitionSubmission.update({
-          where: { id: submission.id },
-          data: { rank: submission.rank },
-        }),
-      ),
-      prisma.competitionRound.update({
+    // Auto-compute ranks from scores (standard 1224) and flip to FINISHED atomically.
+    let rankedCount = 0;
+    const updated = await prisma.$transaction(async (tx) => {
+      rankedCount = await recomputeRoundRanks(tx, round.id);
+      // Release every participant lock once the contest ends (see DSA branch).
+      await tx.competitionParticipantState.updateMany({
+        where: { roundId: round.id, locked: true },
+        data: { locked: false, lockReason: null, unlockedAt: new Date() },
+      });
+      return tx.competitionRound.update({
         where: { id: round.id },
         data: { status: 'FINISHED' },
-      }),
-    ]);
-
-    const updated = await prisma.competitionRound.findUniqueOrThrow({
-      where: { id: round.id },
+      });
     });
+    invalidateRoundCache(round.id);
+    emitRoundStatus(round.id, 'FINISHED');
 
     await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
       title: round.title,
       eventId: round.eventId,
-      rankedCount: submissions.length,
+      rankedCount,
     });
 
     return ApiResponse.success(res, {
@@ -1142,7 +1484,8 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists an autosave — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     const isLockedFallback = round.status === 'LOCKED';
     if ((round.status !== 'ACTIVE' && !isLockedFallback) || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is not accepting saves right now.');
@@ -1167,6 +1510,9 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     const participationError = getRoundParticipationError(round, myTeam);
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
+    }
+    if (await isParticipantLocked(round.id, user.id)) {
+      return ApiResponse.forbidden(res, 'You are locked by the proctor. Contact an invigilator to unlock.');
     }
     if (round.roundType === 'DSA') {
       return ApiResponse.badRequest(res, 'DSA rounds use problem drafts in the browser instead of competition autosave.');
@@ -1285,7 +1631,8 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
       });
     }
 
-    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Persists the final submission — registration must be checked fresh (no 30s cache window).
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id, { liveRegistration: true });
     if (round.status !== 'ACTIVE' || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is no longer accepting submissions.');
     }
@@ -1300,23 +1647,14 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
     }
+    if (await isParticipantLocked(round.id, user.id)) {
+      return ApiResponse.forbidden(res, 'You are locked by the proctor. Contact an invigilator to unlock.');
+    }
 
     if (round.roundType === 'DSA') {
-      if (!parsed.data.problemId || !parsed.data.language) {
-        return ApiResponse.badRequest(res, 'problemId and language are required for DSA rounds.');
-      }
-      const result = await submitProblemForUser({
-        user,
-        problemId: parsed.data.problemId,
-        language: parsed.data.language,
-        code: parsed.data.code,
-        contextType: 'CONTEST',
-        contextKey: round.id,
-      });
-      return ApiResponse.success(res, {
-        submission: result,
-        message: 'Submitted successfully',
-      });
+      // DSA solves are judged via the Problems pipeline (`/api/problems/:id/submit`,
+      // CONTEST context) from the playground shell — mirrors `/save`'s DSA rejection.
+      return ApiResponse.badRequest(res, 'DSA rounds submit through the problem judge, not competition submit.');
     }
 
     if (myTeam) {
@@ -1699,8 +2037,10 @@ competitionRouter.patch('/:roundId/score/:submissionId', authMiddleware, require
       select: { id: true, status: true, eventId: true, title: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
-    if (!['JUDGING', 'FINISHED'].includes(round.status)) {
-      return ApiResponse.badRequest(res, 'Scores can only be updated in judging or finished rounds');
+    // Scoring is allowed once the round is no longer live (LOCKED onward) — admins often
+    // start scoring right after locking, before formally moving to "judging".
+    if (!['LOCKED', 'JUDGING', 'FINISHED'].includes(round.status)) {
+      return ApiResponse.badRequest(res, 'Lock the round before scoring submissions');
     }
 
     const existingSubmission = await prisma.competitionSubmission.findUnique({
@@ -1714,17 +2054,34 @@ competitionRouter.patch('/:roundId/score/:submissionId', authMiddleware, require
     // Rank uniqueness check removed — ranks are auto-computed from scores on publish.
     // Manual rank override is still accepted but not enforced as unique.
 
-    const updated = await prisma.competitionSubmission.update({
-      where: { id: req.params.submissionId },
-      data: {
-        ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
-        ...(parsed.data.rank !== undefined ? { rank: parsed.data.rank } : {}),
-        ...(parsed.data.adminNotes !== undefined ? { adminNotes: sanitizeText(parsed.data.adminNotes) } : {}),
-      },
-      include: {
-        team: { select: { teamName: true } },
-        user: { select: { name: true } },
-      },
+    // Correcting a score on an already-FINISHED round must re-derive the whole board's
+    // ranks from scores (same as publish), or `rank` drifts out of sync with `score`.
+    // A pure rank override (explicit `rank` in the payload) is honored as-is and skips
+    // the recompute, preserving the manual-override escape hatch.
+    const shouldRecomputeRanks =
+      round.status === 'FINISHED'
+      && parsed.data.score !== undefined
+      && parsed.data.rank === undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.competitionSubmission.update({
+        where: { id: req.params.submissionId },
+        data: {
+          ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
+          ...(parsed.data.rank !== undefined ? { rank: parsed.data.rank } : {}),
+          ...(parsed.data.adminNotes !== undefined ? { adminNotes: sanitizeText(parsed.data.adminNotes) } : {}),
+        },
+      });
+      if (shouldRecomputeRanks) {
+        await recomputeRoundRanks(tx, round.id);
+      }
+      return tx.competitionSubmission.findUniqueOrThrow({
+        where: { id: req.params.submissionId },
+        include: {
+          team: { select: { teamName: true } },
+          user: { select: { name: true } },
+        },
+      });
     });
 
     await auditLog(admin.id, 'COMPETITION_SUBMISSION_SCORED', 'CompetitionSubmission', updated.id, {
@@ -1781,7 +2138,13 @@ competitionRouter.get('/:roundId/results/export', authMiddleware, requireRole('A
     if (round.roundType === 'DSA') {
       const submissions = await prisma.problemSubmission.findMany({
         where: { contextType: 'CONTEST', contextKey: round.id },
-        include: { user: { select: { name: true, email: true } }, problem: { select: { title: true } } },
+        // Export only needs these columns — project out `code`/`perTestVerdicts` so a
+        // large round's export doesn't pull N×M code blobs into memory.
+        select: {
+          problemId: true, verdict: true, score: true, runtimeMs: true, updatedAt: true,
+          user: { select: { name: true, email: true } },
+          problem: { select: { title: true } },
+        },
         orderBy: [{ score: 'desc' }, { updatedAt: 'asc' }],
       });
       const problemPoints = new Map(round.problems.map((link) => [link.problemId, link.points]));
@@ -1975,6 +2338,7 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
         status: true,
         roundType: true,
         startedAt: true,
+        penaltyModel: true,
         event: {
           select: { id: true, title: true },
         },
@@ -1991,50 +2355,9 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
     }
 
     if (round.roundType === 'DSA') {
-      const submissions = await prisma.problemSubmission.findMany({
-        where: { contextType: 'CONTEST', contextKey: round.id },
-        include: { user: { select: { id: true, name: true, avatar: true } } },
-      });
-      const problemLinks = new Map(round.problems.map((link) => [link.problemId, link]));
-      const byUser = new Map<string, {
-        userId: string;
-        userName: string;
-        avatar: string | null;
-        totalScore: number;
-        totalRuntimeMs: number;
-        problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
-      }>();
-      for (const submission of submissions) {
-        const link = problemLinks.get(submission.problemId);
-        if (!link) continue;
-        const entry = byUser.get(submission.userId) ?? {
-          userId: submission.userId,
-          userName: submission.user.name,
-          avatar: submission.user.avatar,
-          totalScore: 0,
-          totalRuntimeMs: 0,
-          problems: [],
-        };
-        const weightedScore = Math.round(submission.score * (link.points / 100));
-        entry.totalScore += weightedScore;
-        entry.totalRuntimeMs += submission.runtimeMs ?? 0;
-        entry.problems.push({
-          problemId: submission.problemId,
-          title: link.problem.title,
-          score: submission.score,
-          weightedScore,
-          verdict: submission.verdict,
-          runtimeMs: submission.runtimeMs,
-        });
-        byUser.set(submission.userId, entry);
-      }
-      const results = Array.from(byUser.values())
-        .sort((a, b) => {
-          if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
-          return a.totalRuntimeMs - b.totalRuntimeMs;
-        })
-        .slice(0, 10)
-        .map((entry, index) => ({ rank: index + 1, ...entry }));
+      // Team-aware standings (per the round's teamAggregation for team events).
+      const lb = await computeContestLeaderboard(round.id, 10);
+      const results = lb?.results ?? [];
 
       return ApiResponse.success(res, {
         round: {
@@ -2043,6 +2366,7 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
           eventId: round.event.id,
           eventTitle: round.event.title,
           roundType: round.roundType,
+          penaltyModel: round.penaltyModel,
           problems: round.problems.map((link) => ({
             id: link.problem.id,
             slug: link.problem.slug,
@@ -2127,6 +2451,9 @@ competitionRouter.post('/:roundId/publish-as-practice', authMiddleware, requireR
       where: { id: { in: round.problems.map((link) => link.problemId) } },
       data: { isPublished: true },
     });
+    // problem.isPublished rides inside the cached round's problems join — invalidate
+    // so the round view reflects the publish without waiting out the TTL.
+    invalidateRoundCache(round.id);
     await auditLog(admin.id, 'COMPETITION_DSA_PUBLISHED_AS_PRACTICE', 'CompetitionRound', round.id, {
       problemIds: round.problems.map((link) => link.problemId),
     });
@@ -2171,29 +2498,21 @@ competitionRouter.post('/:roundId/raise-cap', authMiddleware, requireRole('ADMIN
       ? [parsed.data.userId]
       : Array.from(new Set(round.event.registrations.map((registration) => registration.userId)));
 
-    await prisma.$transaction(
-      userIds.flatMap((userId) => problemIds.map((problemId) =>
-        prisma.problemSubmissionCounter.upsert({
-          where: {
-            userId_problemId_contextType_contextKey: {
-              userId,
-              problemId,
-              contextType: 'CONTEST',
-              contextKey: round.id,
-            },
-          },
-          create: {
-            userId,
-            problemId,
-            contextType: 'CONTEST',
-            contextKey: round.id,
-            count: 0,
-            capOverride: parsed.data.newCap,
-          },
-          update: { capOverride: parsed.data.newCap },
-        }),
-      )),
-    );
+    // One set-based statement replaces users×problems individual upserts in a
+    // single transaction (event-wide raise on a 200-user, 4-problem round was
+    // 800 statements on one pooled connection). CROSS JOIN of the two unnested
+    // arrays generates every (user, problem) pair; existing counters only get
+    // cap_override updated (count untouched), new ones insert at count 0 —
+    // identical to the old upsert. id (client-side uuid) and updated_at
+    // (@updatedAt) have no DB defaults, so raw SQL supplies both.
+    await prisma.$executeRaw`
+      INSERT INTO problem_submission_counters (id, user_id, problem_id, context_type, context_key, count, cap_override, updated_at)
+      SELECT gen_random_uuid()::text, u.user_id, p.problem_id, 'CONTEST'::"ProblemContextType", ${round.id}, 0, ${parsed.data.newCap}, now()
+      FROM unnest(${userIds}::text[]) AS u(user_id)
+      CROSS JOIN unnest(${problemIds}::text[]) AS p(problem_id)
+      ON CONFLICT (user_id, problem_id, context_type, context_key)
+      DO UPDATE SET cap_override = EXCLUDED.cap_override, updated_at = now();
+    `;
     await auditLog(admin.id, 'COMPETITION_DSA_CAP_RAISED', 'CompetitionRound', round.id, parsed.data);
     return ApiResponse.success(res, { success: true, affectedUsers: userIds.length, affectedProblems: problemIds.length });
   } catch (error) {
@@ -2317,6 +2636,12 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
           targetImageUrl: nextRoundType === 'DSA'
             ? null
             : (parsed.data.targetImageUrl !== undefined ? parsed.data.targetImageUrl || null : undefined),
+          ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
+          ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
+          ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+          ...(parsed.data.teamAggregation !== undefined ? { teamAggregation: parsed.data.teamAggregation } : {}),
+          ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
+          ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         },
       });
       if (nextRoundType === 'IMAGE_TARGET') {
@@ -2334,6 +2659,8 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
       }
       return saved;
     });
+    // The round row and/or its linked problems just changed — next poll re-reads fresh.
+    invalidateRoundCache(round.id);
 
     await auditLog(admin.id, 'COMPETITION_ROUND_UPDATED', 'CompetitionRound', updated.id, {
       eventId: updated.eventId,
@@ -2374,6 +2701,10 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
     await prisma.competitionRound.delete({
       where: { id: round.id },
     });
+    // Deleting a live round leaves priority mode + drops its in-memory realtime state.
+    if (round.status === 'ACTIVE') decActiveRounds();
+    evictContestRoom(round.id);
+    invalidateRoundCache(round.id);
 
     await auditLog(admin.id, 'COMPETITION_ROUND_DELETED', 'CompetitionRound', round.id, {
       title: round.title,
@@ -2387,6 +2718,674 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
       error: error instanceof Error ? error.message : String(error),
     });
     return ApiResponse.internal(res, 'Failed to delete round');
+  }
+});
+
+// ─── Proctoring (Phase C) ───────────────────────────────────────────────────
+// Server-enforced anti-cheat lock. The contestant's client force-submits its draft
+// then reports the violation; for a proctored round this LOCKS the participant and the
+// submit/run paths reject until an admin unlocks. Detection is client-reported (a
+// deterrent, not airtight) — the lock itself is the server-side teeth.
+
+const violationSchema = z.object({
+  kind: z.enum(['BLUR', 'HIDDEN', 'CLICK_OUT', 'FULLSCREEN_EXIT', 'COPY_PASTE', 'OTHER']),
+  detail: z.string().max(500).optional(),
+});
+
+// Server-side teeth of the proctor lock: the IMAGE_TARGET save/submit paths consult
+// this (the DSA run/submit path checks the same row inside validateProblemContext).
+async function isParticipantLocked(roundId: string, userId: string): Promise<boolean> {
+  const state = await prisma.competitionParticipantState.findUnique({
+    where: { roundId_userId: { roundId, userId } },
+    select: { locked: true },
+  });
+  return Boolean(state?.locked);
+}
+
+function mapRoundError(res: Response, error: unknown, fallback: string): Response {
+  const err = error as { status?: number; code?: string; message?: string };
+  if (err.status && err.code && err.message) {
+    return ApiResponse.error(res, { code: err.code, message: err.message, status: err.status });
+  }
+  logger.error(fallback, { error: error instanceof Error ? error.message : String(error) });
+  return ApiResponse.internal(res, fallback);
+}
+
+competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const parsed = violationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid violation');
+    }
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Lock only a proctored round that is still live/finalizing; a violation reported
+    // after the round ends is logged but never locks (nothing left to protect).
+    const roundLockable = round.proctored && (round.status === 'ACTIVE' || round.status === 'LOCKED');
+    const instant = isInstantViolation(parsed.data.kind);
+    const now = new Date();
+    const reason = `Proctor: ${parsed.data.kind}`;
+
+    // Log the violation + decide the lock atomically. Instant kinds (paste / fullscreen
+    // exit) lock only once this participant's instant-violation tally — counted inside the
+    // txn so it includes the row just written — passes the budget; tab-away locks at once.
+    const { shouldLock, violationCount, instantRemaining } = await prisma.$transaction(async (tx) => {
+      await tx.competitionViolation.create({
+        data: { roundId: round.id, userId: user.id, kind: parsed.data.kind, detail: parsed.data.detail ? sanitizeText(parsed.data.detail) : null },
+      });
+      let lock = roundLockable;
+      let remaining: number | null = null;
+      if (roundLockable && instant) {
+        // Count only violations since the last admin unlock. CompetitionViolation is an
+        // append-only log, so counting the whole round made an admin Unlock useless: once a
+        // participant was past the budget the tally stayed past it forever, and the very next
+        // instant violation (copy/cut counts, not just paste) re-locked them immediately with
+        // no warning. Scoping to `unlockedAt` restores the intended warn-then-lock grace while
+        // keeping the full log intact for the monitor and post-hoc review.
+        const priorState = await tx.competitionParticipantState.findUnique({
+          where: { roundId_userId: { roundId: round.id, userId: user.id } },
+          select: { unlockedAt: true },
+        });
+        const instantCount = await tx.competitionViolation.count({
+          where: {
+            roundId: round.id,
+            userId: user.id,
+            kind: { in: [...INSTANT_VIOLATION_KINDS] },
+            ...(priorState?.unlockedAt ? { at: { gt: priorState.unlockedAt } } : {}),
+          },
+        });
+        lock = instantCount > INSTANT_VIOLATION_BUDGET;
+        remaining = Math.max(0, INSTANT_VIOLATION_BUDGET + 1 - instantCount);
+      }
+      const state = await tx.competitionParticipantState.upsert({
+        where: { roundId_userId: { roundId: round.id, userId: user.id } },
+        create: {
+          roundId: round.id, userId: user.id, violationCount: 1, lastViolationAt: now, lastSeenAt: now,
+          locked: lock, lockReason: lock ? reason : null, lockedAt: lock ? now : null,
+        },
+        update: {
+          violationCount: { increment: 1 }, lastViolationAt: now, lastSeenAt: now,
+          ...(lock ? { locked: true, lockReason: reason, lockedAt: now } : {}),
+        },
+        select: { violationCount: true },
+      });
+      return { shouldLock: lock, violationCount: state.violationCount, instantRemaining: remaining };
+    });
+
+    // Push to the admin monitor live (violation feed + participant lock state); the lock
+    // also rides to the participant so a parallel tab/device reflects it without reload.
+    // userName + detail ride along so the monitor's live log can render a self-sufficient,
+    // human-readable row ("Pasted code") without a name lookup.
+    emitViolation(round.id, user.id, user.name, parsed.data.kind, violationCount, parsed.data.detail ?? null);
+    if (shouldLock) emitProctor(round.id, user.id, true, reason);
+    // `warning` marks an under-budget instant violation (counted, not locked) so the arena
+    // can flash a "stop pasting / stay in fullscreen — N left" toast instead of locking.
+    return ApiResponse.success(res, {
+      locked: shouldLock,
+      warning: !shouldLock && instant && roundLockable,
+      remaining: instantRemaining,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to record violation');
+  }
+});
+
+competitionRouter.post('/:roundId/proctor/heartbeat', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    const now = new Date();
+    const state = await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: user.id } },
+      create: { roundId: round.id, userId: user.id, lastSeenAt: now },
+      update: { lastSeenAt: now },
+      select: { locked: true, lockReason: true, violationCount: true },
+    });
+    // Heartbeat doubles as the arena's lock poll so an admin lock/unlock propagates.
+    return ApiResponse.success(res, { locked: state.locked, lockReason: state.lockReason, violationCount: state.violationCount });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to record heartbeat');
+  }
+});
+
+competitionRouter.get('/:roundId/proctor/me', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    const state = await prisma.competitionParticipantState.findUnique({
+      where: { roundId_userId: { roundId: round.id, userId: user.id } },
+      select: { locked: true, lockReason: true, violationCount: true, lastSeenAt: true },
+    });
+    return ApiResponse.success(res, {
+      locked: state?.locked ?? false,
+      lockReason: state?.lockReason ?? null,
+      violationCount: state?.violationCount ?? 0,
+      proctored: round.proctored,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch proctor state');
+  }
+});
+
+competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, status: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    // Nothing to unlock once the contest has ended — finish already cleared every lock.
+    if (round.status === 'FINISHED') return ApiResponse.badRequest(res, 'This round has ended');
+    const now = new Date();
+    await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
+      create: { roundId: round.id, userId: req.params.userId, locked: false, unlockedBy: admin.id, unlockedAt: now },
+      update: { locked: false, lockReason: null, unlockedBy: admin.id, unlockedAt: now },
+    });
+    // Push the unlock so the participant's arena clears its locked overlay live.
+    emitProctor(round.id, req.params.userId, false, null);
+    await auditLog(admin.id, 'COMPETITION_PROCTOR_UNLOCK', 'CompetitionRound', round.id, { userId: req.params.userId });
+    return ApiResponse.success(res, { unlocked: true });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to unlock participant');
+  }
+});
+
+// Admin manual lock — the mirror of unlock, so an invigilator can freeze a participant
+// directly (not only via a proctor violation).
+competitionRouter.post('/:roundId/proctor/lock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, status: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    // Locking only protects a live round (ACTIVE) or its lock-finalization window (LOCKED).
+    if (!['ACTIVE', 'LOCKED'].includes(round.status)) {
+      return ApiResponse.badRequest(res, 'Participants can only be locked while the round is live');
+    }
+    const now = new Date();
+    await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
+      create: { roundId: round.id, userId: req.params.userId, locked: true, lockReason: 'Locked by admin', lockedAt: now },
+      update: { locked: true, lockReason: 'Locked by admin', lockedAt: now },
+    });
+    emitProctor(round.id, req.params.userId, true, 'Locked by admin');
+    await auditLog(admin.id, 'COMPETITION_PROCTOR_LOCK', 'CompetitionRound', round.id, { userId: req.params.userId });
+    return ApiResponse.success(res, { locked: true });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to lock participant');
+  }
+});
+
+// Extend an ACTIVE round by N minutes: bump duration, re-arm the auto-lock timer, push
+// the change so every arena's countdown extends live.
+competitionRouter.patch('/:roundId/extend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ addMinutes: z.number().int().min(1).max(600) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'addMinutes (1–600) is required');
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, status: true, duration: true, startedAt: true },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.status !== 'ACTIVE' || !round.startedAt) return ApiResponse.badRequest(res, 'Only an active round can be extended');
+
+    const newDuration = round.duration + parsed.data.addMinutes * 60;
+    await prisma.competitionRound.update({ where: { id: round.id }, data: { duration: newDuration } });
+    // Duration is part of the cached round row — drop it so the very next status
+    // poll returns the extended remainingSeconds (arenas poll every 15s).
+    invalidateRoundCache(round.id);
+    const remaining = Math.max(1, computeRemainingSeconds({ duration: newDuration, startedAt: round.startedAt }, Date.now()) ?? 1);
+    scheduleRoundLock(round.id, remaining);
+    emitRoundUpdate(round.id);
+    await auditLog(admin.id, 'COMPETITION_ROUND_EXTENDED', 'CompetitionRound', round.id, { addMinutes: parsed.data.addMinutes, newDuration });
+    return ApiResponse.success(res, { duration: newDuration, remainingSeconds: remaining });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to extend round');
+  }
+});
+
+// Rejudge every CONTEST submission for each of the round's problems (admin — e.g. after
+// fixing test data), then push a fresh leaderboard. Reuses the bounded rejudge queue.
+competitionRouter.post('/:roundId/rejudge', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, roundType: true, problems: { select: { problemId: true } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Only DSA rounds can be rejudged');
+    const jobIds = round.problems.map((link) =>
+      enqueueRejudgeJob({ problemId: link.problemId, contextType: 'CONTEST', contextKey: round.id, requestedBy: admin.id }).id,
+    );
+    broadcastLeaderboard(round.id); // immediate refresh; jobs trickle in + the monitor poll catches up
+    await auditLog(admin.id, 'COMPETITION_ROUND_REJUDGED', 'CompetitionRound', round.id, { problemCount: round.problems.length });
+    return ApiResponse.success(res, { jobIds });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to rejudge round');
+  }
+});
+
+// ─── Live leaderboard / clarifications / monitor (Phase E) ───────────────────
+
+// Live DSA leaderboard (works while ACTIVE). Non-admins inside the freeze window get a
+// full freeze (board hidden) for the final N minutes; admins always see live. Team
+// events aggregate per the round's teamAggregation (shared computeContestLeaderboard).
+competitionRouter.get('/:roundId/leaderboard', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const isAdmin = hasPermission(user.role, 'ADMIN');
+    // Same gate as before (round exists + non-admin must be registered), but served from
+    // the shared round/registration caches — this endpoint is polled by every contestant.
+    const gate = await getCachedRound(req.params.roundId);
+    if (!gate) return ApiResponse.notFound(res, 'Round not found');
+    if (!isAdmin) {
+      const registered = await isRegisteredCached(user.id, gate.eventId);
+      if (!registered) return ApiResponse.forbidden(res, 'Register for this event to view the leaderboard.');
+    }
+    const lb = await computeContestLeaderboard(req.params.roundId, 100);
+    if (!lb) return ApiResponse.notFound(res, 'Round not found');
+    if (lb.roundType !== 'DSA') {
+      return ApiResponse.success(res, { roundType: lb.roundType, frozen: false, results: [], penaltyModel: lb.penaltyModel });
+    }
+    const frozen = !isAdmin && isLeaderboardFrozen(lb);
+    return ApiResponse.success(res, {
+      roundType: 'DSA',
+      frozen,
+      penaltyModel: lb.penaltyModel,
+      results: frozen ? [] : lb.results,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch leaderboard');
+  }
+});
+
+competitionRouter.get('/:roundId/clarifications', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const items = await prisma.competitionClarification.findMany({
+      where: { roundId: req.params.roundId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true, message: true, createdAt: true },
+    });
+    return ApiResponse.success(res, { clarifications: items.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })) });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch clarifications');
+  }
+});
+
+competitionRouter.post('/:roundId/clarifications', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ message: z.string().min(1).max(2000) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'Message is required');
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const created = await prisma.competitionClarification.create({
+      data: { roundId: round.id, message: sanitizeText(parsed.data.message), createdBy: admin.id },
+      select: { id: true, message: true, createdAt: true },
+    });
+    const serialized = { ...created, createdAt: created.createdAt.toISOString() };
+    emitClarification(round.id, serialized); // live push to every arena + the monitor
+    await auditLog(admin.id, 'COMPETITION_CLARIFICATION', 'CompetitionRound', round.id, { clarificationId: created.id });
+    return ApiResponse.created(res, { clarification: serialized });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to post clarification');
+  }
+});
+
+// Admin live monitor: per-user proctor state (online via lastSeenAt, lock, violations)
+// merged with the DSA score (the user's own row, or their TEAM's row for team events),
+// plus a recent submission feed. Polling-based fallback (also pushed via the relay).
+competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, title: true, status: true, roundType: true, startedAt: true, duration: true, leaderboardFreezeMinutes: true },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+
+    const [states, dsaSubs, lb, violations] = await Promise.all([
+      prisma.competitionParticipantState.findMany({
+        where: { roundId: round.id },
+        select: { userId: true, locked: true, lockReason: true, violationCount: true, lastViolationAt: true, lastSeenAt: true, user: { select: { name: true, email: true, avatar: true } } },
+      }),
+      // Bounded to the most-recent rows: this feeds the 30-row submission feed and
+      // supplies submitter names, but is NOT the source of truth for the participant
+      // set (that's `states` ∪ the leaderboard) — so we never load the whole CONTEST
+      // submission table here. computeContestLeaderboard below scans submissions once
+      // (cached) and already carries every scorer's score/rank/name.
+      round.roundType === 'DSA'
+        ? prisma.problemSubmission.findMany({
+            where: { contextType: 'CONTEST', contextKey: round.id },
+            orderBy: { updatedAt: 'desc' },
+            take: 50,
+            select: { id: true, problemId: true, verdict: true, score: true, updatedAt: true, user: { select: { id: true, name: true } } },
+          })
+        : Promise.resolve([] as Array<{ id: string; problemId: string; verdict: string; score: number; updatedAt: Date; user: { id: string; name: string } }>),
+      computeContestLeaderboard(req.params.roundId, 1000),
+      // Recent violation log so the monitor's live feed has history on first load (the
+      // socket only carries events that happen after the page opens).
+      prisma.competitionViolation.findMany({
+        where: { roundId: round.id },
+        orderBy: { at: 'desc' },
+        take: 50,
+        select: { id: true, userId: true, kind: true, detail: true, at: true, user: { select: { name: true } } },
+      }),
+    ]);
+
+    // Map each user → their standings row. For team events the leaderboard rows are keyed
+    // by teamId, so resolve a user to their team's row via teamByUser.
+    const rowById = new Map((lb?.results ?? []).map((row) => [row.userId, row]));
+    const scoreFor = (userId: string) => {
+      const teamId = lb?.teamByUser?.get(userId)?.teamId;
+      return rowById.get(teamId ?? userId) ?? null;
+    };
+
+    // Participant identity set: every contestant who loaded the arena has a state row,
+    // and (for solo rounds) the leaderboard already keys a row per real userId — so we
+    // union those two complete sources. The bounded recent-submitter list only
+    // supplements names. (Team-round leaderboard rows are keyed by teamId, not userId,
+    // so they're excluded here; team members are covered by their state rows.)
+    const isTeamRound = Boolean(lb?.teamByUser);
+    const submitterIds = dsaSubs.map((s) => s.user.id);
+    const leaderboardUserIds = isTeamRound ? [] : (lb?.results ?? []).map((r) => r.userId);
+    const userIds = new Set<string>([...states.map((s) => s.userId), ...submitterIds, ...leaderboardUserIds]);
+    const stateByUser = new Map(states.map((s) => [s.userId, s]));
+    const nameBySubmitter = new Map(dsaSubs.map((s) => [s.user.id, s.user.name]));
+    const participants = Array.from(userIds).map((userId) => {
+      const s = stateByUser.get(userId);
+      const row = scoreFor(userId);
+      // Solo leaderboard rows carry the user's own name; use it as a fallback so a
+      // scorer outside the recent-submitter window still shows a real name.
+      const leaderboardName = !isTeamRound ? row?.userName : undefined;
+      return {
+        userId,
+        name: s?.user.name ?? nameBySubmitter.get(userId) ?? leaderboardName ?? 'Participant',
+        email: s?.user.email ?? null,
+        avatar: s?.user.avatar ?? null,
+        teamName: lb?.teamByUser?.get(userId)?.teamName ?? null,
+        locked: s?.locked ?? false,
+        lockReason: s?.lockReason ?? null,
+        violationCount: s?.violationCount ?? 0,
+        lastViolationAt: s?.lastViolationAt?.toISOString() ?? null,
+        lastSeenAt: s?.lastSeenAt?.toISOString() ?? null,
+        score: row?.totalScore ?? 0,
+        rank: row?.rank ?? null,
+        penalty: row?.penalty ?? 0,
+      };
+    }).sort((a, b) => (b.score - a.score) || (a.name.localeCompare(b.name)));
+
+    const recentSubmissions = [...dsaSubs]
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 30)
+      .map((sub) => ({
+        id: sub.id, userName: sub.user.name, problemId: sub.problemId,
+        verdict: sub.verdict, score: sub.score, updatedAt: sub.updatedAt.toISOString(),
+      }));
+
+    const recentViolations = violations.map((v) => ({
+      id: v.id,
+      userId: v.userId,
+      userName: v.user.name,
+      kind: v.kind,
+      detail: v.detail,
+      at: v.at.toISOString(),
+    }));
+
+    return ApiResponse.success(res, {
+      round: {
+        id: round.id,
+        title: round.title,
+        status: round.status,
+        roundType: round.roundType,
+        startedAt: round.startedAt?.toISOString() ?? null,
+        duration: round.duration,
+        leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
+      },
+      participants,
+      recentSubmissions,
+      recentViolations,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch monitor');
+  }
+});
+
+// CSV export of the monitor (participants) or the violation log (?sheet=violations).
+competitionRouter.get('/:roundId/monitor/export', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, title: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const safeTitle = round.title.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 60) || 'round';
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const send = (header: string[], rows: string[][], suffix: string) => {
+      const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}-${suffix}.csv"`);
+      return res.status(200).send(csv);
+    };
+
+    if (req.query.sheet === 'violations') {
+      const violations = await prisma.competitionViolation.findMany({
+        where: { roundId: round.id },
+        orderBy: { at: 'desc' },
+        take: 5000,
+        select: { kind: true, detail: true, at: true, user: { select: { name: true, email: true } } },
+      });
+      return send(
+        ['User', 'Email', 'Kind', 'Detail', 'At'],
+        violations.map((v) => [v.user.name, v.user.email, v.kind, v.detail ?? '', v.at.toISOString()]),
+        'violations',
+      );
+    }
+
+    const [states, lb] = await Promise.all([
+      prisma.competitionParticipantState.findMany({
+        where: { roundId: round.id },
+        select: { userId: true, locked: true, violationCount: true, lastSeenAt: true, user: { select: { name: true, email: true } } },
+      }),
+      computeContestLeaderboard(req.params.roundId, 100000),
+    ]);
+    const rowById = new Map((lb?.results ?? []).map((r) => [r.userId, r]));
+    const scoreFor = (userId: string) => rowById.get(lb?.teamByUser?.get(userId)?.teamId ?? userId) ?? null;
+    return send(
+      ['User', 'Email', 'Team', 'Score', 'Rank', 'Penalty', 'Violations', 'Locked', 'Last seen'],
+      states.map((s) => {
+        const row = scoreFor(s.userId);
+        return [
+          s.user.name, s.user.email, lb?.teamByUser?.get(s.userId)?.teamName ?? '',
+          String(row?.totalScore ?? 0), String(row?.rank ?? ''), String(row?.penalty ?? 0),
+          String(s.violationCount), s.locked ? 'YES' : 'no', s.lastSeenAt?.toISOString() ?? '',
+        ];
+      }),
+      'monitor',
+    );
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to export monitor');
+  }
+});
+
+// ─── Plagiarism (Phase H4) — admin-triggered, human-in-the-loop ──────────────
+// Heuristic deterrent: per-problem code similarity over the round's CONTEST submissions,
+// recorded as flagged pairs for ADMIN REVIEW. Never auto-penalizes. Gated on
+// Settings.plagiarismCheckEnabled.
+//
+// This is the contest's HEAVIEST operation (O(N²) over up-to-100KB code blobs) and runs
+// ENTIRELY on the (mostly idle) playground server: the main API ships only
+// { roundId, problemIds, threshold } and the playground reads the code from the shared DB
+// itself (per-problem, bounded memory) + computes — so the main API's 512MB never holds
+// the N×M code blobs. The main API only persists the returned flags (authoritative writes
+// stay here). When the relay isn't configured/down it falls back to an inline run.
+
+type PlagiarismFlagRow = { problemId: string } & PlagiarismPair;
+
+// Preferred path: full offload (DB read of code + O(N²) both on the idle playground).
+// Returns flagged pairs tagged with problemId, or null when the relay is unavailable/
+// failed → the caller falls back to an inline run.
+async function offloadRoundPlagiarism(
+  roundId: string,
+  problemIds: string[],
+  threshold: number,
+): Promise<PlagiarismFlagRow[] | null> {
+  const base = getPlaygroundRelayBase();
+  const secret = getInternalApiSecret();
+  if (!base || !secret) return null;
+  try {
+    const resp = await fetch(`${base}/internal/plagiarism`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+      body: JSON.stringify({ roundId, problemIds, threshold }),
+      signal: AbortSignal.timeout(60_000), // the DB read + O(N²) both happen there
+    });
+    if (resp.ok) {
+      const json = await resp.json() as { pairs?: PlagiarismFlagRow[] };
+      if (Array.isArray(json.pairs)) return json.pairs;
+    }
+    logger.warn('Plagiarism offload returned non-OK; falling back to inline', { status: resp.status });
+  } catch (error) {
+    logger.warn('Plagiarism offload failed; falling back to inline', { error: error instanceof Error ? error.message : String(error) });
+  }
+  return null;
+}
+
+// Above this many CONTEST submissions we refuse to pull every code blob into the main API
+// at once (each is ≤100KB; the O(N²) compare holds them all). At ~600 that's ~60MB worst
+// case — past it the 512MB box risks OOM, so we require the playground offload instead.
+const MAX_INLINE_PLAGIARISM_SUBMISSIONS = 600;
+
+// Degraded fallback (relay unavailable): fetch the code on the main API and compute here.
+// Heavier on the 512MB box, so it's the last resort only.
+async function inlineRoundPlagiarism(
+  roundId: string,
+  problemIds: Set<string>,
+  threshold: number,
+): Promise<PlagiarismFlagRow[]> {
+  // Bound memory before pulling code blobs: a large round inline would risk OOM, so cap it
+  // and direct the admin to the offload (configure PLAYGROUND_API_URL + INTERNAL_API_SECRET).
+  const count = await prisma.problemSubmission.count({ where: { contextType: 'CONTEST', contextKey: roundId } });
+  if (count > MAX_INLINE_PLAGIARISM_SUBMISSIONS) {
+    throw Object.assign(new Error('inline plagiarism too large'), {
+      status: 503,
+      code: 'PLAGIARISM_OFFLOAD_REQUIRED',
+      message: `This round has ${count} submissions — too many to scan on the main server. Configure the playground offload (PLAYGROUND_API_URL + INTERNAL_API_SECRET) and retry.`,
+    });
+  }
+  const submissions = await prisma.problemSubmission.findMany({
+    where: { contextType: 'CONTEST', contextKey: roundId },
+    select: { problemId: true, userId: true, code: true, user: { select: { name: true } } },
+  });
+  const byProblem = new Map<string, PlagiarismInput[]>();
+  for (const s of submissions) {
+    if (!problemIds.has(s.problemId)) continue;
+    const list = byProblem.get(s.problemId) ?? [];
+    list.push({ userId: s.userId, userName: s.user.name, code: s.code });
+    byProblem.set(s.problemId, list);
+  }
+  const flags: PlagiarismFlagRow[] = [];
+  for (const [problemId, items] of byProblem) {
+    if (items.length < 2) continue;
+    for (const p of findPlagiarismPairs(items, threshold)) flags.push({ problemId, ...p });
+  }
+  return flags;
+}
+
+competitionRouter.post('/:roundId/plagiarism/run', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const settings = await getCachedSettings();
+    if (settings?.plagiarismCheckEnabled !== true) {
+      return ApiResponse.badRequest(res, 'Plagiarism checking is disabled in settings.');
+    }
+    const parsed = z.object({ threshold: z.number().min(0.5).max(1).optional() }).safeParse(req.body ?? {});
+    const threshold = parsed.success ? (parsed.data.threshold ?? 0.8) : 0.8;
+
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, roundType: true, problems: { select: { problemId: true } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Plagiarism check applies to DSA rounds only');
+
+    const problemIdList = round.problems.map((p) => p.problemId);
+
+    // Heaviest part runs on the playground (it reads the code from the DB itself); the
+    // main API holds NO code blobs on the happy path. Inline only when the relay is down.
+    const pairRows = await offloadRoundPlagiarism(round.id, problemIdList, threshold)
+      ?? await inlineRoundPlagiarism(round.id, new Set(problemIdList), threshold);
+    const flags = pairRows.map((p) => ({ roundId: round.id, ...p }));
+
+    // Replace only PENDING flags; never clobber a pair an admin already reviewed.
+    const written = await prisma.$transaction(async (tx) => {
+      const reviewed = await tx.competitionPlagiarismFlag.findMany({
+        where: { roundId: round.id, status: { not: 'PENDING' } },
+        select: { problemId: true, userAId: true, userBId: true },
+      });
+      const reviewedKey = new Set(reviewed.map((r) => `${r.problemId}|${r.userAId}|${r.userBId}`));
+      await tx.competitionPlagiarismFlag.deleteMany({ where: { roundId: round.id, status: 'PENDING' } });
+      const fresh = flags.filter((f) => !reviewedKey.has(`${f.problemId}|${f.userAId}|${f.userBId}`));
+      if (fresh.length) await tx.competitionPlagiarismFlag.createMany({ data: fresh, skipDuplicates: true });
+      return fresh.length;
+    });
+
+    await auditLog(admin.id, 'COMPETITION_PLAGIARISM_RUN', 'CompetitionRound', round.id, { threshold, flagged: written });
+    return ApiResponse.success(res, { flagged: written, threshold });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to run plagiarism check');
+  }
+});
+
+competitionRouter.get('/:roundId/plagiarism', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, problems: { select: { problemId: true, problem: { select: { title: true } } } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const titleByProblem = new Map(round.problems.map((p) => [p.problemId, p.problem.title]));
+    const flags = await prisma.competitionPlagiarismFlag.findMany({
+      where: { roundId: round.id },
+      orderBy: [{ status: 'asc' }, { similarity: 'desc' }],
+      take: 500,
+    });
+    return ApiResponse.success(res, {
+      flags: flags.map((f) => ({
+        id: f.id,
+        problemId: f.problemId,
+        problemTitle: titleByProblem.get(f.problemId) ?? 'Problem',
+        userAId: f.userAId, userAName: f.userAName,
+        userBId: f.userBId, userBName: f.userBName,
+        similarity: f.similarity,
+        status: f.status,
+        reviewedBy: f.reviewedBy,
+        reviewedAt: f.reviewedAt?.toISOString() ?? null,
+        createdAt: f.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch plagiarism flags');
+  }
+});
+
+competitionRouter.patch('/:roundId/plagiarism/:flagId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ status: z.enum(['PENDING', 'REVIEWED', 'DISMISSED']) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'status must be PENDING, REVIEWED, or DISMISSED');
+    const existing = await prisma.competitionPlagiarismFlag.findUnique({ where: { id: req.params.flagId }, select: { id: true, roundId: true } });
+    if (!existing || existing.roundId !== req.params.roundId) return ApiResponse.notFound(res, 'Flag not found in this round');
+    const updated = await prisma.competitionPlagiarismFlag.update({
+      where: { id: req.params.flagId },
+      data: {
+        status: parsed.data.status,
+        reviewedBy: parsed.data.status === 'PENDING' ? null : admin.email,
+        reviewedAt: parsed.data.status === 'PENDING' ? null : new Date(),
+      },
+      select: { id: true, status: true, reviewedBy: true, reviewedAt: true },
+    });
+    await auditLog(admin.id, 'COMPETITION_PLAGIARISM_REVIEW', 'CompetitionPlagiarismFlag', updated.id, { status: updated.status });
+    return ApiResponse.success(res, { flag: { ...updated, reviewedAt: updated.reviewedAt?.toISOString() ?? null } });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to update flag');
   }
 });
 

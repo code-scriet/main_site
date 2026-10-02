@@ -32,7 +32,7 @@ export default function DashboardAnnouncements() {
 
   const announcementsQ = useQuery({
     queryKey: ['announcements'],
-    queryFn: () => api.getAnnouncements(),
+    queryFn: () => api.getAnnouncementsWithTotal({ limit: 100 }),
   });
   const pollsQ = useQuery({
     queryKey: ['polls', 'public'],
@@ -44,8 +44,8 @@ export default function DashboardAnnouncements() {
     mutationFn: (id: string) => api.deleteAnnouncement(id, token!),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ['announcements'] });
-      const prev = qc.getQueryData<Announcement[]>(['announcements']);
-      if (prev) qc.setQueryData<Announcement[]>(['announcements'], prev.filter((a) => a.id !== id));
+      const prev = qc.getQueryData<{ announcements: Announcement[]; total: number }>(['announcements']);
+      if (prev) qc.setQueryData(['announcements'], { ...prev, announcements: prev.announcements.filter((a) => a.id !== id), total: Math.max(0, prev.total - 1) });
       return { prev };
     },
     onSuccess: () => {
@@ -59,7 +59,10 @@ export default function DashboardAnnouncements() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
   });
 
-  const all = announcementsQ.data ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all = useMemo(() => announcementsQ.data?.announcements ?? [], [announcementsQ.data]);
+  const serverTotal = announcementsQ.data?.total ?? all.length;
   const pinned = useMemo(() => all.filter((a) => a.pinned), [all]);
   const rest = useMemo(() => all.filter((a) => !a.pinned), [all]);
   const polls = (pollsQ.data ?? []).filter((p) => p.isPublished !== false);
@@ -74,6 +77,10 @@ export default function DashboardAnnouncements() {
           <h1 className="text-[24px] font-semibold tracking-tight">Announcements</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">
             Pinned items first; URGENT pings until acknowledged. Polls live on the second tab.
+          </p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {announcementsQ.isLoading ? 'Loading…' : `${serverTotal} total`}
+            {all.length ? ` · ${all.length} loaded` : ''}
           </p>
         </div>
         <SegmentedTabs
@@ -217,7 +224,7 @@ function AnnouncementCard({
         </span>
       )}
       {canManage && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 flex items-center gap-1">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onEdit?.(); }}
@@ -305,7 +312,7 @@ function AnnouncementRow({
         </div>
       </button>
       {canManage && (
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
           <button
             type="button"
             onClick={onEdit}

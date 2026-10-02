@@ -13,6 +13,10 @@ import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailP
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
+import {
+  CertificateBackdateControl,
+  type CertificateBackdateValue,
+} from '@/components/certificates/CertificateBackdateControl';
 import type { CertificateEmailTemplate } from '@/lib/api';
 
 export interface GenerateFormData {
@@ -36,6 +40,8 @@ export interface GenerateFormData {
   emailTemplate: CertificateEmailTemplate;
   emailSignerName: string;
   emailCustomBody: string;
+  /** Backdate the issue date (PRES/SA only). Empty = issue with today's date. */
+  backdate: CertificateBackdateValue;
 }
 
 interface GenerateCertificateDialogProps {
@@ -238,6 +244,13 @@ export function GenerateCertificateDialog({
                 className="w-4 h-4 rounded accent-amber-500"
               />
               <label htmlFor="sendEmail" className="text-sm text-[var(--ds-text-2)]">Send certificate via email</label>
+            </div>
+            <div className="col-span-full">
+              {/* PRES/SA only, collapsed by default — renders nothing for other admins. */}
+              <CertificateBackdateControl
+                value={form.backdate}
+                onChange={(next) => onFormChange(f => ({ ...f, backdate: next }))}
+              />
             </div>
             {form.sendEmail && (
               <div className="col-span-full space-y-3 rounded-md border border-[var(--border-subtle)] p-3">

@@ -23,6 +23,18 @@ import type {
   UserListResponse,
 } from '../api';
 
+// Full Cloudinary metadata returned by POST /upload/image. Consumed by the
+// image-library tool to build its localStorage gallery entries (no server history).
+export interface UploadImageResult {
+  url: string;
+  publicId: string;
+  bytes: number | null;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  filename: string | null;
+}
+
 export const usersApi = {
   // Stats
   getPublicStats: () => request<{ users?: number; members: number; events: number; upcomingEvents?: number; teamMembers?: number; achievements: number; teamCounts?: Record<string, number> }>('/stats/public'),
@@ -172,13 +184,15 @@ export const usersApi = {
   }, token: string) =>
     request('/users/me', { method: 'PUT', body: JSON.stringify(data), token }),
   changePassword: (currentPassword: string, newPassword: string, token: string) =>
-    request('/users/me/change-password', {
+    // S6: the API bumps tokenVersion (killing every other session) and returns
+    // a fresh token the caller must adopt so the current session survives.
+    request<{ success: boolean; message?: string; token?: string }>('/users/me/change-password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
       token,
     }),
   addPassword: (newPassword: string, token: string) =>
-    request('/users/me/add-password', {
+    request<{ success: boolean; message?: string; token?: string }>('/users/me/add-password', {
       method: 'POST',
       body: JSON.stringify({ newPassword }),
       token,
@@ -252,13 +266,17 @@ export const usersApi = {
   // Network (admin)
   getNetworkPending: (token: string) =>
     request<NetworkProfile[]>('/network/admin/pending', { token }),
-  getNetworkAll: (token: string, status?: NetworkStatus) => {
-    const params = status ? `?status=${status}` : '';
+  getNetworkAll: (token: string, status?: NetworkStatus, options?: { page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
+    const query = params.toString() ? `?${params.toString()}` : '';
     return request<{
       profiles: NetworkProfile[];
       counts: { PENDING: number; VERIFIED: number; REJECTED: number };
       total: number;
-    }>(`/network/admin/all${params}`, { token });
+    }>(`/network/admin/all${query}`, { token });
   },
   getNetworkPendingUsers: (token: string) =>
     request<{ users: PendingNetworkUser[]; total: number }>('/network/admin/pending-users', { token }),
@@ -294,11 +312,44 @@ export const usersApi = {
       { token },
     ),
 
-  // Upload — lives here because users routinely upload avatars/profile pics
+  // Upload — lives here because users routinely upload avatars/profile pics.
+  // String-only: the avatar/signature callers just need the URL.
   uploadImage: async (file: File, token: string): Promise<string> => {
     const formData = new FormData();
     formData.append('image', file);
     const result = await requestForm<{ url: string }>('/upload/image', formData, { token, method: 'POST' });
     return result.url ?? '';
   },
+
+  // Detailed upload — returns the full Cloudinary metadata the image-library tool
+  // needs to render its localStorage-backed gallery. Nothing is persisted server-side
+  // (the gallery lives only in the uploader's browser), so the client owns history.
+  uploadImageDetailed: async (file: File, token: string): Promise<UploadImageResult> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const r = await requestForm<Partial<UploadImageResult>>('/upload/image', formData, { token, method: 'POST' });
+    return {
+      url: r.url ?? '',
+      publicId: r.publicId ?? '',
+      bytes: typeof r.bytes === 'number' ? r.bytes : (Number.isFinite(file.size) ? file.size : null),
+      width: r.width ?? null,
+      height: r.height ?? null,
+      format: r.format ?? null,
+      filename: r.filename ?? file.name ?? null,
+    };
+  },
+
+  // Upload a streak-share card to the dedicated streak-cards/ folder (S-03).
+  // Unlike uploadImage, this creates NO gallery row and is open to any authenticated
+  // user (not just CORE_MEMBER+). Returns the Cloudinary URL to persist via setStreakCard.
+  uploadStreakCard: async (file: File, token: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const result = await requestForm<{ url: string }>('/upload/streak-card', formData, { token, method: 'POST' });
+    return result.url ?? '';
+  },
+
+  // Persist the streak-share card URL → og:image of /share/streak/:userId (S-03).
+  setStreakCard: (url: string, token: string) =>
+    request<{ streakCardUrl: string }>('/users/me/streak-card', { method: 'POST', body: JSON.stringify({ url }), token }),
 } as const;

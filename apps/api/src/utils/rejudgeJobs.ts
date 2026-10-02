@@ -1,4 +1,4 @@
-import { ProblemContextType } from '@prisma/client';
+import { ProblemContextType, type ProblemSubmission } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { auditLog } from './audit.js';
 import { logger } from './logger.js';
@@ -84,25 +84,44 @@ async function runJob(job: RejudgeJobState, requestedBy: string): Promise<void> 
     job.total = await prisma.problemSubmission.count({ where });
     touch(job);
 
-    const submissions = await prisma.problemSubmission.findMany({
-      where,
-      orderBy: { submittedAt: 'asc' },
-      take: 10_000,
-    });
+    // Page submissions in batches of 200 instead of hydrating up to 10k full
+    // rows (~20 MB with code + perTestVerdicts) before the serial loop even
+    // starts. Same 10k overall cap; id is the cursor tiebreaker for rows
+    // sharing a submittedAt (rejudge order between equals isn't semantic).
+    const BATCH_SIZE = 200;
+    const MAX_REJUDGE_SUBMISSIONS = 10_000;
+    let cursorId: string | null = null;
+    let fetched = 0;
 
-    for (const submission of submissions) {
-      try {
-        if (!submission.manualOverride) {
-          await rejudgeSubmission(submission, problem);
+    while (fetched < MAX_REJUDGE_SUBMISSIONS) {
+      const take = Math.min(BATCH_SIZE, MAX_REJUDGE_SUBMISSIONS - fetched);
+      // Explicit annotation breaks the batch → cursorId → batch inference cycle (TS7022).
+      const batch: ProblemSubmission[] = await prisma.problemSubmission.findMany({
+        where,
+        orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }],
+        take,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (batch.length === 0) break;
+      fetched += batch.length;
+      cursorId = batch[batch.length - 1].id;
+
+      for (const submission of batch) {
+        try {
+          if (!submission.manualOverride) {
+            await rejudgeSubmission(submission, problem);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          job.errors.push(message);
+          logger.warn('Problem rejudge submission failed', { jobId: job.id, submissionId: submission.id, error: message });
+        } finally {
+          job.processed += 1;
+          touch(job);
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        job.errors.push(message);
-        logger.warn('Problem rejudge submission failed', { jobId: job.id, submissionId: submission.id, error: message });
-      } finally {
-        job.processed += 1;
-        touch(job);
       }
+
+      if (batch.length < take) break;
     }
 
     job.status = job.errors.length > 0 ? 'failed' : 'completed';

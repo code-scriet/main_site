@@ -62,7 +62,7 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/attendance': 'Take Attendance',
   '/dashboard/events/new': 'Create Event',
   '/dashboard/announcements/new': 'Create Announcement',
-  '/dashboard/qotd': 'Manage QOTD',
+  '/dashboard/qotd': 'Propose QOTD',
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
   '/dashboard/problems/new': 'Create Problem',
@@ -156,7 +156,7 @@ function getNav(opts: {
     { route: 'create-event', href: '/dashboard/events/new', label: 'Create Event', icon: Plus },
     { route: 'create-announcement', href: '/dashboard/announcements/new', label: 'Create Announcement', icon: Megaphone },
     { route: 'create-problem', href: '/dashboard/problems/new', label: 'Create Problem', icon: FileText },
-    { route: 'manage-qotd', href: '/dashboard/qotd', label: 'Manage QOTD', icon: Zap },
+    { route: 'manage-qotd', href: '/dashboard/qotd', label: 'Propose QOTD', icon: Zap },
     { route: 'quiz-manager', href: '/dashboard/quiz', label: 'Quiz Manager', icon: Play },
     { route: 'upload-image', href: '/dashboard/upload', label: 'Upload Image', icon: UploadIcon },
   ];
@@ -165,6 +165,7 @@ function getNav(opts: {
     { route: 'admin-users', href: '/admin/users', label: 'User Management', icon: Users },
     { route: 'admin-team', href: '/admin/team', label: 'Team Management', icon: Layers },
     { route: 'admin-achievements', href: '/admin/achievements', label: 'Achievements', icon: Star },
+    // QOTD scheduling + Submission Review are now tabs inside the Problems hub.
     ...(flags.problems ? [{ route: 'admin-problems', href: '/admin/problems', label: 'Problems', icon: Terminal }] : []),
     { route: 'admin-credits', href: '/admin/credits', label: 'Credits', icon: BookOpen },
     { route: 'admin-public-view', href: '/admin/public-view', label: 'Public View', icon: Activity },
@@ -354,13 +355,16 @@ export default function DashboardLayout() {
     [invitationsQuery.data],
   );
 
-  // Notification unread count for the bell dot
+  // Notification unread count for the bell dot. useNotificationsSocket()
+  // below already invalidates this query on every server-pushed event, so the
+  // interval is only a fallback for missed pushes — 5 min instead of 60s cuts
+  // the steadiest idle-tab DB load on the API (8 queries per poll per tab).
   const notifPreview = useQuery({
     queryKey: ['notifications', 'preview'],
     queryFn: () => api.getNotifications(token!),
     enabled: Boolean(token),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
   });
   const unreadNotifs = notifPreview.data?.unreadCount ?? 0;
 
@@ -480,15 +484,15 @@ export default function DashboardLayout() {
               <Menu size={18} />
             </button>
 
-            <div className="hidden sm:flex items-center gap-1.5 text-[13px] text-[var(--ds-text-3)] whitespace-nowrap min-w-0">
+            <nav aria-label="Breadcrumb" className="hidden sm:flex items-center gap-1.5 text-[13px] text-[var(--ds-text-3)] whitespace-nowrap min-w-0">
               <Link to="/dashboard" className="hover:text-[var(--ds-text-1)] transition-colors font-medium">Dashboard</Link>
               {location.pathname !== '/dashboard' && (
                 <>
-                  <ChevronRight size={12} className="opacity-50 shrink-0" />
-                  <span className="text-[var(--ds-text-1)] font-medium truncate">{breadcrumb}</span>
+                  <ChevronRight size={12} className="opacity-50 shrink-0" aria-hidden />
+                  <span aria-current="page" className="text-[var(--ds-text-1)] font-medium truncate">{breadcrumb}</span>
                 </>
               )}
-            </div>
+            </nav>
 
             <div className="flex-1" />
 

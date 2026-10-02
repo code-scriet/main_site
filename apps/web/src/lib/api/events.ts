@@ -1,4 +1,4 @@
-import { request, requestBlob } from './_internal';
+import { request, requestBlob, requestEnvelope } from './_internal';
 import type {
   Event,
   EventAdminRegistration,
@@ -82,6 +82,21 @@ export const eventsApi = {
     const params = status ? `?status=${status}` : '';
     const events = await request<Event[]>(`/events${params}`);
     return events.map((event) => normalizeEventPayload(event));
+  },
+  // Same list plus the server total — use for any screen that shows
+  // "{total} total" or needs to know when to fetch more (fetch-all).
+  // Uses requestEnvelope because request<> unwraps (and drops) pagination.
+  getEventsWithTotal: async (options?: { status?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (options?.status) qs.set('status', options.status);
+    if (options?.limit) qs.set('limit', String(options.limit));
+    if (options?.offset) qs.set('offset', String(options.offset));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    const res = await requestEnvelope<Event[]>(`/events${query}`);
+    const list = res.data ?? [];
+    const paging = res.pagination as { total?: unknown } | undefined;
+    const total = typeof paging?.total === 'number' ? paging.total : list.length;
+    return { events: list.map((event) => normalizeEventPayload(event)), total };
   },
   getEvent: async (id: string, token?: string) =>
     normalizeEventPayload(await request<Event>(`/events/${id}`, token ? { token } : {})),

@@ -6,11 +6,13 @@ interface Props {
   hint?: React.ReactNode;
   badge?: React.ReactNode;
   required?: boolean;
+  /** Inline validation error rendered below the input (red). */
+  error?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 }
 
-export function Field({ label, hint, badge, required, className, children }: Props) {
+export function Field({ label, hint, badge, required, error, className, children }: Props) {
   return (
     <label className={cn('flex flex-col gap-1.5 min-w-0', className)}>
       <div className="flex items-center justify-between gap-2">
@@ -22,6 +24,7 @@ export function Field({ label, hint, badge, required, className, children }: Pro
         {hint && <span className="text-[11px] text-[var(--ds-text-3)]">{hint}</span>}
       </div>
       {children}
+      {error && <span className="text-[11px] text-[var(--danger)]">{error}</span>}
     </label>
   );
 }

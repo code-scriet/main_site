@@ -10,6 +10,7 @@ import { signInvitationClaimToken } from './jwt.js';
 import {
   applyTestingMode,
   applyTestingModeBulk,
+  getEmailProvider,
   getNotificationSettings,
   invalidateNotificationSettingsCache as invalidateNotificationSettingsCacheImpl,
   shouldNotify,
@@ -23,6 +24,8 @@ import {
   type BrevoRecipient,
   type EmailAttachment,
 } from './emailTransport.js';
+import { deliverBulkViaOci, deliverSingleViaOci, isOciSmtpConfigured } from './ociSmtpTransport.js';
+import { buildUnsubscribeUrl } from './unsubscribe.js';
 
 // Re-export so existing callers (routes/settings.ts, etc.) keep working.
 export { invalidateNotificationSettingsCacheImpl as invalidateNotificationSettingsCache };
@@ -183,13 +186,24 @@ export const emailTemplateTestUtils = {
 };
 
 export function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, '')
+  // Strip <style> blocks incl. an unterminated one (…to end-of-string) so orphan
+  // CSS text never leaks into the plaintext body.
+  let text = html.replace(/<style[^>]*>[\s\S]*?(?:<\/style\s*>|$)/gi, '');
+  // Defense-in-depth: strip tags repeatedly until stable so nested/broken tags
+  // (e.g. "<<b>script>") can't survive a single pass. Input is pre-sanitized
+  // upstream; normal input exits after one iteration (behavior unchanged).
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<[^>]+>/g, '');
+  } while (text !== before);
+  // Entity un-escaping: &amp; MUST be last so a value like "&amp;lt;" decodes to
+  // the literal text "&lt;" (not double-unescaped into "<") — order matters.
+  return text
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
 }
@@ -759,6 +773,7 @@ const CERTIFICATE_TYPE_LABEL: Record<string, string> = {
   COMPLETION: 'Certificate of Completion',
   WINNER: 'Certificate of Achievement',
   SPEAKER: 'Certificate of Appreciation',
+  APPRECIATION: 'Certificate of Appreciation',
 };
 
 function certificateTypeLabel(certType?: string | null): string {
@@ -1027,6 +1042,22 @@ class EmailService {
       return false;
     }
 
+    // Route via OCI or Brevo based on configured provider for this category
+    const provider = getEmailProvider(category, ns);
+    if (provider === 'oci' && isOciSmtpConfigured()) {
+      // OCI single send (no List-Unsubscribe needed for transactional)
+      return deliverSingleViaOci({
+        to: normalizedTo.values[0],
+        subject: options.subject,
+        htmlContent: options.html,
+        textContent: options.text || htmlToPlainText(options.html),
+        replyTo: EMAIL_REPLY_TO,
+        attachments: options.attachments,
+        inlineImages: options.inlineImages,
+      });
+    }
+
+    // Default: Brevo
     const recipients: BrevoRecipient[] = normalizedTo.values.map(email => ({ email }));
     const ccRecipients: BrevoRecipient[] = normalizedCc.values.map(email => ({ email }));
     const bccRecipients: BrevoRecipient[] = normalizedBcc.values.map(email => ({ email }));
@@ -1090,7 +1121,32 @@ class EmailService {
       });
     }
 
-    const BATCH_SIZE = 1000;
+        // -- Bulk mail via OCI Email Delivery (free 3,000/month) --
+    // Route per the admin-configured provider for this category.
+    // If OCI is chosen but not configured, fall back to Brevo (never fail a send).
+    const provider = getEmailProvider(category, ns);
+    if (provider === 'oci' && isOciSmtpConfigured()) {
+      // Honor per-member opt-outs before sending.
+      const optedOut = await prisma.user.findMany({
+        where: { email: { in: normalizedEmails.values }, emailAnnouncements: false },
+        select: { email: true },
+      });
+      const optedOutSet = new Set(optedOut.map((u) => u.email.toLowerCase()));
+      const eligible = normalizedEmails.values.filter((e) => !optedOutSet.has(e));
+      if (eligible.length === 0) {
+        logger.info("Bulk email skipped: all recipients opted out", { category, subject });
+        return true;
+      }
+      return deliverBulkViaOci({
+        emails: eligible,
+        subject,
+        htmlContent: html,
+        textContent: text || htmlToPlainText(html),
+        unsubscribeUrlFor: buildUnsubscribeUrl,
+      });
+    }
+
+const BATCH_SIZE = 1000;
     const batches: string[][] = [];
     for (let i = 0; i < normalizedEmails.values.length; i += BATCH_SIZE) {
       batches.push(normalizedEmails.values.slice(i, i + BATCH_SIZE));
@@ -1245,7 +1301,20 @@ class EmailService {
       shortDescription ? sanitizeText(shortDescription) : undefined,
       imageUrl,
     );
-    return this.sendBulk(emails, template.subject, template.html, template.text);
+    // Governed by the same admin toggle as "new event created" emails (event_creation).
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
+  }
+
+  // S-11 — event changed / cancelled notice to registrants.
+  async sendEventUpdate(emails: string[], eventTitle: string, slug: string, kind: 'updated' | 'cancelled', summary: string): Promise<boolean> {
+    const template = EmailTemplates.eventUpdate(sanitizeText(eventTitle), slug, kind, sanitizeText(summary));
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
+  }
+
+  // S-10 — post-event "thanks for coming + feedback" request to attendees.
+  async sendEventFeedback(emails: string[], eventTitle: string, pollSlug: string): Promise<boolean> {
+    const template = EmailTemplates.eventFeedback(sanitizeText(eventTitle), pollSlug);
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
   }
 
   async sendHiringApplication(email: string, name: string, applyingRole: string): Promise<boolean> {
@@ -1480,6 +1549,10 @@ class EmailService {
     eventName: string,
     certId: string,
     downloadUrl: string,
+    // The certificate's effective issue date. Defaults to now for callers that don't
+    // pass one — but a backdated certificate MUST pass its real issuedAt, otherwise
+    // the email contradicts the PDF, the verify page and the recipient's dashboard.
+    issuedAt: Date = new Date(),
   ): Promise<boolean> {
     const safeName = sanitizeText(name);
     const safeEventName = sanitizeText(eventName);
@@ -1495,7 +1568,7 @@ class EmailService {
         subtitle: `Your certificate for "${safeEventName}" has been issued by code.scriet.`,
         infoCards: [
           { icon: '🆔', label: 'Certificate ID', value: safeCertId },
-          { icon: '📅', label: 'Issued On', value: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
+          { icon: '📅', label: 'Issued On', value: issuedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
         ],
         body: `
           <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
@@ -1616,9 +1689,12 @@ class EmailService {
       select: { emailPasswordResetBody: true },
     });
     const customBody = settings?.emailPasswordResetBody ?? null;
-    const bodyText = customBody
-      ? sanitizeText(customBody)
-      : `An administrator has initiated a password reset for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this and don't recognise the activity, ignore this email — no change has been made.`;
+    // Default copy depends on who initiated: the admin flow passes initiatedBy,
+    // the self-service "forgot password" flow does not.
+    const defaultBody = initiatedBy
+      ? `An administrator has initiated a password reset for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this and don't recognise the activity, ignore this email — no change has been made.`
+      : `We received a request to reset the password for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this, ignore this email — no change has been made.`;
+    const bodyText = customBody ? sanitizeText(customBody) : defaultBody;
 
     const html = generateEmailTemplate({
       preheader: `Reset your ${config.clubName} password (expires in ${expiresInMinutes} min)`,

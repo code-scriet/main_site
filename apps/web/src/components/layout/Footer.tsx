@@ -67,6 +67,7 @@ export function Footer() {
                 {settings?.hiringEnabled !== false && <li><Link to="/join-us">Join us</Link></li>}
                 <li><Link to="/verify">Verify certificate</Link></li>
                 <li><Link to="/credits">Credits</Link></li>
+                <li><Link to="/code-of-conduct">Code of Conduct</Link></li>
                 <li><Link to="/signin">Sign in</Link></li>
               </ul>
             </div>

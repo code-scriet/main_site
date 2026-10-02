@@ -166,19 +166,15 @@ export default function QuizResultsPage() {
   const { quizId } = useParams<{ quizId: string }>();
   const { user } = useAuth();
   const [result, setResult] = useState<QuizResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  // Seed the no-quizId case at declaration so the fetch effect never synchronously sets
+  // state (react-hooks/set-state-in-effect) — the effect only runs the async fetch.
+  const [loading, setLoading] = useState(Boolean(quizId));
+  const [error, setError] = useState(quizId ? '' : 'Quiz not found');
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [expandedQ, setExpandedQ] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const fetchResults = useCallback(async () => {
-    if (!quizId) {
-      setError('Quiz not found');
-      setLoading(false);
-      return;
-    }
-
     try {
       const token = getStoredAuthToken();
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
@@ -196,8 +192,9 @@ export default function QuizResultsPage() {
   }, [quizId]);
 
   useEffect(() => {
+    if (!quizId) return; // the no-quizId error is seeded at state init (no sync setState here)
     void fetchResults();
-  }, [fetchResults]);
+  }, [quizId, fetchResults]);
 
   const handleExport = useCallback(async () => {
     if (!quizId) return;

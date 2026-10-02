@@ -48,7 +48,7 @@ export default function SnippetViewPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-warmwhite text-zinc-950 dark:bg-inknight dark:text-zinc-50">
+    <div className="h-app flex flex-col bg-warmwhite text-zinc-950 dark:bg-inknight dark:text-zinc-50">
       <Navbar />
       <main className="flex-1 overflow-auto">
         <div className="mx-auto max-w-5xl px-4 py-8">

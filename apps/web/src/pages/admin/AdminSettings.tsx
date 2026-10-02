@@ -16,6 +16,7 @@ import { RegistrationEventsCard } from '@/components/admin/settings/Registration
 import { SocialLinksCard } from '@/components/admin/settings/SocialLinksCard';
 import { ContactChannelsCard } from '@/components/admin/settings/ContactChannelsCard';
 import { BrandAccentCard } from '@/components/admin/settings/BrandAccentCard';
+import { CodeExecutionCard } from '@/components/admin/settings/CodeExecutionCard';
 import { SettingsCard } from '@/components/admin/settings/SettingsCard';
 
 const ToggleRow = SharedToggleRow;
@@ -50,8 +51,12 @@ export default function AdminSettings() {
     hiringDesigning: true,
     hiringSocialMedia: true,
     hiringManagement: true,
+    hiringCycle: '2026',
     competitionEnabled: false,
     problemsEnabled: false,
+    plagiarismCheckEnabled: false,
+    quizFoldRankInResult: false,
+    quizSnapshotEnabled: false,
     showNetwork: true,
     certificatesEnabled: true,
     playgroundEnabled: true,
@@ -65,6 +70,17 @@ export default function AdminSettings() {
     emailInvitationEnabled: true,
     emailTestingMode: false,
     emailTestRecipients: null,
+    // Email provider per category
+    emailProviderWelcome: 'brevo',
+    emailProviderEventCreation: 'oci',
+    emailProviderRegistration: 'brevo',
+    emailProviderAnnouncement: 'oci',
+    emailProviderCertificate: 'brevo',
+    emailProviderReminder: 'oci',
+    emailProviderInvitation: 'brevo',
+    emailProviderAdminMail: 'brevo',
+    emailProviderPasswordReset: 'brevo',
+    emailProviderOther: 'brevo',
     playgroundDailyLimit: 100,
     githubUrl: '',
     linkedinUrl: '',
@@ -306,6 +322,20 @@ export default function AdminSettings() {
       {/* Dashboard v2 — accent picker (writes Settings.accentColor and live-applies via [data-accent]) */}
       <BrandAccentCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
 
+      {/* Code execution provider picker (writes Settings.codeExecutionProvider; honored by judge + playground) */}
+      <CodeExecutionCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
+
+      <SettingsCard title="Run source badge" description="Show users which server executed their code (local CodeBox vs cloud).">
+        <ToggleRow
+          id="show-execution-source"
+          label="Show execution source"
+          description="Display a 'via CodeBox / Wandbox / godbolt' badge on code-run outputs. Only President/super-admin can change this."
+          checked={settings.showExecutionSource ?? true}
+          onCheckedChange={(checked) => void handleToggle('showExecutionSource', checked)}
+          compact
+        />
+      </SettingsCard>
+
       <RegistrationEventsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
 
       {/* Email & Notifications — half-width per design intent (compact toggles only). */}
@@ -374,24 +404,44 @@ export default function AdminSettings() {
           <p className="text-[10.5px] font-semibold text-[var(--ds-text-3)] uppercase tracking-[0.06em] mb-1.5">Categories</p>
           <div className="flex flex-col">
             {[
-              { key: 'emailWelcomeEnabled' as const, label: 'Welcome', desc: 'New user registration' },
-              { key: 'emailEventCreationEnabled' as const, label: 'New event', desc: 'When an event is created' },
-              { key: 'emailRegistrationEnabled' as const, label: 'Registration confirmed', desc: 'On event registration' },
-              { key: 'emailAnnouncementEnabled' as const, label: 'Announcement digest', desc: 'New club announcements' },
-              { key: 'emailCertificateEnabled' as const, label: 'Certificate issued', desc: 'On certificate generation' },
-              { key: 'emailReminderEnabled' as const, label: 'Event reminders', desc: 'Scheduled before event start' },
-              { key: 'emailInvitationEnabled' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
-              { key: 'mailingEnabled' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
-            ].map(({ key, label, desc }) => (
-              <ToggleRow
-                key={key}
-                id={key}
-                label={label}
-                description={desc}
-                checked={settings[key] ?? true}
-                onCheckedChange={(checked) => void handleToggle(key, checked)}
-                compact
-              />
+              { key: 'emailWelcomeEnabled' as const, providerKey: 'emailProviderWelcome' as const, label: 'Welcome', desc: 'New user registration' },
+              { key: 'emailEventCreationEnabled' as const, providerKey: 'emailProviderEventCreation' as const, label: 'New event', desc: 'When an event is created' },
+              { key: 'emailRegistrationEnabled' as const, providerKey: 'emailProviderRegistration' as const, label: 'Registration confirmed', desc: 'On event registration' },
+              { key: 'emailAnnouncementEnabled' as const, providerKey: 'emailProviderAnnouncement' as const, label: 'Announcement digest', desc: 'New club announcements' },
+              { key: 'emailCertificateEnabled' as const, providerKey: 'emailProviderCertificate' as const, label: 'Certificate issued', desc: 'On certificate generation' },
+              { key: 'emailReminderEnabled' as const, providerKey: 'emailProviderReminder' as const, label: 'Event reminders', desc: 'Scheduled before event start' },
+              { key: 'emailInvitationEnabled' as const, providerKey: 'emailProviderInvitation' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
+              { key: 'mailingEnabled' as const, providerKey: 'emailProviderAdminMail' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
+              { key: 'emailPasswordResetEnabled' as const, providerKey: 'emailProviderPasswordReset' as const, label: 'Password reset', desc: 'Password reset emails' },
+              { key: null, providerKey: 'emailProviderOther' as const, label: 'Other', desc: 'Uncategorized system emails' },
+            ].map(({ key, providerKey, label, desc }) => (
+              <div key={providerKey} className="flex items-center gap-2">
+                {key ? (
+                  <ToggleRow
+                    id={key}
+                    label={label}
+                    description={desc}
+                    checked={settings[key] ?? true}
+                    onCheckedChange={(checked) => void handleToggle(key, checked)}
+                    compact
+                  />
+                ) : (
+                  <div className="flex items-center justify-between rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-raised)] p-3">
+                    <div className="pr-4">
+                      <p className="font-medium text-[var(--ds-text-1)]">{label}</p>
+                      <p className="mt-1 text-[11.5px] text-[var(--ds-text-3)]">{desc}</p>
+                    </div>
+                  </div>
+                )}
+                <select
+                  value={settings[providerKey] ?? 'brevo'}
+                  onChange={(e) => setSettings({ ...settings, [providerKey]: e.target.value as 'oci' | 'brevo' })}
+                  className="w-[130px] shrink-0 h-8 px-2 text-[11.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+                >
+                  <option value="brevo">Brevo</option>
+                  <option value="oci">OCI</option>
+                </select>
+              </div>
             ))}
           </div>
         </div>
@@ -479,6 +529,30 @@ export default function AdminSettings() {
             compact
           />
           <ToggleRow
+            id="plagiarism-enabled"
+            label="Plagiarism check"
+            description="Admin-run code similarity check for contests (review-only)."
+            checked={settings.plagiarismCheckEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('plagiarismCheckEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="quiz-snapshot-enabled"
+            label="Quiz crash recovery"
+            description="Snapshot live quizzes every 10s; after a crash they resume paused with scores intact."
+            checked={settings.quizSnapshotEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('quizSnapshotEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="quiz-fold-rank-enabled"
+            label="Quiz lean reveals"
+            description="Fold rank into the answer result for up-to-date clients (fewer reveal messages at large player counts)."
+            checked={settings.quizFoldRankInResult ?? false}
+            onCheckedChange={(checked) => void handleToggle('quizFoldRankInResult', checked)}
+            compact
+          />
+          <ToggleRow
             id="hiring-enabled"
             label="Hiring"
             description="Application pipeline + kanban."
@@ -509,6 +583,21 @@ export default function AdminSettings() {
                   compact
                 />
               ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <label htmlFor="hiring-cycle" className="text-[12.5px] text-[var(--ds-text-2)] shrink-0">
+                Hiring cycle
+              </label>
+              <Input
+                id="hiring-cycle"
+                value={settings.hiringCycle ?? '2026'}
+                onChange={(e) => setSettings({ ...settings, hiringCycle: e.target.value })}
+                placeholder="2026"
+                className="h-8 max-w-[180px] text-[12.5px]"
+              />
+              <span className="text-[11px] text-[var(--ds-text-3)]">
+                Bump to re-open hiring — past applicants can apply again. Save to apply.
+              </span>
             </div>
           </div>
         )}

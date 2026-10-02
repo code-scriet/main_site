@@ -8,9 +8,13 @@ import { isPyodideReady } from '@/engines/pyodideEngine';
 import { isTypeScriptReady } from '@/engines/tsEngine';
 import { CLIENT_SUPPORTED_LANGUAGES } from '@/engines/types';
 
+/**
+ * Desktop-only (`md` and up). The phone layout puts language selection in the
+ * bottom action bar's native `<select>` instead — a 44px icon rail plus the
+ * pane tabs plus the action bar left no room for the editor itself.
+ */
 interface LanguageSidebarProps {
   onOpenPractice?: () => void;
-  mobile?: boolean;
 }
 
 type LanguageGlyph = {
@@ -56,7 +60,7 @@ function LanguageMark({ id }: { id: string }) {
   );
 }
 
-export function LanguageSidebar({ onOpenPractice, mobile = false }: LanguageSidebarProps = {}) {
+export function LanguageSidebar({ onOpenPractice }: LanguageSidebarProps = {}) {
   const { language, setLanguage, pythonMode, pyodideProgress } = usePlayground();
   const languages = getAllLanguages();
   const [readyEngines, setReadyEngines] = useState<Set<string>>(new Set(['javascript', 'web']));
@@ -90,24 +94,16 @@ export function LanguageSidebar({ onOpenPractice, mobile = false }: LanguageSide
   }, [languages]);
 
   return (
-    <div
-      className={cn(
-        mobile
-          ? 'flex h-14 items-center gap-3 overflow-x-auto border-b border-zinc-200 bg-warmwhite px-3 dark:border-zinc-800 dark:bg-inknight'
-          : 'flex h-full w-16 flex-col items-center gap-3 border-r border-zinc-200 bg-warmwhite py-4 dark:border-zinc-800 dark:bg-inknight',
-      )}
-    >
-      {!mobile && (
-        <Link
-          to="/"
-          title="codescriet playground · home"
-          className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-[inset_0_-2px_0_rgba(180,83,9,0.28)] transition hover:from-amber-300 hover:to-amber-400"
-        >
-          <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden="true">
-            <path d="M11 22 L21 10" stroke="white" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-        </Link>
-      )}
+    <div className="flex h-full w-16 flex-col items-center gap-3 border-r border-zinc-200 bg-warmwhite py-4 dark:border-zinc-800 dark:bg-inknight">
+      <Link
+        to="/"
+        title="codescriet playground · home"
+        className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-[inset_0_-2px_0_rgba(180,83,9,0.28)] transition hover:from-amber-300 hover:to-amber-400"
+      >
+        <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden="true">
+          <path d="M11 22 L21 10" stroke="white" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      </Link>
 
       {onOpenPractice && (
         <button
@@ -123,11 +119,9 @@ export function LanguageSidebar({ onOpenPractice, mobile = false }: LanguageSide
         </button>
       )}
 
-      {!mobile && (
-        <div className="my-1 h-px w-8 bg-zinc-200 dark:bg-zinc-800" aria-hidden="true" />
-      )}
+      <div className="my-1 h-px w-8 bg-zinc-200 dark:bg-zinc-800" aria-hidden="true" />
 
-      <div className={cn(mobile ? 'flex items-center gap-3' : 'flex flex-1 flex-col items-center gap-3')}>
+      <div className="flex flex-1 flex-col items-center gap-3">
         {sortedLanguages.map((lang) => {
           const isActive = language.id === lang.id;
           const isClient = CLIENT_SUPPORTED_LANGUAGES.has(lang.id);

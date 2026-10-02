@@ -11,7 +11,7 @@
  * - Trims hyphens from start/end
  */
 export function generateSlug(text: string): string {
-  return text
+  const slug = text
     .toLowerCase()
     .trim()
     // Replace spaces and underscores with hyphens
@@ -22,6 +22,9 @@ export function generateSlug(text: string): string {
     .replace(/-+/g, '-')
     // Remove leading/trailing hyphens
     .replace(/^-+|-+$/g, '');
+  // Fallback for titles that slugify to empty (e.g. "!!!") — guarantees
+  // generateUniqueSlug never yields "" (which would collide on @unique slug).
+  return slug || 'untitled';
 }
 
 /**

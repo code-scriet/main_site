@@ -6,19 +6,50 @@ import { logger } from '../utils/logger.js';
 
 type UserBlockFeature = 'EVENT' | 'PLAYGROUND' | 'QOTD' | 'QUIZ' | 'NETWORK';
 
+// Bounded 30s LRU over (userId, feature) block lookups — same shape as
+// utils/userAuthCache.ts. Every gated request and every /quiz handshake paid
+// one point read; blocks change rarely. Worst-case staleness is the 30s TTL;
+// the block/unblock/soft-delete/restore handlers in users.ts call
+// invalidateUserBlockCache() so admin actions propagate immediately.
+const BLOCK_CACHE_TTL_MS = 30_000;
+const BLOCK_CACHE_MAX_ENTRIES = 1000;
+const blockCache = new Map<string, { blocked: boolean; expiresAt: number }>();
+
+export function invalidateUserBlockCache(userId: string): void {
+  for (const key of Array.from(blockCache.keys())) {
+    if (key.startsWith(`${userId}:`)) blockCache.delete(key);
+  }
+}
+
 /**
  * Returns true when an active (not expired) block exists for (userId, feature).
  * Centralised so the /quiz socket auth hook can reuse this without bringing in Express.
  */
 export async function isUserBlocked(userId: string, feature: UserBlockFeature): Promise<boolean> {
   if (!userId) return false;
+
+  const cacheKey = `${userId}:${feature}`;
+  const cached = blockCache.get(cacheKey);
+  if (cached && Date.now() <= cached.expiresAt) {
+    // Delete-then-set keeps Map insertion order working as LRU recency.
+    blockCache.delete(cacheKey);
+    blockCache.set(cacheKey, cached);
+    return cached.blocked;
+  }
+
   const block = await prisma.userBlock.findUnique({
     where: { userId_feature: { userId, feature } },
     select: { expiresAt: true },
   });
-  if (!block) return false;
-  if (block.expiresAt && block.expiresAt < new Date()) return false;
-  return true;
+  const blocked = Boolean(block) && !(block?.expiresAt && block.expiresAt < new Date());
+
+  if (blockCache.size >= BLOCK_CACHE_MAX_ENTRIES && !blockCache.has(cacheKey)) {
+    const oldest = blockCache.keys().next().value;
+    if (oldest) blockCache.delete(oldest);
+  }
+  blockCache.set(cacheKey, { blocked, expiresAt: Date.now() + BLOCK_CACHE_TTL_MS });
+
+  return blocked;
 }
 
 /**

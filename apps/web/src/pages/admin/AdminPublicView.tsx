@@ -61,9 +61,39 @@ export default function AdminPublicView() {
 
   const listQ = useQuery({
     queryKey: ['admin-polls', { search }],
-    queryFn: () => api.getAdminPolls(token!, { search: search || undefined, status: 'ALL' }),
+    // Fetch-all: walk every server page (max 100/page) so no poll truncates.
+    queryFn: async () => {
+      const mine: AdminPollListItem[] = [];
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const LIMIT = 100;
+      while (mine.length < total) {
+        const r = await api.getAdminPolls(token!, { search: search || undefined, status: 'ALL', limit: LIMIT, offset });
+        mine.push(...r.polls);
+        total = r.total;
+        if (r.polls.length < LIMIT) break;
+        offset += LIMIT;
+      }
+      return { polls: mine, total };
+    },
     enabled: Boolean(token),
   });
+
+  // S-10: events to offer as the post-event feedback link. Only fetched while the
+  // editor is open so the polls page itself stays lean.
+  const eventsQ = useQuery({
+    queryKey: ['admin-events-for-poll'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(token) && editorOpen,
+  });
+  const eventOptions = useMemo(
+    () =>
+      [...(eventsQ.data ?? [])]
+        // Newest events first so the most likely feedback target is at the top.
+        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+        .map((e) => ({ id: e.id, title: e.title })),
+    [eventsQ.data],
+  );
 
   const allPolls = useMemo(() => listQ.data?.polls ?? [], [listQ.data]);
   // Status + anonymity filtering (CAT 7). The "active" subset is a derived view of all polls.
@@ -133,8 +163,9 @@ export default function AdminPublicView() {
       isAnonymous: detail.isAnonymous,
       deadline: detail.deadline ?? '',
       isPublished: detail.isPublished,
+      eventId: detail.eventId ?? '',
     });
-    setPollType('NORMAL');
+    setPollType(detail.options.length === 0 ? 'QUESTION' : 'NORMAL');
     setEditorOpen(true);
   };
   const handleAddOption = () => {
@@ -146,14 +177,31 @@ export default function AdminPublicView() {
   const handleRemoveOption = (index: number) => {
     setForm((f) => ({ ...f, options: f.options.filter((_, i) => i !== index) }));
   };
+  const handlePollTypeChange = (type: PollType) => {
+    setPollType(type);
+    setForm((current) => ({
+      ...current,
+      allowMultipleChoices: type === 'QUESTION' ? false : current.allowMultipleChoices,
+      options: type === 'QUESTION' ? [] : (current.options.length >= 2 ? current.options : ['', '']),
+    }));
+  };
   const handleSave = async () => {
     if (!token) return;
     if (!form.question.trim()) { toast.error('Question is required'); return; }
     const cleanedOptions = form.options.map((o) => o.trim()).filter(Boolean);
-    if (cleanedOptions.length < 2) { toast.error('At least two options are required'); return; }
+    if (pollType === 'NORMAL' && cleanedOptions.length < 2) {
+      toast.error('At least two options are required');
+      return;
+    }
     setSaving(true);
     try {
-      const payload: PollInput = { ...form, options: cleanedOptions };
+      // S-10: empty event link → null (avoids failing the uuid validator).
+      const payload: PollInput = {
+        ...form,
+        options: pollType === 'QUESTION' ? [] : cleanedOptions,
+        allowMultipleChoices: pollType === 'QUESTION' ? false : form.allowMultipleChoices,
+        eventId: form.eventId || null,
+      };
       if (editorMode === 'edit' && editingPollId) {
         await api.updatePoll(editingPollId, payload, token);
         toast.success('Poll updated');
@@ -281,7 +329,7 @@ export default function AdminPublicView() {
 
       <Section
         eyebrow="Active polls"
-        title={listQ.isLoading ? 'Loading…' : `${activePolls.length} polls`}
+        title={listQ.isLoading ? 'Loading…' : `${listQ.data?.total ?? activePolls.length} polls`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
             <SegmentedTabs
@@ -479,8 +527,9 @@ export default function AdminPublicView() {
           <PollEditor
             form={form}
             setForm={setForm}
+            events={eventOptions}
             pollType={pollType}
-            onPollTypeChange={setPollType}
+            onPollTypeChange={handlePollTypeChange}
             onAddOption={handleAddOption}
             onOptionChange={handleOptionChange}
             onRemoveOption={handleRemoveOption}

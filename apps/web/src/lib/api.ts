@@ -1,7 +1,8 @@
-// Helpers (request, requestEnvelope, requestForm, requestBlob, UnauthorizedError)
-// live in ./api/_internal.ts. The class is re-exported here so existing
-// `import { UnauthorizedError } from '@/lib/api'` call sites keep working.
-import { UnauthorizedError } from './api/_internal';
+// Helpers (request, requestEnvelope, requestForm, requestBlob, UnauthorizedError,
+// ApiError) live in ./api/_internal.ts. The classes are re-exported here so
+// existing `import { UnauthorizedError } from '@/lib/api'` call sites keep
+// working and forms can `import { ApiError } from '@/lib/api'` for field errors.
+import { UnauthorizedError, ApiError } from './api/_internal';
 import { authApi } from './api/auth';
 import { eventsApi } from './api/events';
 import { contentApi } from './api/content';
@@ -10,7 +11,7 @@ import { usersApi } from './api/users';
 import { adminOpsApi } from './api/admin-ops';
 import { eventOpsApi } from './api/event-ops';
 
-export { UnauthorizedError };
+export { UnauthorizedError, ApiError };
 
 
 
@@ -30,12 +31,16 @@ export interface QOTDHistoryEntry {
   difficulty: 'Easy' | 'Medium' | 'Hard' | 'EASY' | 'MEDIUM' | 'HARD';
   problemId?: string | null;
   problem?: Problem | null;
+  /** The user has any submission row for this QOTD (even a non-accepted attempt). */
   hasSubmitted?: boolean;
+  /** The user has an ACCEPTED solve (legacy text-only QOTDs: a self-report counts). */
+  hasSolved?: boolean;
   isPublished?: boolean;
   publishAt?: string | null;
   publishedAt?: string | null;
   heldBy?: string | null;
   holdReason?: string | null;
+  reopenedAt?: string | null;
 }
 
 export interface QOTDDetail extends QOTDHistoryEntry {
@@ -75,7 +80,7 @@ export interface QOTDStats {
   recentSubmissions: Array<{ date: string; difficulty: string; timestamp: string }>;
 }
 
-export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'JAVA';
+export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'C' | 'JAVA';
 export type ProblemContextType = 'QOTD' | 'CONTEST' | 'PRACTICE';
 export type SubmissionVerdict =
   | 'PENDING'
@@ -129,6 +134,39 @@ export interface ProblemInput {
   isPublished: boolean;
 }
 
+// S-09 — curated problem sheets ("topic ladders").
+export interface ProblemSheetSummary {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  total: number;
+  solved: number;
+}
+
+export interface ProblemSheetItem {
+  order: number;
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  tags: string[];
+  solved: boolean;
+}
+
+export interface ProblemSheetDetail extends ProblemSheetSummary {
+  items: ProblemSheetItem[];
+}
+
+export interface ProblemSheetInput {
+  title: string;
+  description?: string | null;
+  isPublished?: boolean;
+  problemIds: string[];
+}
+
 export interface ProblemSubmission {
   id: string;
   userId: string;
@@ -154,9 +192,16 @@ export interface ProblemSubmission {
   compilerOutput?: string | null;
   manualOverride?: boolean;
   overrideNotes?: string | null;
+  needsReview?: boolean;
+  // A reopened-past-QOTD solve judged ACCEPTED but held for admin acceptance
+  // (verdict stays PENDING and nothing counts until an admin approves it).
+  reopenPending?: boolean;
+  appealedAt?: string | null;
+  appealNote?: string | null;
   submittedAt: string;
   updatedAt: string;
   user?: { id: string; name: string; email?: string; avatar?: string | null };
+  problem?: { id: string; slug: string; title: string; difficulty: string };
 }
 
 export interface ProblemLeaderboardEntry {
@@ -186,6 +231,23 @@ export interface QOTDDailyLeaderboard {
 
 export interface QOTDTotalLeaderboard {
   entries: ProblemLeaderboardEntry[];
+}
+
+export interface QOTDWeeklyLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  avatar?: string | null;
+  /** Sum over the 7-day window of each day's stored score (latest judged attempt, floored at the accepted run; partials included — not a per-day max). */
+  score: number;
+  /** In-window days with a non-pending submission (attempted-or-better, matching the daily board — not strictly ACCEPTED-only). */
+  daysSolved: number;
+}
+
+export interface QOTDWeeklyLeaderboard {
+  /** Published-and-not-held QOTD days that fall in the trailing 7-day window (0..7). */
+  dayCount: number;
+  entries: QOTDWeeklyLeaderboardEntry[];
 }
 
 export interface PendingCapRequest {
@@ -224,6 +286,8 @@ export interface SubmissionResult {
   compilerOutput?: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Judging failed (upstream outage) — submission captured for manual review, attempt refunded. */
+  needsReview?: boolean;
 }
 
 export interface TestRunResult {
@@ -383,6 +447,16 @@ export interface UserFullDetail {
     hiringApplications?: Array<{ id: string; applyingRole: string; status: string; department: string; year: string; createdAt: string }>;
     blocks?: UserBlock[];
     tokenVersion?: number;
+    oauthProvider?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    longestStreakAt?: string | null;
+    deletedAt?: string | null;
+    deletedBy?: string | null;
+    profileCompleted?: boolean;
+    lastLoginAt?: string | null;
+    lastLoginIp?: string | null;
+    streakCardUrl?: string | null;
   };
   counts: {
     eventRegistrations: number;
@@ -398,7 +472,12 @@ export interface UserFullDetail {
     ledTeams: number;
     teamMemberships: number;
     auditEntries: number;
+    invitationsReceived?: number;
+    invitationsSent?: number;
+    uploadedImages?: number;
   };
+  coding?: { totalSubmissions: number; accepted: number; acRate: number; qotdSolved: number };
+  contentCreated?: { events: number; announcements: number; quizzes: number; qotds: number; problems: number; problemSheets: number; polls: number };
   eventRegistrations: Array<{
     id: string;
     eventId: string;
@@ -453,8 +532,13 @@ export interface Settings {
   hiringDesigning?: boolean;
   hiringSocialMedia?: boolean;
   hiringManagement?: boolean;
+  hiringCycle?: string;
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
+  plagiarismCheckEnabled?: boolean;
+  quizFoldRankInResult?: boolean;
+  quizSnapshotEnabled?: boolean;
+  showExecutionSource?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;
@@ -483,12 +567,29 @@ export interface Settings {
   emailCertificateEnabled?: boolean;
   emailReminderEnabled?: boolean;
   emailInvitationEnabled?: boolean;
+  emailPasswordResetEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
+  // Email provider per category (oci | brevo)
+  emailProviderWelcome?: 'oci' | 'brevo';
+  emailProviderEventCreation?: 'oci' | 'brevo';
+  emailProviderRegistration?: 'oci' | 'brevo';
+  emailProviderAnnouncement?: 'oci' | 'brevo';
+  emailProviderCertificate?: 'oci' | 'brevo';
+  emailProviderReminder?: 'oci' | 'brevo';
+  emailProviderInvitation?: 'oci' | 'brevo';
+  emailProviderAdminMail?: 'oci' | 'brevo';
+  emailProviderPasswordReset?: 'oci' | 'brevo';
+  emailProviderOther?: 'oci' | 'brevo';
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
+  // Admin-selected primary code-execution provider for the judge + playground. wandbox | godbolt.
+  codeExecutionProvider?: string;
   // ISO date of the club's founding — drives the "months since inception" stat on /about.
   siteLaunchDate?: string | null;
+  // Public origin of the contest socket relay (playground execute-server), derived server-side
+  // from PLAYGROUND_API_URL. The admin monitor connects here at runtime; null ⇒ REST polling.
+  playgroundApiUrl?: string | null;
   updatedAt: string;
 }
 
@@ -846,6 +947,7 @@ export interface Poll {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -866,6 +968,7 @@ export interface PollInput {
   isAnonymous?: boolean;
   deadline?: string | null;
   isPublished?: boolean;
+  eventId?: string | null;
 }
 
 export interface AdminPollListItem {
@@ -878,6 +981,7 @@ export interface AdminPollListItem {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -1005,6 +1109,14 @@ export interface CompetitionRound {
   participantScope?: 'ALL' | 'SELECTED_TEAMS';
   leadersOnly?: boolean;
   allowedTeamIds?: string[];
+  // Contest config (redesign). finalWeight = raw weight in the event-final aggregation;
+  // difficultyWeights = optional EASY/MED/HARD presets that seed per-problem weights.
+  finalWeight?: number;
+  proctored?: boolean;
+  penaltyModel?: 'BEST_SCORE' | 'ICPC';
+  teamAggregation?: 'BEST_PER_PROBLEM' | 'AVERAGE' | 'BEST_MEMBER';
+  leaderboardFreezeMinutes?: number | null;
+  difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   isEligible?: boolean;
   eligibilityReason?: string;
   targetImageUrl?: string;
@@ -1020,6 +1132,83 @@ export interface CompetitionRound {
   problemSubmissions?: ProblemSubmission[];
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface CompetitionClarification {
+  id: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface CompetitionPlagiarismFlag {
+  id: string;
+  problemId: string;
+  problemTitle: string;
+  userAId: string;
+  userAName: string;
+  userBId: string;
+  userBName: string;
+  similarity: number;
+  status: 'PENDING' | 'REVIEWED' | 'DISMISSED';
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface EventFinalStanding {
+  rank: number;
+  entrantId: string;
+  name: string;
+  isTeam: boolean;
+  final: number;
+  perRound: Array<{ roundId: string; title: string; score: number | null }>;
+}
+
+export interface EventFinalResponse {
+  event: { id: string; title: string; teamRegistration: boolean; publishedAt: string | null };
+  rounds: Array<{ id: string; title: string; weight: number }>;
+  standings: EventFinalStanding[];
+}
+
+export interface CompetitionMonitorParticipant {
+  userId: string;
+  name: string;
+  email: string | null;
+  avatar: string | null;
+  locked: boolean;
+  lockReason: string | null;
+  violationCount: number;
+  lastViolationAt: string | null;
+  lastSeenAt: string | null;
+  score: number;
+  rank: number | null;
+  penalty: number;
+}
+
+export type CompetitionViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
+
+export interface CompetitionMonitorViolation {
+  id: string;
+  userId: string;
+  userName: string;
+  kind: CompetitionViolationKind;
+  detail: string | null;
+  at: string;
+}
+
+export interface CompetitionMonitorResponse {
+  round: {
+    id: string;
+    title: string;
+    status: CompetitionRound['status'];
+    roundType?: 'IMAGE_TARGET' | 'DSA';
+    startedAt?: string | null;
+    duration?: number;
+    leaderboardFreezeMinutes?: number | null;
+  };
+  participants: CompetitionMonitorParticipant[];
+  recentSubmissions: Array<{ id: string; userName: string; problemId: string; verdict: string; score: number; updatedAt: string }>;
+  recentViolations: CompetitionMonitorViolation[];
 }
 
 export interface CompetitionSubmission {
@@ -1069,10 +1258,12 @@ export interface CompetitionResult {
   avatar?: string | null;
   totalScore?: number;
   totalRuntimeMs?: number;
+  penalty?: number;
+  isTeam?: boolean;
   problems?: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
 }
 
-export type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+export type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 export type CertificateTemplate = 'gold' | 'dark' | 'white' | 'emerald';
 export type CompetitionGenerationStrategy = 'specific_round' | 'best_selected_rounds' | 'average_selected_rounds';
 export type CertificateBulkSource = 'attendance' | 'competition' | 'generic';
@@ -1101,6 +1292,7 @@ export interface CompetitionResultsSummarySubmission {
 export interface CompetitionResultsSummaryRound {
   roundId: string;
   title: string;
+  roundType?: 'IMAGE_TARGET' | 'DSA';
   submissions: CompetitionResultsSummarySubmission[];
 }
 
@@ -1142,10 +1334,103 @@ export interface CertificateBulkGenerateInput {
   sendEmail?: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+<<<<<<< HEAD
   emailCustomBody?: string | null;
+=======
+  /**
+   * Backdate the whole batch (PRESIDENT / super admin only). ISO date string. Becomes
+   * the certificates' effective date everywhere: the public verify page, the
+   * recipient's dashboard, the "Issued On" line of the email, and the LinkedIn link.
+   * Omit for normal issuance. The server rejects it for anyone else, and rejects a
+   * date before the linked event's start or after now.
+   */
+  issuedAt?: string | null;
+  backdateReason?: string | null;
+>>>>>>> origin/main
 }
 
 export type CertificateEmailTemplate = 'default' | 'faculty_distribution' | 'custom';
+
+/** Backdate payload shared by the single-issue and bulk certificate endpoints. */
+export interface CertificateBackdateInput {
+  issuedAt?: string | null;
+  backdateReason?: string | null;
+}
+
+// ── Backdate console (PRES/SA only) ────────────────────────────────
+// Retroactive event records: reconstructing a registration, a guest invitation, or
+// an attendance mark on an event that already happened.
+
+export interface BackdateDayAttendance {
+  dayNumber: number;
+  attended: boolean;
+  scannedAt: string | null;
+  backdatedBy: string | null;
+}
+
+export interface BackdateRegistrationRow {
+  id: string;
+  timestamp: string;
+  registrationType: 'PARTICIPANT' | 'GUEST';
+  attended: boolean;
+  backdatedBy: string | null;
+  user: { id: string; name: string; email: string; avatar: string | null };
+  dayAttendances: BackdateDayAttendance[];
+}
+
+export interface BackdateInvitationRow {
+  id: string;
+  status: string;
+  role: string;
+  inviteeEmail: string | null;
+  inviteeNameSnapshot: string | null;
+  invitedAt: string;
+  respondedAt: string | null;
+  backdatedBy: string | null;
+  certificateType: CertType;
+  registrationId: string | null;
+  inviteeUser: { id: string; name: string; email: string } | null;
+}
+
+export interface BackdateEventSnapshot {
+  event: {
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    startDate: string;
+    endDate: string | null;
+    eventDays: number;
+    dayLabels: string[];
+  };
+  registrations: BackdateRegistrationRow[];
+  invitations: BackdateInvitationRow[];
+}
+
+export interface BackdateRegistrationInput {
+  userId?: string | null;
+  email?: string | null;
+  registrationType: 'PARTICIPANT' | 'GUEST';
+  /** ISO date the person is recorded as having registered. */
+  registeredAt: string;
+  reason?: string | null;
+  guestRole?: string | null;
+  guestDesignation?: string | null;
+  guestCompany?: string | null;
+  certificateType?: CertType | null;
+  attendedDays?: number[];
+}
+
+export interface BackdateRegistrationResult {
+  registrationId: string;
+  invitationId: string | null;
+  /** Null when an existing registration was reused — its original date was kept. */
+  registeredAt: string | null;
+  markedDays: number[];
+  reusedExistingRegistration: boolean;
+  /** Set when the existing registration's type was changed to match the request. */
+  retypedFrom: 'PARTICIPANT' | 'GUEST' | null;
+}
 
 export interface CertificateUpdateInput {
   recipientName?: string;
@@ -1305,6 +1590,7 @@ export interface AttendanceCertificateRecipientsResponse {
   };
   eventDays?: number;
   dayLabels?: string[];
+  truncated?: boolean;
 }
 
 export interface AttendanceSearchResult {
@@ -1543,12 +1829,13 @@ export type {
   RecentSubmission,
   AroundMeLeaderboard,
   MyTeamCard,
-  UploadHistoryItem,
   AdminInsights,
   AdminDashboardStats,
   NotifAudience,
   ComposeNotificationInput,
   BroadcastRow,
+  OnboardingStatus,
+  MonthlyDigest,
 } from './api/dashboard';
 
 export const api = {

@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -10,11 +11,17 @@ import { emailService } from '../utils/email.js';
 import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
+import { setSharedPublicCache } from '../utils/response.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const announcementsRouter = Router();
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Max body chars shipped in the LIST response (the detail route returns the full
+// body). Sized to comfortably cover the clamped one-line/short previews the list
+// consumers render, without shipping up to 20,000-char markdown per card.
+const BODY_PREVIEW_CHARS = 300;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
@@ -130,12 +137,24 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
     const shouldCount = !(offset === 0 && announcements.length < limit);
     const total = shouldCount ? await prisma.announcement.count({ where }) : announcements.length;
 
+    // `body` can be up to 20,000 chars; the two list consumers only render it as
+    // a clamped one-line preview fallback (AnnouncementsPage / DashboardOverview),
+    // so ship a truncated preview instead of the full markdown — the detail route
+    // (GET /:slug) still returns the complete body. Cuts up to ~20KB/row off this
+    // hot, cached public endpoint while preserving the preview fallback exactly.
+    const list = announcements.map((a) => ({
+      ...a,
+      body: a.body && a.body.length > BODY_PREVIEW_CHARS ? `${a.body.slice(0, BODY_PREVIEW_CHARS)}…` : a.body,
+    }));
+
+    // Public list — no per-user fields, identical for every visitor.
+    setSharedPublicCache(req, res, 60);
     res.json({
       success: true,
-      data: announcements,
+      data: list,
       pagination: { total, limit, offset },
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });
   }
 });
@@ -179,8 +198,14 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ success: true, data: announcements });
-  } catch (error) {
+    const list = announcements.map((a) => ({
+      ...a,
+      body: a.body && a.body.length > BODY_PREVIEW_CHARS ? `${a.body.slice(0, BODY_PREVIEW_CHARS)}…` : a.body,
+    }));
+
+    setSharedPublicCache(req, res, 60);
+    res.json({ success: true, data: list });
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });
   }
 });
@@ -190,18 +215,20 @@ announcementsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
     const idOrSlug = req.params.id;
     const includeOptions = { creator: { select: { id: true, name: true, avatar: true } } } as const;
-    const announcement = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
-        (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
-      : (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
-        (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
+    // Single round-trip (was 2 sequential findUnique). id and slug are both
+    // unique and slugs are generated word-strings that can never collide with
+    // a UUID, so the OR has exactly one match. Mirrors resolveProblem().
+    const announcement = await prisma.announcement.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: includeOptions,
+    });
 
     if (!announcement) {
       return res.status(404).json({ success: false, error: { message: 'Announcement not found' } });
     }
 
     res.json({ success: true, data: announcement });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcement' } });
   }
 });
@@ -326,6 +353,9 @@ async function sendAnnouncementEmailsAsync(announcement: {
 // Update announcement
 announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'announcement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateAnnouncementSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -376,7 +406,7 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
     if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
 
     res.json({ success: true, data: announcement, message: 'Announcement updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update announcement' } });
   }
 });
@@ -384,11 +414,14 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
 // Delete announcement
 announcementsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'announcement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     await prisma.announcement.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'announcement', req.params.id);
     res.json({ success: true, message: 'Announcement deleted successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to delete announcement' } });
   }
 });

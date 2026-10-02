@@ -123,6 +123,9 @@ export async function deliverSingle(input: DeliverSinglePayload): Promise<boolea
         'api-key': BREVO_API_KEY,
       },
       body: JSON.stringify(payload),
+      // Matches the repo-wide external-fetch timeout pattern; a stalled Brevo
+      // connection must not pin the reminder scheduler (~5min undici default).
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -172,6 +175,9 @@ export async function deliverBatch(input: DeliverBatchPayload): Promise<boolean>
         'api-key': BREVO_API_KEY,
       },
       body: JSON.stringify(payload),
+      // Matches the repo-wide external-fetch timeout pattern; a stalled Brevo
+      // connection must not pin the reminder scheduler (~5min undici default).
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {

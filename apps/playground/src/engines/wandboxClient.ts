@@ -85,7 +85,10 @@ export async function executeViaCloud(
       throw new Error(result.error || 'Cloud execution failed');
     }
 
-    return result.data as ExecutionResult;
+    return {
+      ...(result.data as ExecutionResult),
+      serverDurationMs: typeof result.meta?.durationMs === 'number' ? result.meta.durationMs : null,
+    };
   } finally {
     clearTimeout(timer);
   }

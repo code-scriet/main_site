@@ -12,42 +12,64 @@
 
 import { prisma } from '../lib/prisma.js';
 import type { Settings } from '@prisma/client';
+import { createTtlSingleFlight } from './singleFlight.js';
+import { logger } from './logger.js';
 
 const TTL_MS = 5 * 60 * 1000;
 
-let cache: Settings | null = null;
-let expiresAt = 0;
-let inflight: Promise<Settings | null> | null = null;
+// Built on the canonical TTL + single-flight primitive (utils/singleFlight.ts)
+// so the generation-fence + identity-guarded-clear races live in ONE tested
+// place, not a hand-rolled copy. The compute THROWS on a missing row or read
+// error so the primitive never caches a failure — the getCachedSettings wrapper
+// translates that rejection back to `null` (the "use defaults" contract every
+// caller already relies on), and the next call retries.
+const settingsBoard = createTtlSingleFlight<Settings>(TTL_MS, async () => {
+  const row = await prisma.settings.findUnique({ where: { id: 'default' } });
+  if (!row) throw new Error('Settings row (id=default) not found');
+  return row;
+});
 
 export async function getCachedSettings(): Promise<Settings | null> {
-  const now = Date.now();
-  if (cache && expiresAt > now) {
-    return cache;
-  }
-  if (inflight) {
-    return inflight;
-  }
-  inflight = prisma.settings
-    .findUnique({ where: { id: 'default' } })
-    .then((row) => {
-      if (row) {
-        cache = row;
-        expiresAt = now + TTL_MS;
-      }
-      return row;
-    })
-    .finally(() => {
-      inflight = null;
+  try {
+    return await settingsBoard.get();
+  } catch (err) {
+    // Fail safe: a Settings read error must NOT 500 every page. The Settings
+    // row only drives feature toggles + copy, and every caller already treats
+    // `null` as "use defaults". This covers transient DB errors and, notably,
+    // schema drift where the deployed client SELECTs a column production hasn't
+    // gained yet (e.g. site_launch_date) — which would otherwise take the whole
+    // public site down. The primitive never cached the failure; the next call
+    // retries.
+    logger.error('getCachedSettings read failed; serving defaults this call', {
+      err: err instanceof Error ? err.message : String(err),
     });
-  return inflight;
+    return null;
+  }
 }
 
 export function invalidateSettingsCache(): void {
-  cache = null;
-  expiresAt = 0;
+  settingsBoard.invalidate();
 }
 
-// Test helper.
-export function _peekSettingsCache(): { cached: boolean; expiresIn: number } {
-  return { cached: !!cache, expiresIn: Math.max(0, expiresAt - Date.now()) };
+/**
+ * SYNCHRONOUS snapshot of the last-known Settings row — for hot paths that
+ * cannot await (quiz reveal emission, snapshot ticks). Returns the cached row
+ * even past its TTL (staleness ≤5 min is fine for feature flags; any concurrent
+ * request refreshes it via getCachedSettings), and null on a cold start or in
+ * the instants right after an invalidation — callers MUST treat null as
+ * "feature off" (the safe, legacy direction). Never touches the DB.
+ */
+export function peekCachedSettings(): Settings | null {
+  return settingsBoard.peek();
+}
+
+/**
+ * Hot-path admin feature-flag read used by the quiz reveal + snapshot paths:
+ * true when the emergency env force-ON override is set OR the synchronously
+ * peeked Settings row has the flag on. A cold/just-invalidated cache reads as
+ * false (the safe, legacy direction). Centralizes the `env || peek()?.flag`
+ * idiom so a new hot-path toggle is one call, not a fresh copy.
+ */
+export function isSyncSettingsFlagEnabled(settingsKey: keyof Settings, envForceOn: boolean): boolean {
+  return envForceOn || peekCachedSettings()?.[settingsKey] === true;
 }

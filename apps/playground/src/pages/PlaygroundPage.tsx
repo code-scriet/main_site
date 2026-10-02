@@ -1,19 +1,26 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Toolbar } from '@/components/playground/Toolbar';
 import { CodeEditor } from '@/components/playground/CodeEditor';
-import { OutputPanel } from '@/components/playground/OutputPanel';
-import { ProblemPanel } from '@/components/playground/ProblemPanel';
+import { OutputPanel, StdinPanel } from '@/components/playground/OutputPanel';
 import { LanguageSidebar } from '@/components/playground/LanguageSidebar';
 import { StatusStrip } from '@/components/playground/StatusStrip';
 import { Navbar } from '@/components/playground/Navbar';
+import { MobileActionBar } from '@/components/playground/MobileActionBar';
+import { MobileKeyBar } from '@/components/playground/MobileKeyBar';
 import { QOTDSolverShell, buildQOTDLeaderboardHref, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { PracticeProblemsBrowser } from '@/components/problems/PracticeProblemsBrowser';
 import { usePlayground } from '@/context/PlaygroundContext';
+import { useEditorHistory, EditorHistoryProvider, type EditorHistory } from '@/hooks/useEditorHistory';
+import { useIsCompact, useIsMobile } from '@/hooks/useMediaQuery';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { usePlaygroundActions } from '@/hooks/usePlaygroundActions';
+import { useTheme } from '@/context/ThemeContext';
 import { mainApi, type ProblemDetail } from '@/lib/mainApi';
 import { cn } from '@/lib/utils';
 
@@ -26,17 +33,52 @@ type Mode =
   | { kind: 'practice-browser' }
   | { kind: 'solver'; problem: ProblemDetail; context: QOTDSolverContext };
 
+/** Phone layout: one pane at a time. */
+type MobilePane = 'code' | 'output' | 'input';
+
 function istTodayKey(): string {
   return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export default function PlaygroundPage() {
-  const { showProblemPanel } = usePlayground();
+  // Shared between the sibling Toolbar (buttons) and CodeEditor (editor instance).
+  const editorHistory = useEditorHistory();
+
+  return (
+    <EditorHistoryProvider value={editorHistory}>
+      <PlaygroundPageInner editorHistory={editorHistory} />
+    </EditorHistoryProvider>
+  );
+}
+
+/**
+ * Split from the exported component so the toolbar-action hooks (which read the
+ * editor-history context) run *inside* the provider.
+ */
+function PlaygroundPageInner({ editorHistory }: { editorHistory: EditorHistory }) {
+  const { language, pyodideError } = usePlayground();
+  const { toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
+  // `lg` — matches the breakpoint QOTDSolverShell switches its own layout on.
+  const isCompact = useIsCompact();
+  const [mobilePane, setMobilePane] = useState<MobilePane>('code');
+  // `web` has no stdin — if the user was on the Input pane when switching to it,
+  // fall back to the preview instead of showing a dead pane.
+  const effectivePane: MobilePane = language.id === 'web' && mobilePane === 'input' ? 'output' : mobilePane;
 
   const qotdParam = searchParams.get('qotd');
   const problemParam = searchParams.get('problem');
   const practiceParam = searchParams.get('practice');
+  // DSA contest solve: ?contest=<roundId>&problem=<problemId>. The problem is loaded
+  // and judged in the CONTEST context (contextKey = roundId) so submissions count
+  // toward the round's results/leaderboard — without this the playground falls back
+  // to PRACTICE and the solve never reaches the contest.
+  const contestParam = searchParams.get('contest');
+  // Admin "reopen a past QOTD" private link: ?qotd=<date>&reopen=<token>. When set,
+  // the past day is solved as a SCORED QOTD (not practice) and the token rides along
+  // on run/submit so the server accepts it and streak/marks/leaderboard all update.
+  const reopenParam = searchParams.get('reopen');
 
   const today = istTodayKey();
 
@@ -48,9 +90,9 @@ export default function PlaygroundPage() {
         return detail;
       }
       if (!qotdParam) return null;
-      // Fetch history once and locate the requested day's QOTD.
-      const history = await mainApi.getQOTDHistory(60);
-      return history.find((entry) => entry.date.slice(0, 10) === qotdParam) ?? null;
+      // Resolve the exact requested day directly (robust to age — a reopened past
+      // QOTD older than the recent-history window must still load).
+      return await mainApi.getQOTDByDate(qotdParam);
     },
     enabled: Boolean(qotdParam),
   });
@@ -58,7 +100,9 @@ export default function PlaygroundPage() {
   const todayKeyForPractice = today;
   const qotdProblemId = qotdQuery.data?.problemId ?? undefined;
   const qotdDateKey = qotdQuery.data?.date ? qotdQuery.data.date.slice(0, 10) : qotdParam;
-  const isQotdScored = qotdParam === 'today' || (qotdDateKey === today);
+  // A reopen link targets a past day; treat it as a scored QOTD so it counts.
+  const isReopen = Boolean(reopenParam) && Boolean(qotdParam) && qotdParam !== 'today';
+  const isQotdScored = qotdParam === 'today' || qotdDateKey === today || isReopen;
 
   const qotdProblemQuery = useQuery({
     queryKey: ['playground-qotd-problem', qotdProblemId, isQotdScored, qotdDateKey, todayKeyForPractice],
@@ -70,9 +114,22 @@ export default function PlaygroundPage() {
   });
 
   const standaloneProblemQuery = useQuery({
-    queryKey: ['playground-standalone-problem', problemParam, todayKeyForPractice],
-    queryFn: () => mainApi.getProblem(problemParam!, { contextType: 'PRACTICE', contextKey: todayKeyForPractice }),
+    queryKey: ['playground-standalone-problem', problemParam, contestParam, todayKeyForPractice],
+    queryFn: () => mainApi.getProblem(
+      problemParam!,
+      contestParam
+        ? { contextType: 'CONTEST', contextKey: contestParam }
+        : { contextType: 'PRACTICE', contextKey: todayKeyForPractice },
+    ),
     enabled: Boolean(problemParam),
+  });
+
+  // Resolve the round (status + title) for a contest solve so we can gate submit on
+  // ACTIVE and label the solver. Access errors surface via the problem query above.
+  const competitionRoundQuery = useQuery({
+    queryKey: ['playground-contest-round', contestParam],
+    queryFn: () => mainApi.getCompetitionRound(contestParam!),
+    enabled: Boolean(contestParam) && Boolean(problemParam),
   });
 
   const mode = useMemo<Mode>(() => {
@@ -102,9 +159,12 @@ export default function PlaygroundPage() {
             key: qotdQuery.data.id,
             submitEnabled: true,
             practice: false,
-            modeLabel: 'QOTD · Scored',
-            deadlineLabel: 'Scored QOTD — closes at end of today (IST).',
+            modeLabel: isReopen ? `QOTD · Reopened (${qotdDateKey ?? 'past'})` : 'QOTD · Scored',
+            deadlineLabel: isReopen
+              ? 'Reopened by an admin — each solve is sent for admin acceptance before it counts.'
+              : 'Scored QOTD — closes at end of today (IST).',
             leaderboardHref: buildQOTDLeaderboardHref(),
+            reopenToken: isReopen ? (reopenParam ?? undefined) : undefined,
           }
         : {
             type: 'PRACTICE',
@@ -124,6 +184,31 @@ export default function PlaygroundPage() {
       if (!standaloneProblemQuery.data) {
         return { kind: 'problem-error', problemId: problemParam, reason: 'Problem not found or not available for practice.' };
       }
+      if (contestParam) {
+        // DSA contest solve — submissions are judged in the CONTEST context and count
+        // toward this round. Wait for the round status before rendering so submit
+        // is only enabled while the round is live (the server is the real gate).
+        if (competitionRoundQuery.isLoading) return { kind: 'problem-loading', problemId: problemParam };
+        const round = competitionRoundQuery.data;
+        const isActive = round?.status === 'ACTIVE';
+        // A failed round fetch (transient/network) is not the same as a closed round —
+        // submit stays disabled either way, but the label shouldn't claim the round is
+        // closed when we simply couldn't read its status.
+        const roundUnreadable = competitionRoundQuery.isError || !round;
+        const context: QOTDSolverContext = {
+          type: 'CONTEST',
+          key: contestParam,
+          submitEnabled: isActive,
+          practice: false,
+          modeLabel: round?.title ? `Contest · ${round.title}` : 'Contest',
+          deadlineLabel: isActive
+            ? 'Live contest round — submissions are judged and ranked.'
+            : roundUnreadable
+              ? "Couldn't load this round's status — you can run code, but submissions are disabled."
+              : 'This contest round is not accepting submissions right now.',
+        };
+        return { kind: 'solver', problem: standaloneProblemQuery.data.problem, context };
+      }
       const context: QOTDSolverContext = {
         type: 'PRACTICE',
         key: todayKeyForPractice,
@@ -138,16 +223,25 @@ export default function PlaygroundPage() {
     practiceParam,
     qotdParam,
     problemParam,
+    contestParam,
+    competitionRoundQuery.data,
+    competitionRoundQuery.isLoading,
+    competitionRoundQuery.isError,
     qotdQuery.data,
     qotdQuery.isLoading,
     qotdQuery.isError,
+    qotdQuery.error,
     qotdProblemQuery.data,
     qotdProblemQuery.isLoading,
     qotdProblemQuery.isError,
+    qotdProblemQuery.error,
     standaloneProblemQuery.data,
     standaloneProblemQuery.isLoading,
     standaloneProblemQuery.isError,
+    standaloneProblemQuery.error,
     isQotdScored,
+    isReopen,
+    reopenParam,
     qotdDateKey,
     todayKeyForPractice,
   ]);
@@ -157,6 +251,8 @@ export default function PlaygroundPage() {
     next.delete('qotd');
     next.delete('problem');
     next.delete('practice');
+    next.delete('reopen');
+    next.delete('contest');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -183,20 +279,94 @@ export default function PlaygroundPage() {
     mode.kind === 'problem-error' ||
     mode.kind === 'practice-browser';
 
+  const actions = usePlaygroundActions();
+
+  // Registered once, here, rather than inside the toolbar — the mobile layout
+  // does not render the toolbar, and two registrations would double-fire Run.
+  // In problem mode the free-playground editor is unmounted, so every action
+  // that targets it is withheld (running would execute a stale buffer and burn
+  // a daily quota unit; resetting would edit a disposed Monaco model).
+  useKeyboardShortcuts({
+    onRun: inProblemMode ? undefined : () => { if (!actions.isRunning) void actions.runCode(); },
+    onSave: inProblemMode ? undefined : () => { void actions.saveSnippet(); },
+    onReset: inProblemMode ? undefined : actions.resetCode,
+    onCopy: inProblemMode ? undefined : () => { void actions.copyCode(); },
+    onToggleTheme: toggleTheme,
+  });
+
+  // Phone only: Run has to reveal the Output pane. Without this the result —
+  // and, for a program that blocks on input, the interactive stdin prompt —
+  // renders on a pane the user isn't looking at, so the run appears to hang.
+  const mobileActions = useMemo(
+    () => ({
+      ...actions,
+      runCode: async () => {
+        setMobilePane('output');
+        await actions.runCode();
+      },
+    }),
+    [actions],
+  );
+
+  // The Pyodide failure toast used to live in Toolbar, which the phone layout
+  // doesn't render — so "Run Python locally" could fail silently while the
+  // sheet showed a progress bar forever. Owning it here covers both layouts.
+  useEffect(() => {
+    if (pyodideError) {
+      toast.error(`Python local runtime failed: ${pyodideError}`, { duration: 6000 });
+    }
+  }, [pyodideError]);
+
+  const freeEditorStack = (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        <CodeEditor />
+      </div>
+      <StatusStrip />
+    </div>
+  );
+
+  const paneTab = (pane: MobilePane, label: string) => (
+    <button
+      key={pane}
+      type="button"
+      role="tab"
+      aria-selected={effectivePane === pane}
+      onClick={() => setMobilePane(pane)}
+      className={cn(
+        'h-9 flex-1 rounded-full px-3 text-[12.5px] font-semibold transition',
+        effectivePane === pane
+          ? 'bg-amber-400 text-amber-950'
+          : 'text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800',
+      )}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
+    <div className="flex h-app flex-col overflow-hidden bg-background">
       <Navbar />
-      <Toolbar
-        problemMode={inProblemMode}
-        onExitProblem={clearMode}
-        onOpenPractice={enterPracticeBrowser}
-      />
-      <div className="flex-1 flex overflow-hidden">
+      {/* Hidden on a phone: its twelve controls collapse into an unreadable
+          overlapping row there, and every one of them is reachable from the
+          bottom action bar or the nav sheet. Also hidden in problem mode
+          below `lg` — the compact solver renders its own header with Back, so
+          this row would just be a duplicate stealing 44px from a landscape
+          phone, where vertical space is the scarcest thing on screen. */}
+      {!isMobile && !(isCompact && inProblemMode) && (
+        <Toolbar
+          actions={actions}
+          problemMode={inProblemMode}
+          onExitProblem={clearMode}
+          onOpenPractice={enterPracticeBrowser}
+        />
+      )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="hidden md:block">
           <LanguageSidebar onOpenPractice={enterPracticeBrowser} />
         </div>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {mode.kind === 'qotd-loading' || mode.kind === 'problem-loading' ? (
             <div className="grid h-full place-items-center text-gray-500">
               <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
@@ -228,59 +398,76 @@ export default function PlaygroundPage() {
             />
           ) : mode.kind === 'solver' ? (
             <QOTDSolverShell problem={mode.problem} context={mode.context} onExit={clearMode} />
-          ) : (
-            <>
-              <div className="flex h-full flex-col md:hidden">
-                <LanguageSidebar onOpenPractice={enterPracticeBrowser} mobile />
-                <div className="min-h-0 flex-[0_0_58%] border-b border-zinc-200 dark:border-zinc-800">
-                  <div className="flex h-full flex-col">
-                    <div className="min-h-0 flex-1">
-                      <CodeEditor />
-                    </div>
-                    <StatusStrip />
-                  </div>
-                </div>
+          ) : isMobile ? (
+            /* ── Phone: one pane at a time + a thumb-reachable action bar ── */
+            <div className="flex h-full min-h-0 flex-col">
+              <div
+                role="tablist"
+                aria-label="Playground panes"
+                className="flex shrink-0 items-center gap-1 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+              >
+                {paneTab('code', 'Code')}
+                {paneTab('output', language.id === 'web' ? 'Preview' : 'Output')}
+                {language.id !== 'web' && paneTab('input', 'Input')}
+              </div>
+
+              {/* The code pane is hidden rather than unmounted: Run switches to
+                  Output automatically, and unmounting Monaco would dispose its
+                  model along with the undo stack, caret and scroll position. */}
+              <div
+                hidden={effectivePane !== 'code'}
+                className={cn('min-h-0 flex-1 flex-col', effectivePane === 'code' ? 'flex' : 'hidden')}
+              >
                 <div className="min-h-0 flex-1">
-                  <OutputPanel />
+                  <CodeEditor />
                 </div>
+                <MobileKeyBar
+                  disabled={!editorHistory.isReady}
+                  onInsert={editorHistory.insertText}
+                  onIndent={editorHistory.indent}
+                  onOutdent={editorHistory.outdent}
+                  onUndo={editorHistory.undo}
+                  onRedo={editorHistory.redo}
+                  canUndo={editorHistory.canUndo}
+                  canRedo={editorHistory.canRedo}
+                />
               </div>
-              <div className="hidden h-full md:block">
-                <PanelGroup direction="horizontal" className="h-full">
-                  {showProblemPanel && (
-                    <>
-                      <Panel defaultSize={25} minSize={20} maxSize={40}>
-                        <ProblemPanel />
-                      </Panel>
-                      <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
-                    </>
-                  )}
-
-                  <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
-                    <div className="flex h-full flex-col border-r border-zinc-200 dark:border-zinc-800">
-                      <div className="min-h-0 flex-1">
-                        <CodeEditor />
-                      </div>
-                      <StatusStrip />
-                    </div>
-                  </Panel>
-
-                  <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
-
-                  <Panel defaultSize={30} minSize={25}>
-                    <OutputPanel />
-                  </Panel>
-                </PanelGroup>
+              {/* Hidden, not unmounted — same rule as the code pane above. OutputPanel's
+                  mount effect fires getSessionBootstrap(), so conditionally rendering it
+                  meant one authenticated round-trip per Code↔Output flip (and a contestant
+                  debugging on a phone can burn their own 120/user/60s CRUD limiter), while
+                  also discarding activeTab, history, stats and any partially typed
+                  interactive input on every switch. */}
+              <div className="min-h-0 flex-1" hidden={effectivePane !== 'output'}>
+                <OutputPanel showStdin={false} />
               </div>
-            </>
+              {effectivePane === 'input' && (
+                <div className="min-h-0 flex-1">
+                  <StdinPanel />
+                </div>
+              )}
+
+              <StatusStrip />
+              <MobileActionBar actions={mobileActions} onOpenPractice={enterPracticeBrowser} />
+            </div>
+          ) : (
+            <div className="h-full">
+              <PanelGroup direction="horizontal" className="h-full">
+                <Panel defaultSize={60} minSize={30}>
+                  <div className="h-full border-r border-zinc-200 dark:border-zinc-800">{freeEditorStack}</div>
+                </Panel>
+
+                <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+
+                <Panel defaultSize={30} minSize={25}>
+                  <OutputPanel />
+                </Panel>
+              </PanelGroup>
+            </div>
           )}
         </div>
       </div>
 
-      {showProblemPanel && !inProblemMode && (
-        <div className={cn('md:hidden fixed inset-0 z-50 bg-background', 'flex flex-col')}>
-          <ProblemPanel />
-        </div>
-      )}
     </div>
   );
 }

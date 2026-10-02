@@ -12,10 +12,12 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
+import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const teamsRouter = Router();
 
@@ -27,15 +29,22 @@ function generateInviteCode(): string {
 }
 
 // Validation schemas
+// The web modals send customFieldResponses as { [fieldId]: string } (see
+// TeamCreateModal/TeamJoinModal); accept primitive values + string arrays,
+// matching what normalizeCustomFieldResponses/eventRegistrationFields consume.
+const customFieldResponsesSchema = z
+  .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+  .optional();
+
 const createTeamSchema = z.object({
   eventId: z.string().uuid(),
   teamName: z.string().min(1, 'Team name is required').max(100, 'Team name must be 100 characters or less'),
-  customFieldResponses: z.unknown().optional(),
+  customFieldResponses: customFieldResponsesSchema,
 });
 
 const joinTeamSchema = z.object({
   inviteCode: z.string().length(8, 'Invite code must be 8 characters'),
-  customFieldResponses: z.unknown().optional(),
+  customFieldResponses: customFieldResponsesSchema,
 });
 
 const transferLeadershipSchema = z.object({
@@ -49,6 +58,7 @@ const joinRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many join attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Helper to validate event is open for registration
@@ -151,7 +161,7 @@ function validateTeamRegistrationFields(eventRegistrationFields: unknown, submis
     throw {
       status: 400,
       message: 'Additional registration details required',
-      details: validation.errors,
+      details: validation.errors.map((e) => ({ field: e.fieldId, message: e.message })),
     };
   }
 
@@ -334,6 +344,19 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
         const inviteCode = candidates.find((code) => !takenSet.has(code));
         if (!inviteCode) {
           throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before creating a team.`,
+            };
+          }
+          throw limitError;
         }
 
         // Create registration (+ attendance token + DayAttendance rows)
@@ -580,6 +603,19 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
           };
         }
 
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before joining a team.`,
+            };
+          }
+          throw limitError;
+        }
+
         // Create registration (+ attendance token + DayAttendance rows)
         const { registration, attendanceToken } = await createEventRegistrationInTx(tx, {
           userId: user.id,
@@ -762,6 +798,9 @@ teamsRouter.get('/my-team/:eventId', authMiddleware, async (req: Request, res: R
   try {
     const user = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const membership = await prisma.eventTeamMember.findFirst({
       where: {
@@ -824,6 +863,9 @@ teamsRouter.patch('/:teamId/lock', authMiddleware, async (req: Request, res: Res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -869,6 +911,9 @@ teamsRouter.delete('/:teamId/members/:userId', authMiddleware, async (req: Reque
   try {
     const user = getAuthUser(req)!;
     const { teamId, userId: targetUserId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID') || !requireUuid(res, targetUserId, 'user ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -917,6 +962,9 @@ teamsRouter.post('/:teamId/leave', authMiddleware, async (req: Request, res: Res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -957,6 +1005,9 @@ teamsRouter.post('/:teamId/transfer-leadership', authMiddleware, async (req: Req
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const parseResult = transferLeadershipSchema.safeParse(req.body);
     if (!parseResult.success) {
@@ -1038,6 +1089,9 @@ teamsRouter.delete('/:teamId/dissolve', authMiddleware, async (req: Request, res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -1098,6 +1152,9 @@ teamsRouter.delete('/:teamId/dissolve', authMiddleware, async (req: Request, res
 teamsRouter.get('/event/:eventId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -1147,6 +1204,9 @@ teamsRouter.patch('/:teamId/admin-lock', authMiddleware, requireRole('ADMIN'), a
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -1182,6 +1242,9 @@ teamsRouter.delete('/:teamId/admin-dissolve', authMiddleware, requireRole('ADMIN
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },

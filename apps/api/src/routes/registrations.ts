@@ -4,9 +4,10 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
-import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
@@ -37,6 +38,9 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
     const { additionalFields } = req.body ?? {};
 
     // --- TEAM REGISTRATION GATE ---
@@ -142,7 +146,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
                 success: false,
                 error: {
                   message: 'Additional registration details required',
-                  details: validation.errors,
+                  details: validation.errors.map((e) => ({ field: e.fieldId, message: e.message })),
                 },
                 data: {
                   requiredFields: registrationFields,
@@ -163,6 +167,21 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
               message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
             },
           });
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, authUser.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw new RegistrationHttpError(400, {
+              success: false,
+              error: {
+                message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before registering for another.`,
+              },
+            });
+          }
+          throw limitError;
         }
 
         const { registration: created, attendanceToken } = await createEventRegistrationInTx(tx, {
@@ -284,6 +303,9 @@ registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Reque
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const eventTitle = await prisma.$transaction(async (tx) => {
       const registration = await tx.eventRegistration.findUnique({
@@ -367,7 +389,9 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
           select: {
             id: true,
             title: true,
-            description: true,
+            // description + prerequisites (large markdown) deliberately omitted — no
+            // /registrations/my consumer renders them (they use eventId for the
+            // registered-set; event detail copy comes from the events list endpoint).
             startDate: true,
             endDate: true,
             location: true,
@@ -377,7 +401,6 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             slug: true,
             capacity: true,
             eventType: true,
-            prerequisites: true,
             teamRegistration: true,
             teamMinSize: true,
             teamMaxSize: true,
@@ -410,6 +433,9 @@ registrationsRouter.get('/events/:eventId/status', authMiddleware, async (req: R
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { userId_eventId: { userId: authUser.id, eventId } },

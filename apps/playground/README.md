@@ -151,10 +151,6 @@ VITE_PISTON_API_URL=https://emkc.org/api/v2/piston
 
 # Optional: Main site API (for snippet saving)
 VITE_API_URL=http://localhost:5001
-
-# Optional: Judge0 API (alternative to Piston)
-# VITE_JUDGE0_API_URL=https://judge0-ce.p.rapidapi.com
-# VITE_JUDGE0_API_KEY=your_rapidapi_key_here
 ```
 
 ## 📝 Key Features

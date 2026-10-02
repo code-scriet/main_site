@@ -45,7 +45,7 @@ function verdictTone(v: SubmissionVerdict): 'success' | 'danger' | 'warning' | '
   return 'neutral';
 }
 
-export default function AdminProblems() {
+export default function AdminProblems({ embedded = false }: { embedded?: boolean } = {}) {
   const { token } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -90,7 +90,10 @@ export default function AdminProblems() {
     queryFn: () => api.adminGetProblems(token!),
     enabled: Boolean(token),
   });
-  const all: Problem[] = q.data?.problems ?? [];
+  // useMemo, not a bare `?? []`: a fresh array literal every render gives every
+  // downstream useMemo a changed dependency, so they recompute on each render.
+  const all: Problem[] = useMemo(() => q.data?.problems ?? [], [q.data?.problems]);
+  const serverTotal = q.data?.total ?? all.length;
   const filtered = useMemo(() => {
     return all
       .filter((p) => (publishedOnly ? p.isPublished : true))
@@ -270,11 +273,17 @@ export default function AdminProblems() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
-          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
-          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
+            <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
+            <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
+            <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+              {q.isLoading ? 'Loading…' : `${serverTotal} total`}
+              {all.length ? ` · ${all.length} loaded` : ''}
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setBulkOpen((o) => !o)}>
             <FileUp size={13} className="mr-1.5" />

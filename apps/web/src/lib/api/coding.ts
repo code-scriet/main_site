@@ -2,7 +2,7 @@
 // with a date and publish lifecycle, and submissions flow through the same
 // ProblemSubmission table via contextType/contextKey.
 
-import { request } from './_internal';
+import { request, requestEnvelope } from './_internal';
 import type {
   PendingCapRequest,
   Problem,
@@ -10,12 +10,16 @@ import type {
   ProblemInput,
   ProblemLanguage,
   ProblemLeaderboardEntry,
+  ProblemSheetDetail,
+  ProblemSheetInput,
+  ProblemSheetSummary,
   ProblemSubmission,
   QOTDDailyLeaderboard,
   QOTDDetail,
   QOTDHistoryEntry,
   QOTDStats,
   QOTDTotalLeaderboard,
+  QOTDWeeklyLeaderboard,
   SubmissionResult,
   SubmissionVerdict,
   TestRunResult,
@@ -23,19 +27,20 @@ import type {
 
 export const codingApi = {
   // Problems
-  getProblems: (filters?: { published?: boolean; difficulty?: string; tag?: string; search?: string; limit?: number; cursor?: string }, token?: string) => {
+  getProblems: (filters?: { published?: boolean; difficulty?: string; tag?: string; search?: string; limit?: number; offset?: number; cursor?: string }, token?: string) => {
     const params = new URLSearchParams();
     if (filters?.published !== undefined) params.set('published', String(filters.published));
     if (filters?.difficulty) params.set('difficulty', filters.difficulty);
     if (filters?.tag) params.set('tag', filters.tag);
     if (filters?.search) params.set('search', filters.search);
     if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
     if (filters?.cursor) params.set('cursor', filters.cursor);
     const query = params.toString();
-    return request<{ problems: Problem[] }>(`/problems${query ? `?${query}` : ''}`, { token });
+    return request<{ problems: Problem[]; total?: number }>(`/problems${query ? `?${query}` : ''}`, { token });
   },
   adminGetProblems: (token: string) =>
-    request<{ problems: Problem[] }>('/problems/admin/all', { token }),
+    request<{ problems: Problem[]; total?: number }>('/problems/admin/all', { token }),
   getProblem: (idOrSlug: string, options?: { contextType?: ProblemContextType; contextKey?: string; token?: string }) => {
     const params = new URLSearchParams();
     if (options?.contextType) params.set('contextType', options.contextType);
@@ -51,6 +56,18 @@ export const codingApi = {
     request<{ success: boolean }>(`/problems/${id}`, { method: 'DELETE', token }),
   setProblemPublished: (id: string, isPublished: boolean, token: string) =>
     request<{ problem: Problem }>(`/problems/${id}/publish`, { method: 'PATCH', body: JSON.stringify({ isPublished }), token }),
+
+  // S-09 — curated problem sheets ("topic ladders")
+  getProblemSheets: (token?: string) =>
+    request<{ sheets: ProblemSheetSummary[] }>('/problems/sheets', token ? { token } : {}),
+  getProblemSheet: (slug: string, token?: string) =>
+    request<{ sheet: ProblemSheetDetail }>(`/problems/sheets/${slug}`, token ? { token } : {}),
+  createProblemSheet: (input: ProblemSheetInput, token: string) =>
+    request<{ sheet: { id: string; slug: string } }>('/problems/sheets', { method: 'POST', body: JSON.stringify(input), token }),
+  updateProblemSheet: (id: string, input: Partial<ProblemSheetInput>, token: string) =>
+    request<{ sheet: { id: string; slug: string } }>(`/problems/sheets/${id}`, { method: 'PUT', body: JSON.stringify(input), token }),
+  deleteProblemSheet: (id: string, token: string) =>
+    request<{ id: string }>(`/problems/sheets/${id}`, { method: 'DELETE', token }),
   runProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }, token: string) =>
     request<TestRunResult>(`/problems/${id}/run`, { method: 'POST', body: JSON.stringify(data), token }),
   submitProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string }, token: string) =>
@@ -70,6 +87,15 @@ export const codingApi = {
   },
   adminOverrideSubmission: (problemId: string, submissionId: string, override: { verdict?: SubmissionVerdict; score?: number; notes?: string }, token: string) =>
     request<{ submission: ProblemSubmission }>(`/problems/${problemId}/override/${submissionId}`, { method: 'PATCH', body: JSON.stringify(override), token }),
+  appealSubmission: (problemId: string, input: { contextType: ProblemContextType; contextKey: string; note?: string }, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(input), token }),
+  adminGetReviewQueue: (token: string, limit = 100) =>
+    request<{ submissions: ProblemSubmission[]; total?: number }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
+  // Accept / reject a held reopened-past-QOTD solve (verdict PENDING + reopenPending).
+  adminAcceptReopenSubmission: (submissionId: string, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/accept`, { method: 'POST', token }),
+  adminRejectReopenSubmission: (submissionId: string, token: string, note?: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/reject`, { method: 'POST', body: JSON.stringify({ note }), token }),
   adminRejudgeProblem: (id: string, filter: { contextType?: ProblemContextType; contextKey?: string } | undefined, token: string) =>
     request<{ jobId: string }>(`/problems/${id}/rejudge`, { method: 'POST', body: JSON.stringify(filter ?? {}), token }),
   adminRejudgeStatus: (id: string, jobId: string, token: string) =>
@@ -88,20 +114,61 @@ export const codingApi = {
 
   // QOTD
   getTodayQOTD: () => request<QOTDDetail | null>('/qotd/today'),
-  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; token?: string }) => {
+  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; proposals?: boolean; from?: string; to?: string; token?: string }) => {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
     if (options?.includeUnpublished) params.append('includeUnpublished', 'true');
+    // Staff-only: return exactly the CORE_MEMBER proposals (unpublished, unscheduled,
+    // not held), server-filtered so old/past-dated ones aren't lost off a page window.
+    if (options?.proposals) params.append('proposals', 'true');
+    // Inclusive date range (YYYY-MM-DD) — the admin calendar fetches one month at a
+    // time so far-back months render their real statuses, not a recent-N window.
+    if (options?.from) params.append('from', options.from);
+    if (options?.to) params.append('to', options.to);
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
   },
+  // Paginated variant for the infinite "Full history" list: keeps the server's
+  // pagination.total (which the plain getQOTDHistory unwrap discards) so the list
+  // can stop exactly at total instead of probing one empty page when the row count
+  // is an exact multiple of pageSize.
+  getQOTDHistoryPage: (limit: number, offset: number, options?: { includeUnpublished?: boolean; proposals?: boolean; token?: string }) => {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    if (offset) params.append('offset', String(offset));
+    if (options?.includeUnpublished) params.append('includeUnpublished', 'true');
+    if (options?.proposals) params.append('proposals', 'true');
+    return requestEnvelope<QOTDHistoryEntry[]>(
+      `/qotd/history?${params.toString()}`,
+      options?.token ? { token: options.token } : undefined,
+    ).then((env) => {
+      const total = (env.pagination as { total?: unknown } | undefined)?.total;
+      return {
+        entries: env.data ?? [],
+        total: typeof total === 'number' ? total : null,
+      };
+    });
+  },
+  // Totals for the "Full history" header — solved/total/left, computed server-side.
+  getQOTDHistorySummary: (token?: string) =>
+    request<{ totalPublished: number; solved: number; left: number }>(
+      '/qotd/history/summary',
+      token ? { token } : undefined,
+    ),
   getQOTDDailyLeaderboard: (qotdId: string) =>
     request<QOTDDailyLeaderboard>(`/qotd/${qotdId}/leaderboard`),
   getQOTDTotalLeaderboard: () =>
     request<QOTDTotalLeaderboard>('/qotd/leaderboard/total'),
+  // 7-day board — one server-side query (replaces the old 7-daily-boards rollup).
+  getQOTDWeeklyLeaderboard: () =>
+    request<QOTDWeeklyLeaderboard>('/qotd/leaderboard/weekly'),
   createQOTD: (data: { date: string; question?: string; problemLink?: string; difficulty?: string; problemId?: string; newProblem?: ProblemInput; publishNow?: boolean; publishTime?: string }, token: string) =>
     request('/qotd', { method: 'POST', body: JSON.stringify(data), token }),
+  // Edit an UNPUBLISHED QOTD (proposal/scheduled) — swap problem, move date/time, or
+  // fix legacy text. The server rejects edits to a published/held QOTD.
+  updateQOTD: (id: string, data: { question?: string; difficulty?: string; problemLink?: string; problemId?: string | null; date?: string; publishTime?: string }, token: string) =>
+    request(`/qotd/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   publishQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/publish`, { method: 'POST', token }),
   holdQOTD: (id: string, reason: string | undefined, token: string) =>
@@ -110,6 +177,11 @@ export const codingApi = {
     request<{ success: boolean; problemId: string }>(`/qotd/${id}/publish-practice`, { method: 'POST', token }),
   unpublishQOTDFromPractice: (id: string, token: string) =>
     request<{ success: boolean }>(`/qotd/${id}/unpublish-practice`, { method: 'POST', token }),
+  // Reopen a past QOTD (PRES/SA) → returns the signed private-link token.
+  reopenQOTD: (id: string, token: string) =>
+    request<{ id: string; date: string; reopenedAt: string | null; token: string }>(`/qotd/${id}/reopen`, { method: 'POST', token }),
+  closeReopenQOTD: (id: string, token: string) =>
+    request<{ id: string; reopenedAt: null }>(`/qotd/${id}/close-reopen`, { method: 'POST', token }),
   submitQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/submit`, { method: 'POST', token }),
   deleteQOTD: (id: string, token: string) =>

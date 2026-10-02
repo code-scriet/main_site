@@ -1,5 +1,6 @@
-import { Router, Request, Response } from 'express';
-import { ProblemLanguage, type Problem, type QOTD } from '@prisma/client';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
+import { Prisma, ProblemLanguage, type Problem, type QOTD } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -7,14 +8,26 @@ import { requireRole } from '../middleware/role.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
-import { ApiResponse } from '../utils/response.js';
+import { ApiResponse, setSharedPublicCache } from '../utils/response.js';
+import { createTtlSingleFlight } from '../utils/singleFlight.js';
+import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
-import { broadcastQotdLive } from '../utils/notifications.js';
-import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
+import { getCachedTodayQotd, getCachedPublishedQotdSummary, invalidateQotdTodayCache } from '../utils/qotdTodayCache.js';
+import { broadcastQotdLive, broadcastNotification } from '../utils/notifications.js';
+import { armQotdPublishTimer, cancelQotdPublishTimer, setQotdLeaderboardInvalidator } from '../utils/scheduler.js';
+import { uuidParamGuard } from '../utils/idParams.js';
+import { isPresidentOrSuperAdmin, isSuperAdmin } from '../utils/superAdmin.js';
+import { signQotdReopenToken } from '../utils/jwt.js';
+import { resolveQotdPublishState } from '../utils/qotdAuthoring.js';
 
 export const qotdRouter = Router();
+
+// Reject malformed ids before they hit Prisma — QOTD PKs are uuids. Literal
+// routes (/today, /history, /leaderboard/*, /stats/*) don't match these params.
+qotdRouter.param('id', uuidParamGuard('QOTD ID'));
+qotdRouter.param('qotdId', uuidParamGuard('QOTD ID'));
 
 const testCaseSchema = z.object({
   id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,64}$/),
@@ -44,7 +57,7 @@ const problemInputSchema = z.object({
   body: z.string().min(1).max(60_000),
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']),
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-  allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(4),
+    allowedLanguages: z.array(z.nativeEnum(ProblemLanguage)).min(1).max(5),
   timeLimitMs: z.coerce.number().int().min(500).max(10_000).default(2000),
   defaultSubmitCap: z.coerce.number().int().min(1).max(100).default(5),
   sampleTests: z.array(testCaseSchema).min(1).max(20),
@@ -54,12 +67,21 @@ const problemInputSchema = z.object({
   isPublished: z.boolean().default(false),
 });
 
+// Strict date schema: only accepts YYYY-MM-DD strings (the format the frontend sends
+// via toIsoDate). Rejects ambiguous formats like "01/10/2026" which z.coerce.date()
+// would silently parse as Jan 10 (US) or Oct 1 (no standard) depending on the engine.
+// Parsed as UTC midnight so formatUsageDate/toIstDateKey can convert to IST.
+const qotdDateSchema = z.string({ invalid_type_error: 'date must be a YYYY-MM-DD string' })
+  .min(1, 'date is required')
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD (e.g. 2026-10-01)')
+  .transform((s) => new Date(`${s}T00:00:00.000Z`));
+
 const createQotdSchema = z.object({
-  date: z.coerce.date(),
+  date: qotdDateSchema,
   problemId: z.string().uuid().optional(),
   newProblem: problemInputSchema.optional(),
   question: z.string().trim().min(5).max(2000).optional(),
-  difficulty: z.string().trim().min(1).max(40).optional(),
+  difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   publishNow: z.boolean().optional(),
   // IST wall-clock time of day to go live (HH:mm). Combined with `date` to build
@@ -71,10 +93,13 @@ const createQotdSchema = z.object({
 
 const updateQotdSchema = z.object({
   question: z.string().trim().min(5).max(2000).optional(),
-  difficulty: z.string().trim().min(1).max(40).optional(),
+  difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   problemId: z.string().uuid().nullable().optional(),
-  date: z.coerce.date().optional(),
+  date: qotdDateSchema.optional(),
+  // IST wall-clock go-live time (HH:mm). Only meaningful for a SCHEDULED QOTD
+  // (re-arms its publish timer). Ignored for a bare proposal (publishAt null).
+  publishTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'publishTime must be HH:mm (24h)').optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field must be provided',
 });
@@ -82,6 +107,12 @@ const updateQotdSchema = z.object({
 function midnightIstUtcFor(date: Date): Date {
   const istKey = formatUsageDate(date);
   return new Date(`${istKey}T00:00:00+05:30`);
+}
+
+// Extract the IST wall-clock HH:mm from an instant — used to preserve a scheduled
+// QOTD's go-live time-of-day when only its date is edited.
+function istHHmm(date: Date): string {
+  return date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function isAdminAuth(user: { role?: string } | undefined): boolean {
@@ -93,8 +124,204 @@ function isStaffAuth(user: { role?: string } | undefined): boolean {
 }
 
 const dailyLeaderboardCache = new Map<string, { data: unknown; expiresAt: number }>();
-let totalLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
-let statsLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
+
+// Around-me board: the full ranked array (every QOTD scorer) computed once and sliced
+// per-caller in JS. Mirrors the weekly/total boards — the expensive GROUP BY + RANK()
+// aggregate runs at most once per 60s instead of on every dashboard load. Bounded by
+// user count (one row of {userId, rank, score, firstSolve, totalRows} ≈ a few dozen B).
+interface AroundMeRankRow { userId: string; totalScore: number; firstSolve: number; rank: number; totalRows: number }
+
+interface WeeklyLeaderboardPayload {
+  // Published-and-not-held QOTD days inside the trailing 7-day window (0..7).
+  dayCount: number;
+  entries: Array<{
+    rank: number;
+    userId: string;
+    name: string;
+    avatar: string | null;
+    score: number;
+    daysSolved: number;
+  }>;
+}
+
+// The weekly cache holds the FULL board (up to WEEKLY_LEADERBOARD_MAX rows). Each
+// request slices it to its own `limit`, so `?limit=` stays honoured on cache hits
+// instead of inheriting whatever the request that populated the cache asked for.
+const WEEKLY_LEADERBOARD_MAX = 50;
+function sliceWeeklyLeaderboard(full: WeeklyLeaderboardPayload, limit: number): WeeklyLeaderboardPayload {
+  return { dayCount: full.dayCount, entries: full.entries.slice(0, limit) };
+}
+
+// S2c: the three GLOBAL QOTD boards, each a 60s TTL + single-flight cache on the
+// shared createTtlSingleFlight primitive (utils/singleFlight.ts). The TTL caps
+// steady-state DB load; single-flight collapses a concurrent cache-MISS stampede
+// (TTL expiry, or the burst of dashboard loads right after a QOTD publish/solve
+// invalidation) into ONE aggregate query; the primitive's generation fencing
+// means a compute that started BEFORE an invalidation can never write the cache
+// (a fresh solve is never masked by a stale board). Each board computes the FULL
+// dataset (fixed max) and every request slices to its own limit/window — a
+// request's `?limit=` can therefore never leak into another caller's response.
+
+const TOTAL_LEADERBOARD_MAX = 10;
+interface TotalLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  avatar: string | null;
+  score: number;
+  submittedAt: string;
+  firstSolveAt: string;
+  solveDays: number;
+}
+
+// Shared QOTD-scoring predicate for the total + around-me boards (aliases `ps`
+// for problem_submissions, `q` for the joined qotd). Kept as ONE fragment so the
+// two boards can never silently diverge on the reopen/IST rules below.
+//
+// Prisma stores DateTime as `timestamp(3)` (without time zone) holding the UTC
+// instant. To get the IST calendar date we must first say "this is UTC"
+// (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
+// (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
+// first step inverts the offset and silently drops every row whose IST date
+// differs from its UTC date (i.e. anything submitted before 05:30 IST or QOTD
+// rows whose UTC midnight is the previous IST day).
+// A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own IST
+// date, so the same-day match would silently drop it forever — even after an
+// admin accepts it. Such a solve is only ever stored with verdict='ACCEPTED'
+// once accepted (held solves stay PENDING), and the active-day gate means the
+// ONLY way a QOTD-context row is off-day is a reopen-accepted solve. So
+// `OR verdict='ACCEPTED'` re-admits exactly those accepted late solves (PENDING
+// holds stay excluded) without changing live-day behaviour, honouring the
+// feature's "marks/leaderboard count normally" intent.
+const QOTD_SCORING_WHERE = Prisma.sql`
+  ps.context_type = 'QOTD'
+    AND (
+      DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+      OR ps.verdict = 'ACCEPTED'
+    )
+`;
+
+async function computeTotalLeaderboard(): Promise<{ entries: TotalLeaderboardEntry[] }> {
+  const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
+    SELECT ps.user_id,
+           SUM(ps.score)::int AS total_score,
+           MIN(ps.submitted_at) AS first_solve,
+           MAX(ps.submitted_at) AS latest_solve,
+           COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
+    FROM problem_submissions ps
+    JOIN qotd q ON q.id = ps.context_key
+    WHERE ${QOTD_SCORING_WHERE}
+    GROUP BY ps.user_id
+    ORDER BY total_score DESC, first_solve ASC
+    LIMIT ${TOTAL_LEADERBOARD_MAX};
+  `;
+  const users = await prisma.user.findMany({
+    where: { id: { in: rows.map((row) => row.user_id) } },
+    select: { id: true, name: true, avatar: true },
+  });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  return {
+    entries: rows.map((row, index) => {
+      const user = usersById.get(row.user_id);
+      return {
+        rank: index + 1,
+        userId: row.user_id,
+        name: user?.name ?? 'Unknown',
+        avatar: user?.avatar ?? null,
+        score: Number(row.total_score),
+        submittedAt: row.latest_solve.toISOString(),
+        firstSolveAt: row.first_solve.toISOString(),
+        solveDays: Number(row.solve_days),
+      };
+    }),
+  };
+}
+
+async function computeWeeklyLeaderboard(): Promise<WeeklyLeaderboardPayload> {
+  const { end } = qotdDateRange();
+  const windowQotds = await prisma.qOTD.findMany({
+    where: { isPublished: true, heldBy: null, date: { lt: end } },
+    orderBy: { date: 'desc' },
+    take: 7,
+    select: { id: true },
+  });
+  const windowIds = windowQotds.map((q) => q.id);
+  const dayCount = windowIds.length;
+
+  if (windowIds.length === 0) {
+    return { entries: [], dayCount: 0 };
+  }
+
+  // At most one row per (user, in-window QOTD): the [userId, problemId, contextType,
+  // contextKey] unique key plus the publish-locked edit guard (a QOTD's problemId
+  // can't change once it has gone live) mean _count._all is the user's distinct
+  // in-window day count.
+  const grouped = await prisma.problemSubmission.groupBy({
+    by: ['userId'],
+    where: { contextType: 'QOTD', verdict: { not: 'PENDING' }, contextKey: { in: windowIds } },
+    _sum: { score: true },
+    _count: { _all: true },
+    _min: { submittedAt: true },
+    orderBy: [{ _sum: { score: 'desc' } }, { _min: { submittedAt: 'asc' } }],
+    take: WEEKLY_LEADERBOARD_MAX,
+  });
+
+  const users = grouped.length
+    ? await prisma.user.findMany({
+        where: { id: { in: grouped.map((g) => g.userId) } },
+        select: { id: true, name: true, avatar: true },
+      })
+    : [];
+  const usersById = new Map(users.map((u) => [u.id, u]));
+  return {
+    dayCount,
+    entries: grouped.map((g, index) => {
+      const u = usersById.get(g.userId);
+      return {
+        rank: index + 1,
+        userId: g.userId,
+        name: u?.name ?? 'Unknown',
+        avatar: u?.avatar ?? null,
+        score: g._sum.score ?? 0,
+        daysSolved: g._count._all,
+      };
+    }),
+  };
+}
+
+async function computeAroundMeRanked(): Promise<AroundMeRankRow[]> {
+  const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
+    WITH scored AS (
+      SELECT ps.user_id,
+             SUM(ps.score)::int AS total_score,
+             MIN(ps.submitted_at) AS first_solve
+      FROM problem_submissions ps
+      JOIN qotd q ON q.id = ps.context_key
+      WHERE ${QOTD_SCORING_WHERE}
+      GROUP BY ps.user_id
+    ), ranked AS (
+      SELECT user_id, total_score, first_solve,
+             RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
+             COUNT(*) OVER () AS total_rows
+      FROM scored
+    )
+    SELECT user_id, total_score, first_solve, rk, total_rows
+    FROM ranked
+    ORDER BY rk ASC;
+  `;
+  return rows.map((row) => ({
+    userId: row.user_id,
+    totalScore: Number(row.total_score),
+    firstSolve: row.first_solve instanceof Date ? row.first_solve.getTime() : new Date(row.first_solve).getTime(),
+    rank: Number(row.rk),
+    totalRows: Number(row.total_rows),
+  }));
+}
+
+const totalLeaderboardBoard = createTtlSingleFlight(60_000, computeTotalLeaderboard);
+const weeklyLeaderboardBoard = createTtlSingleFlight(60_000, computeWeeklyLeaderboard);
+const aroundMeBoard = createTtlSingleFlight(60_000, computeAroundMeRanked);
 
 // Free expired entries every 60s so a fresh insert isn't blocked by stale
 // keys squatting on the 30-entry cap. Readers already gate on expiresAt.
@@ -114,9 +341,17 @@ type QotdWithProblem = QOTD & {
 export function invalidateQotdLeaderboardCaches(qotdId?: string): void {
   if (qotdId) dailyLeaderboardCache.delete(qotdId);
   else dailyLeaderboardCache.clear();
-  totalLeaderboardCache = null;
-  statsLeaderboardCache = null;
+  // Drops the cached value AND fences any in-flight recompute (generation bump),
+  // so a fresh solve is never masked by a board that began computing earlier.
+  totalLeaderboardBoard.invalidate();
+  weeklyLeaderboardBoard.invalidate();
+  aroundMeBoard.invalidate();
 }
+
+// Let the auto-publish scheduler drop these caches when a scheduled QOTD goes live
+// (its window membership shifts the weekly board). One-way: the scheduler never
+// imports this route module, so no import cycle — see setQotdLeaderboardInvalidator.
+setQotdLeaderboardInvalidator(invalidateQotdLeaderboardCaches);
 
 function rememberDailyCache(qotdId: string, data: unknown): void {
   dailyLeaderboardCache.set(qotdId, { data, expiresAt: Date.now() + 60_000 });
@@ -137,8 +372,13 @@ function legacyProblemLinkFor(date: Date): string {
   return `${process.env.FRONTEND_URL || 'https://codescriet.dev'}/qotd/${toIstDateKey(date)}`;
 }
 
-async function addSubmissionStatus<T extends { id: string; problemId: string | null }>(qotd: T, userId?: string) {
-  if (!userId) return { ...qotd, hasSubmitted: false };
+// Solve status carries two distinct truths: `hasSubmitted` (the user has any
+// submission row — even a WRONG_ANSWER) vs `hasSolved` (an ACCEPTED solve). The UI
+// labels Solved/Attempted/Missed off these, so the "Solved" pill never lies.
+interface QotdSolveStatus { hasSubmitted: boolean; hasSolved: boolean }
+
+async function addSubmissionStatus<T extends { id: string; problemId: string | null }>(qotd: T, userId?: string): Promise<T & QotdSolveStatus> {
+  if (!userId) return { ...qotd, hasSubmitted: false, hasSolved: false };
   if (qotd.problemId) {
     const submission = await prisma.problemSubmission.findUnique({
       where: {
@@ -149,20 +389,23 @@ async function addSubmissionStatus<T extends { id: string; problemId: string | n
           contextKey: qotd.id,
         },
       },
-      select: { id: true },
+      select: { verdict: true },
     });
-    return { ...qotd, hasSubmitted: Boolean(submission) };
+    return { ...qotd, hasSubmitted: Boolean(submission), hasSolved: submission?.verdict === 'ACCEPTED' };
   }
 
+  // Legacy text-only QOTD: a self-report row is, by design, both attempted and solved.
   const submission = await prisma.qOTDSubmission.findUnique({
     where: { userId_qotdId: { qotdId: qotd.id, userId } },
     select: { id: true },
   });
-  return { ...qotd, hasSubmitted: Boolean(submission) };
+  return { ...qotd, hasSubmitted: Boolean(submission), hasSolved: Boolean(submission) };
 }
 
-async function serializeQotd(qotd: QotdWithProblem, userId?: string) {
-  const withStatus = await addSubmissionStatus(qotd, userId);
+async function serializeQotd(qotd: QotdWithProblem, userId?: string, precomputedStatus?: QotdSolveStatus) {
+  const withStatus = precomputedStatus !== undefined
+    ? { ...qotd, ...precomputedStatus }
+    : await addSubmissionStatus(qotd, userId);
   if (!qotd.problem) return withStatus;
   return {
     ...withStatus,
@@ -170,23 +413,75 @@ async function serializeQotd(qotd: QotdWithProblem, userId?: string) {
   };
 }
 
+// Batch form of addSubmissionStatus for list endpoints: two grouped queries
+// replace one point read per row (up to 100 on /history). Returns BOTH the
+// attempted set (any submission row) and the solved set (verdict ACCEPTED) from
+// the same queries — no extra round-trips. Semantics match the per-row unique-key
+// lookup, including the problemId match, so a submission left behind after an
+// admin re-points qotd.problemId still does NOT count. Legacy text-only QOTDs:
+// a self-report row counts as both attempted and solved (honor system).
+async function getQotdSolveStatus(
+  qotds: Array<{ id: string; problemId: string | null }>,
+  userId?: string,
+): Promise<{ attempted: Set<string>; solved: Set<string> }> {
+  const attempted = new Set<string>();
+  const solved = new Set<string>();
+  if (!userId || qotds.length === 0) return { attempted, solved };
+
+  const withProblem = qotds.filter((q) => q.problemId);
+  const legacyOnly = qotds.filter((q) => !q.problemId);
+
+  const [problemSubs, legacySubs] = await Promise.all([
+    withProblem.length
+      ? prisma.problemSubmission.findMany({
+          where: { userId, contextType: 'QOTD', contextKey: { in: withProblem.map((q) => q.id) } },
+          select: { contextKey: true, problemId: true, verdict: true },
+        })
+      : Promise.resolve([]),
+    legacyOnly.length
+      ? prisma.qOTDSubmission.findMany({
+          where: { userId, qotdId: { in: legacyOnly.map((q) => q.id) } },
+          select: { qotdId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const problemIdByQotdId = new Map(withProblem.map((q) => [q.id, q.problemId] as const));
+  for (const sub of problemSubs) {
+    if (problemIdByQotdId.get(sub.contextKey) !== sub.problemId) continue;
+    attempted.add(sub.contextKey);
+    if (sub.verdict === 'ACCEPTED') solved.add(sub.contextKey);
+  }
+  for (const sub of legacySubs) {
+    attempted.add(sub.qotdId);
+    solved.add(sub.qotdId);
+  }
+  return { attempted, solved };
+}
+
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const { start, end } = qotdDateRange();
     const authUser = getAuthUser(req);
     const includeUnpublished = req.query.includeUnpublished === 'true' && isAdminAuth(authUser);
-    const qotd = await prisma.qOTD.findFirst({
-      where: {
-        date: { gte: start, lt: end },
-        ...(includeUnpublished ? {} : { isPublished: true }),
-      },
-      include: { problem: true },
-    });
+    // The public "today's PUBLISHED QOTD row" is per-request-identical → served
+    // from the IST-date-keyed 60s single-flight cache. The staff drafts-included
+    // view (includeUnpublished) MUST NOT read the public cache — query it live.
+    let qotd: (QotdWithProblem) | null;
+    if (includeUnpublished) {
+      const { start, end } = qotdDateRange();
+      qotd = await prisma.qOTD.findFirst({
+        where: { date: { gte: start, lt: end } },
+        include: { problem: true },
+      });
+    } else {
+      qotd = await getCachedTodayQotd();
+    }
 
     if (!qotd) {
       return ApiResponse.success(res, null, 'No QOTD for today');
     }
 
+    // Per-user hasSubmitted/hasSolved stays a live query inside serializeQotd.
     return ApiResponse.success(res, await serializeQotd(qotd, authUser?.id));
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD');
@@ -204,9 +499,47 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
     const authUser = getAuthUser(req);
     // Staff (CORE_MEMBER+) may opt into seeing unpublished/scheduled QOTDs (including future) for admin views.
     const includeUnpublished = req.query.includeUnpublished === 'true' && isStaffAuth(authUser);
-    const baseWhere = includeUnpublished
-      ? {}
-      : { date: { lt: end }, isPublished: true };
+    // Optional single-day lookup (?date=YYYY-MM-DD). The playground uses this to
+    // resolve one specific past day's QOTD (e.g. an admin "reopen" link) directly,
+    // instead of paging through history — so a reopened day of ANY age resolves,
+    // not just one inside the last N entries. QOTD.date is stored at UTC-midnight,
+    // whose date portion IS the QOTD's calendar-date key.
+    const dateParam = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+      ? req.query.date
+      : null;
+    // Optional inclusive [from, to] range (?from=YYYY-MM-DD&to=YYYY-MM-DD). Powers the
+    // admin QOTD calendar's per-month fetch so far-back months render their REAL
+    // statuses (published/scheduled/held) instead of being blank because they fell
+    // outside a recent-N window. `to` defaults to `from` (single day). Bounded by the
+    // same `limit` as every other history query — a wide range can't unbound the result.
+    const rangeFrom = typeof req.query.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from) ? req.query.from : null;
+    const rangeTo = typeof req.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : null;
+    let dateWhere: { gte: Date; lt: Date } | undefined;
+    if (dateParam) {
+      const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
+      if (!Number.isNaN(dayStart.getTime())) {
+        dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
+      }
+    } else if (rangeFrom) {
+      const gte = new Date(`${rangeFrom}T00:00:00.000Z`);
+      const toStart = new Date(`${rangeTo ?? rangeFrom}T00:00:00.000Z`);
+      if (!Number.isNaN(gte.getTime()) && !Number.isNaN(toStart.getTime()) && toStart.getTime() >= gte.getTime()) {
+        dateWhere = { gte, lt: new Date(toStart.getTime() + 24 * 60 * 60 * 1000) };
+      }
+    }
+    // Proposals view (staff only): exactly the CORE_MEMBER-submitted drafts awaiting
+    // an admin — unpublished, unscheduled (publishAt null), not held. Returned by the
+    // server filter (not a client-side slice of a date-desc page) so the coding-hub
+    // badge + Proposals tab never drop an old or past-dated proposal once the archive
+    // grows past one page. A scheduled QOTD carries publishAt; a held one carries heldBy.
+    const proposalsOnly = req.query.proposals === 'true' && includeUnpublished;
+    const baseWhere = proposalsOnly
+      ? { isPublished: false, publishAt: null, heldBy: null }
+      : dateWhere
+      ? { ...(includeUnpublished ? {} : { isPublished: true }), date: dateWhere }
+      : includeUnpublished
+        ? {}
+        : { date: { lt: end }, isPublished: true };
     const [qotds, total] = await Promise.all([
       prisma.qOTD.findMany({
         where: baseWhere,
@@ -217,64 +550,48 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
       }),
       prisma.qOTD.count({ where: baseWhere }),
     ]);
-    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id)));
+    const { attempted, solved } = await getQotdSolveStatus(qotds, authUser?.id);
+    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id, {
+      hasSubmitted: attempted.has(qotd.id),
+      hasSolved: solved.has(qotd.id),
+    })));
     return res.json({ success: true, data, pagination: { total, limit, offset } });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD history');
   }
 });
 
+// Lightweight totals for the "Full history" header — how many published QOTDs
+// exist up to today and how many the caller has solved. Bounded: one row per QOTD
+// day (id + problemId only), so it stays cheap even years in. solved is computed
+// with the same getSubmittedQotdIds split used by /history, so the count is
+// byte-identical to the per-row hasSubmitted there.
+qotdRouter.get('/history/summary', optionalAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req);
+    // Shared published-QOTD {id, problemId} list (up to end-of-today IST) is
+    // per-request-identical → served from the IST-date-keyed 60s cache. The
+    // per-user solved count stays a live query in getQotdSolveStatus below.
+    const qotds = await getCachedPublishedQotdSummary();
+    const totalPublished = qotds.length;
+    // "Solved" here means actually solved (ACCEPTED), so solved/left are truthful.
+    const solved = (await getQotdSolveStatus(qotds, authUser?.id)).solved.size;
+    return ApiResponse.success(res, { totalPublished, solved, left: Math.max(0, totalPublished - solved) });
+  } catch (error) {
+    logger.error('Failed to fetch QOTD history summary', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to fetch QOTD history summary');
+  }
+});
+
 qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
-    if (totalLeaderboardCache && Date.now() < totalLeaderboardCache.expiresAt) {
-      return ApiResponse.success(res, totalLeaderboardCache.data);
-    }
-
-    // Prisma stores DateTime as `timestamp(3)` (without time zone) holding the
-    // UTC instant. To get the IST calendar date we must first say "this is UTC"
-    // (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
-    // (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
-    // first step inverts the offset and silently drops every row whose IST date
-    // differs from its UTC date (i.e. anything submitted before 05:30 IST or
-    // QOTD rows whose UTC midnight is the previous IST day).
-    const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
-      SELECT ps.user_id,
-             SUM(ps.score)::int AS total_score,
-             MIN(ps.submitted_at) AS first_solve,
-             MAX(ps.submitted_at) AS latest_solve,
-             COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
-      FROM problem_submissions ps
-      JOIN qotd q ON q.id = ps.context_key
-      WHERE ps.context_type = 'QOTD'
-        AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-      GROUP BY ps.user_id
-      ORDER BY total_score DESC, first_solve ASC
-      LIMIT ${limit};
-    `;
-    const users = await prisma.user.findMany({
-      where: { id: { in: rows.map((row) => row.user_id) } },
-      select: { id: true, name: true, avatar: true },
-    });
-    const usersById = new Map(users.map((user) => [user.id, user]));
-    const data = {
-      entries: rows.map((row, index) => {
-        const user = usersById.get(row.user_id);
-        return {
-          rank: index + 1,
-          userId: row.user_id,
-          name: user?.name ?? 'Unknown',
-          avatar: user?.avatar ?? null,
-          score: Number(row.total_score),
-          submittedAt: row.latest_solve.toISOString(),
-          firstSolveAt: row.first_solve.toISOString(),
-          solveDays: Number(row.solve_days),
-        };
-      }),
-    };
-    totalLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
-    return ApiResponse.success(res, data);
+    const limit = Math.min(TOTAL_LEADERBOARD_MAX, Math.max(1, Number(req.query.limit) || TOTAL_LEADERBOARD_MAX));
+    // The board holds the full top-10; each request slices to its own limit —
+    // previously a cache populated by a `?limit=1` request served that single
+    // row to every caller (including limit=10 ones) for a full TTL.
+    const data = await totalLeaderboardBoard.get();
+    setSharedPublicCache(req, res, 60);
+    return ApiResponse.success(res, { entries: data.entries.slice(0, limit) });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD total leaderboard');
   }
@@ -287,55 +604,37 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
     if (!user) return ApiResponse.unauthorized(res);
     const windowSize = Math.min(5, Math.max(1, Number(req.query.window) || 2));
 
-    // Compute total scores for everyone, rank them, then slice around the caller.
-    // RANK() handles ties (same score → same rank). Single query, capped result set.
-    const ranked = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
-      WITH scored AS (
-        SELECT ps.user_id,
-               SUM(ps.score)::int AS total_score,
-               MIN(ps.submitted_at) AS first_solve
-        FROM problem_submissions ps
-        JOIN qotd q ON q.id = ps.context_key
-        WHERE ps.context_type = 'QOTD'
-          AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-        GROUP BY ps.user_id
-      ), ranked AS (
-        SELECT user_id, total_score, first_solve,
-               RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
-               COUNT(*) OVER () AS total_rows
-        FROM scored
-      ), my_rank AS (
-        SELECT rk FROM ranked WHERE user_id = ${user.id}
-      )
-      SELECT r.user_id, r.total_score, r.first_solve, r.rk, r.total_rows
-      FROM ranked r, my_rank m
-      WHERE ABS(r.rk - m.rk) <= ${windowSize}
-      ORDER BY r.rk ASC;
-    `;
+    // Full ranked board, cached 60s (the GROUP BY + RANK() aggregate over every QOTD
+    // submission is the expensive part — running it per dashboard load was the bottleneck).
+    // The per-caller window is sliced in JS below, so `?window=` stays honoured on hits.
+    const fullRanked = await aroundMeBoard.get();
 
-    if (ranked.length === 0) {
+    const myRow = fullRanked.find((row) => row.userId === user.id);
+    if (!myRow) {
+      // Caller hasn't scored — preserve the prior empty-slice response shape.
       return ApiResponse.success(res, { slice: [], myRank: null, totalRanked: 0, nextUpDelta: null });
     }
+    // Slice by RANK distance (not array index) so ties match the old SQL window exactly.
+    const ranked = fullRanked.filter((row) => Math.abs(row.rank - myRow.rank) <= windowSize);
     const users = await prisma.user.findMany({
-      where: { id: { in: ranked.map((row) => row.user_id) } },
+      where: { id: { in: ranked.map((row) => row.userId) } },
       select: { id: true, name: true, avatar: true },
     });
     const usersById = new Map(users.map((u) => [u.id, u]));
     const slice = ranked.map((row) => {
-      const u = usersById.get(row.user_id);
+      const u = usersById.get(row.userId);
       return {
-        rank: Number(row.rk),
-        userId: row.user_id,
+        rank: row.rank,
+        userId: row.userId,
         name: u?.name ?? 'Unknown',
         avatar: u?.avatar ?? null,
-        score: Number(row.total_score),
-        you: row.user_id === user.id,
+        score: row.totalScore,
+        you: row.userId === user.id,
       };
     });
     const myIdx = slice.findIndex((r) => r.you);
     const myRank = myIdx >= 0 ? slice[myIdx].rank : null;
-    const totalRanked = ranked.length > 0 ? Number(ranked[0].total_rows) : 0;
+    const totalRanked = myRow.totalRows;
     const nextUp = myIdx > 0 ? slice[myIdx - 1] : null;
     const nextUpDelta = nextUp && myIdx >= 0 ? nextUp.score - slice[myIdx].score : null;
     return ApiResponse.success(res, { slice, myRank, totalRanked, nextUpDelta, nextUp });
@@ -344,69 +643,29 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
   }
 });
 
-qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
+// 7-day QOTD leaderboard — server-side roll-up of the last 7 published-and-not-held
+// QOTD days in one grouped query, so EVERY solver counts (the old client-side rollup
+// summed only each day's top-10 daily board, silently dropping anyone outside it) and
+// the surface makes one request instead of 7+1.
+//   • `score`      = sum over the window of each day's STORED row score for the user.
+//                    The stored score is the latest judged attempt, floored at the
+//                    accepted run once solved (a later miss never un-solves) — it is
+//                    NOT a per-day max. Partial credit is included, matching the daily
+//                    board's score order.
+//   • `daysSolved` = count of in-window days the user has a non-PENDING submission for
+//                    (attempted-or-better — mirrors the daily board, which ranks
+//                    partials too; not strictly ACCEPTED-only).
+// Held reopen solves (verdict PENDING) are excluded, like the daily/total boards.
+qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
   try {
-    const limit = parsePaginationNumber(req.query.limit, 10, { min: 1, max: 100 });
-    if (limit === null) return ApiResponse.badRequest(res, 'limit must be an integer between 1 and 100');
-
-    if (statsLeaderboardCache && Date.now() < statsLeaderboardCache.expiresAt) {
-      const cached = statsLeaderboardCache.data as Array<{ user: { id: string; name: string; avatar: string | null }; submissions: number }>;
-      return ApiResponse.success(res, cached.slice(0, limit));
-    }
-
-    // Count unique IST-date solves per user, combining the legacy QOTDSubmission
-    // self-report table and the problem judge's ACCEPTED submissions.
-    const [legacy, problemRows] = await Promise.all([
-      prisma.qOTDSubmission.findMany({
-        select: { userId: true, qotd: { select: { date: true } } },
-        take: 50_000,
-      }),
-      prisma.problemSubmission.findMany({
-        where: { contextType: 'QOTD', verdict: 'ACCEPTED' },
-        select: { userId: true, contextKey: true },
-        take: 50_000,
-      }),
-    ]);
-
-    const qotdIds = Array.from(new Set(problemRows.map((row) => row.contextKey)));
-    const qotds = qotdIds.length
-      ? await prisma.qOTD.findMany({ where: { id: { in: qotdIds } }, select: { id: true, date: true } })
-      : [];
-    const dateByQotdId = new Map(qotds.map((q) => [q.id, q.date]));
-
-    const userToDates = new Map<string, Set<string>>();
-    const remember = (userId: string, dateKey: string) => {
-      const existing = userToDates.get(userId);
-      if (existing) existing.add(dateKey);
-      else userToDates.set(userId, new Set([dateKey]));
-    };
-    for (const row of legacy) remember(row.userId, formatUsageDate(row.qotd.date));
-    for (const row of problemRows) {
-      const date = dateByQotdId.get(row.contextKey);
-      if (date) remember(row.userId, formatUsageDate(date));
-    }
-
-    const ranked = Array.from(userToDates.entries())
-      .map(([userId, days]) => ({ userId, submissions: days.size }))
-      .sort((a, b) => b.submissions - a.submissions)
-      .slice(0, 100);
-
-    const users = ranked.length
-      ? await prisma.user.findMany({
-          where: { id: { in: ranked.map((entry) => entry.userId) } },
-          select: { id: true, name: true, avatar: true },
-        })
-      : [];
-    const usersById = new Map(users.map((user) => [user.id, user]));
-    const leaderboard = ranked.map((entry) => ({
-      user: usersById.get(entry.userId) ?? { id: entry.userId, name: 'Unknown', avatar: null },
-      submissions: entry.submissions,
-    }));
-
-    statsLeaderboardCache = { data: leaderboard, expiresAt: Date.now() + 60_000 };
-    return ApiResponse.success(res, leaderboard.slice(0, limit));
+    // Default 50 (not 10) so the list + in-surface search keep the wider set the old
+    // client rollup surfaced; the podium still shows the top 3.
+    const limit = Math.min(WEEKLY_LEADERBOARD_MAX, Math.max(1, Number(req.query.limit) || WEEKLY_LEADERBOARD_MAX));
+    const board = await weeklyLeaderboardBoard.get();
+    setSharedPublicCache(req, res, 60);
+    return ApiResponse.success(res, sliceWeeklyLeaderboard(board, limit));
   } catch {
-    return ApiResponse.internal(res, 'Failed to fetch leaderboard');
+    return ApiResponse.internal(res, 'Failed to fetch QOTD weekly leaderboard');
   }
 });
 
@@ -422,7 +681,10 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
     if (!qotd?.problemId) return ApiResponse.success(res, { entries: [], publishedAt: null, date: null });
 
     const submissions = await prisma.problemSubmission.findMany({
-      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id },
+      // Exclude held reopen solves (verdict PENDING) so an un-accepted late solve
+      // never surfaces on the daily board — matching the guard already in
+      // /problems/:id/leaderboard. Normal non-accepted attempts aren't PENDING.
+      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id, verdict: { not: 'PENDING' } },
       orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
       take: 10,
       include: { user: { select: { id: true, name: true, avatar: true } } },
@@ -502,7 +764,13 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
   try {
     const authUser = getAuthUser(req)!;
     const parsed = createQotdSchema.safeParse(req.body);
-    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.issues[0]?.message || 'Invalid QOTD payload');
+
+    // Author authority — computed up-front because it gates BOTH the QOTD publish
+    // state (below) AND the inline-problem publish state (next): a CORE_MEMBER can
+    // only PROPOSE. Super-admin (matched by email) may not carry role ADMIN/PRESIDENT,
+    // so include it explicitly to agree with the frontend's isAdmin.
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
 
     let problemId = parsed.data.problemId ?? null;
     let legacyFields = {
@@ -512,7 +780,13 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     };
 
     if (parsed.data.newProblem) {
-      const problem = await createProblemFromInput(parsed.data.newProblem as ProblemInput, authUser.id);
+      // A non-admin proposal must NOT be able to mint a published Problem as a side
+      // effect (the propose-gate forces the QOTD to a draft, but the inline problem
+      // is a separate row). Mirror problems.ts: force isPublished:false for non-admins.
+      const newProblemInput = (isAdmin
+        ? parsed.data.newProblem
+        : { ...parsed.data.newProblem, isPublished: false }) as ProblemInput;
+      const problem = await createProblemFromInput(newProblemInput, authUser.id);
       problemId = problem.id;
       legacyFields = {
         question: problem.title,
@@ -521,7 +795,8 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       };
     } else if (problemId) {
       const problem = await prisma.problem.findUnique({ where: { id: problemId } });
-      if (!problem) return ApiResponse.notFound(res, 'Problem not found');
+      if (!problem) return ApiResponse.notFound(res, 'Selected problem not found');
+      if (!problem.isPublished) return ApiResponse.badRequest(res, 'Selected problem is not published — publish it first or use the inline creation mode to draft a proposal');
       legacyFields = {
         question: problem.title,
         difficulty: problem.difficulty,
@@ -531,17 +806,40 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
 
     const now = new Date();
     const dateKey = formatUsageDate(parsed.data.date);
+    // Guardrail: fail on duplicate date BEFORE the DB write so we return a 4xx
+    // (not a P2002 → 500). The QOTD.date column has a @unique constraint, but
+    // relying on it alone means a duplicate produces an opaque 500 with no
+    // human-readable hint. This pre-check turns it into a 409 with a clear message.
+    // (A race is still possible — the catch block below also handles P2002.)
+    const existingDate = await prisma.qOTD.findUnique({ where: { date: parsed.data.date } });
+    if (existingDate) {
+      return ApiResponse.conflict(
+        res,
+        `A QOTD already exists for ${dateKey} — unpublish or change the date`,
+      );
+    }
     // publishAt = the chosen IST wall-clock time on the QOTD's IST date.
     // Building from the IST date key + "+05:30" offset yields the correct UTC
     // instant regardless of the server's timezone. Falls back to IST midnight
     // if, somehow, the constructed date is invalid.
     const publishTime = parsed.data.publishTime ?? '00:00';
-    let publishAt = new Date(`${dateKey}T${publishTime}:00+05:30`);
-    if (Number.isNaN(publishAt.getTime())) publishAt = midnightIstUtcFor(parsed.data.date);
+    let computedPublishAt = new Date(`${dateKey}T${publishTime}:00+05:30`);
+    if (Number.isNaN(computedPublishAt.getTime())) computedPublishAt = midnightIstUtcFor(parsed.data.date);
     // Auto-publish immediately when the scheduled instant has already passed,
     // unless the caller explicitly forces publishNow on/off.
-    const publishNow = parsed.data.publishNow === true
-      || (parsed.data.publishNow !== false && publishAt.getTime() <= now.getTime());
+    const computedPublishNow = parsed.data.publishNow === true
+      || (parsed.data.publishNow !== false && computedPublishAt.getTime() <= now.getTime());
+
+    // Non-admin authors (CORE_MEMBER) can only PROPOSE: resolveQotdPublishState
+    // forces an unpublished, unscheduled draft (publishAt null → the auto-publish
+    // scheduler never arms it) for an admin to review/schedule/publish. Fails closed
+    // (unit-tested in qotdAuthoring.test.ts). `isAdmin` is computed above (it also
+    // gates the inline-problem publish state).
+    const { isPublished, publishAt } = resolveQotdPublishState({
+      isAdmin,
+      publishNow: computedPublishNow,
+      publishAt: computedPublishAt,
+    });
 
     const qotd = await prisma.qOTD.create({
       data: {
@@ -551,26 +849,38 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
         problemId,
         date: parsed.data.date,
         createdById: authUser.id,
-        isPublished: publishNow,
+        isPublished,
         publishAt,
-        publishedAt: publishNow ? now : null,
+        publishedAt: isPublished ? now : null,
       },
       include: { problem: true },
     });
 
     if (qotd.isPublished) {
       invalidatePublishedQotdCache();
+      invalidateQotdTodayCache(); // a newly-published QOTD changes today's row / the published set
       // Fire the bell notification when a QOTD goes live on creation. Scheduled
       // QOTDs get theirs later from the auto-publish scheduler instead.
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
-    } else {
-      // Arm the in-memory publish timer now so the QOTD goes live exactly at its
-      // publishAt (the scheduler is event-driven; no polling catches it otherwise).
+    } else if (qotd.publishAt) {
+      // Arm the in-memory publish timer for an admin-SCHEDULED QOTD so it goes live
+      // exactly at publishAt (event-driven scheduler, no polling). A bare proposal
+      // (publishAt null) waits for an admin to schedule/publish it.
       armQotdPublishTimer(qotd);
     }
-    await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
-    return ApiResponse.created(res, qotd, 'QOTD created successfully');
-  } catch {
+    await auditLog(authUser.id, isAdmin ? 'CREATE' : 'QOTD_PROPOSED', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
+    return ApiResponse.created(res, qotd, isAdmin ? 'QOTD created successfully' : 'QOTD proposed — an admin will review and publish it');
+  } catch (error) {
+    logger.error('POST /api/qotd failed', {
+      error: error instanceof Error ? error.message : String(error),
+      code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
+      body: req.body,
+    });
+    // Race-condition safety net: if the pre-check above was bypassed (concurrent
+    // request for the same date), Prisma throws P2002 on the unique constraint.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return ApiResponse.conflict(res, 'A QOTD already exists for this date');
+    }
     return ApiResponse.internal(res, 'Failed to create QOTD');
   }
 });
@@ -588,10 +898,27 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     cancelQotdPublishTimer(qotd.id); // manual publish supersedes any armed auto-publish timer
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; new day shifts streaks
+    invalidateQotdTodayCache(); // today's row / published-summary now includes this QOTD
     // Materialized streaks for every submitter on this day must reflect the flip.
     recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
     broadcastQotdLive(updated, authUser.id).catch(() => undefined);
+    // Notify the proposer when an admin publishes someone else's draft. Link to the
+    // QOTD's own date (not /qotd/today): a future-dated proposal published "now" is
+    // live but isn't today's, so /qotd/today wouldn't resolve to it — a dead link.
+    if (qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'zap',
+        title: 'Your QOTD proposal was published and is now live!',
+        link: `/qotd/${toIstDateKey(qotd.date)}`,
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
     return ApiResponse.internal(res, 'Failed to publish QOTD');
@@ -614,6 +941,7 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     cancelQotdPublishTimer(qotd.id); // a held QOTD must not auto-publish
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; held days shift streaks
+    invalidateQotdTodayCache(); // a held QOTD drops out of today's row / the published set
     // Held QOTD becomes "transparent" — every submitter's materialized streak
     // must be recomputed so we don't credit a day that's no longer published.
     recomputeStreaksForQOTDSafe(qotd.id);
@@ -621,6 +949,64 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {
     return ApiResponse.internal(res, 'Failed to hold QOTD');
+  }
+});
+
+// Reopen a PAST QOTD for late submissions via a private signed link.
+// PRESIDENT / super admin only. Idempotent — calling it again re-stamps and
+// returns a fresh token. The active-day gate is bypassed for link holders, but a
+// reopen solve does NOT auto-count: it is judged then HELD (verdict PENDING,
+// reopen_pending) and only counts toward streak/marks/leaderboard once an admin
+// accepts it from the review queue (see submitProblemForUser + /admin/reopen).
+qotdRouter.post('/:id/reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can reopen a QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, date: true, problemId: true, isPublished: true, heldBy: true, reopenedAt: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    if (!qotd.problemId) return ApiResponse.badRequest(res, 'Legacy text-only QOTDs cannot be reopened');
+    if (!qotd.isPublished || qotd.heldBy) return ApiResponse.badRequest(res, 'Only a published, non-held QOTD can be reopened');
+    if (toIstDateKey(qotd.date) >= formatUsageDate()) {
+      return ApiResponse.badRequest(res, "Only a past QOTD can be reopened (today's is already live)");
+    }
+    // Re-issuing a link for an already-open QOTD must NOT re-stamp reopenedAt:
+    // reopenedAt is the session nonce, so keeping it lets prior links from THIS
+    // session keep working. A fresh open (was closed) mints a new reopenedAt,
+    // which invalidates any link from a previous session.
+    const reopenedAt = qotd.reopenedAt ?? new Date();
+    if (!qotd.reopenedAt) {
+      await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt, reopenedBy: authUser.id } });
+    }
+    const dateKey = toIstDateKey(qotd.date);
+    const token = signQotdReopenToken({ qotdId: qotd.id, date: dateKey, nonce: reopenedAt.toISOString() });
+    await auditLog(authUser.id, 'QOTD_REOPENED', 'qotd', qotd.id, { date: dateKey, fresh: !qotd.reopenedAt });
+    return ApiResponse.success(res, { id: qotd.id, date: dateKey, reopenedAt, token }, 'QOTD reopened');
+  } catch (error) {
+    logger.error('Failed to reopen QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to reopen QOTD');
+  }
+});
+
+// Close a reopened QOTD — revokes every outstanding private link immediately.
+qotdRouter.post('/:id/close-reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can close a reopened QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt: null, reopenedBy: null } });
+    await auditLog(authUser.id, 'QOTD_REOPEN_CLOSED', 'qotd', qotd.id);
+    return ApiResponse.success(res, { id: qotd.id, reopenedAt: null }, 'Reopened QOTD closed');
+  } catch (error) {
+    logger.error('Failed to close reopened QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to close reopened QOTD');
   }
 });
 
@@ -662,25 +1048,104 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
   try {
     const authUser = getAuthUser(req)!;
     const parsed = updateQotdSchema.safeParse(req.body);
-    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.issues[0]?.message || 'Invalid QOTD payload');
 
     const existingQotd = await prisma.qOTD.findUnique({
       where: { id: req.params.id },
-      select: { id: true, createdById: true },
+      select: { id: true, createdById: true, isPublished: true, heldBy: true, publishAt: true, date: true, problemId: true },
     });
     if (!existingQotd) return ApiResponse.notFound(res, 'QOTD not found');
 
-    const isAdmin = authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
     const isOwner = existingQotd.createdById === authUser.id;
     if (!isAdmin && !isOwner) return ApiResponse.forbidden(res, 'You can only edit QOTDs created by you');
 
+    // Editing is limited to a QOTD that hasn't gone live (proposal or scheduled). A
+    // published/held QOTD is content people may already be solving — manage it via
+    // publish / hold / delete, never an in-place edit that could swap the problem or
+    // move the date out from under live submissions + leaderboard keys.
+    if (existingQotd.isPublished || existingQotd.heldBy) {
+      return ApiResponse.badRequest(res, "A published QOTD can't be edited — hold or delete it instead.");
+    }
+
+    const newDate = parsed.data.date ?? existingQotd.date;
+    const updateData: {
+      question?: string;
+      difficulty?: 'EASY' | 'MEDIUM' | 'HARD';
+      problemLink?: string;
+      problemId?: string | null;
+      date?: Date;
+      publishAt?: Date | null;
+      isPublished?: boolean;
+      publishedAt?: Date | null;
+    } = {};
+
+    // When the linked problem changes, re-derive the denormalized legacy fields
+    // (question/difficulty/problemLink) so they never drift — mirrors POST.
+    if (parsed.data.problemId !== undefined) {
+      updateData.problemId = parsed.data.problemId;
+      if (parsed.data.problemId) {
+        const problem = await prisma.problem.findUnique({ where: { id: parsed.data.problemId } });
+        if (!problem) return ApiResponse.notFound(res, 'Problem not found');
+        updateData.question = problem.title;
+        updateData.difficulty = problem.difficulty;
+        updateData.problemLink = legacyProblemLinkFor(newDate);
+      }
+    }
+    // Explicit legacy-field edits (only when not already problem-derived above).
+    if (parsed.data.question !== undefined && updateData.question === undefined) updateData.question = parsed.data.question;
+    if (parsed.data.difficulty !== undefined && updateData.difficulty === undefined) updateData.difficulty = parsed.data.difficulty;
+    if (parsed.data.problemLink !== undefined && updateData.problemLink === undefined) updateData.problemLink = parsed.data.problemLink;
+    if (parsed.data.date !== undefined) {
+      updateData.date = parsed.data.date;
+      // A problem-backed QOTD's legacy link points at its date — keep it fresh on a move.
+      const linkedProblemId = updateData.problemId !== undefined ? updateData.problemId : existingQotd.problemId;
+      if (updateData.problemLink === undefined && linkedProblemId) updateData.problemLink = legacyProblemLinkFor(newDate);
+    }
+
+    // Re-arm the auto-publish timer only for a SCHEDULED QOTD (publishAt set). Recompute
+    // publishAt from the (new/existing) date + (new/preserved) IST time-of-day. A bare
+    // proposal (publishAt null) stays a proposal — no timer.
+    let reArm = false;
+    let goLiveNow = false;
+    if (existingQotd.publishAt && (parsed.data.date !== undefined || parsed.data.publishTime !== undefined)) {
+      const istTime = parsed.data.publishTime ?? istHHmm(existingQotd.publishAt);
+      const dateKey = formatUsageDate(newDate);
+      let computed = new Date(`${dateKey}T${istTime}:00+05:30`);
+      if (Number.isNaN(computed.getTime())) computed = midnightIstUtcFor(newDate);
+      updateData.publishAt = computed;
+      // Mirror POST: a recomputed go-live instant already in the past publishes NOW
+      // (the auto-publish scheduler is off in dev, so flip it here instead of relying
+      // on the timer — keeps dev + prod behaviour identical). Otherwise stay scheduled.
+      if (computed.getTime() <= Date.now()) {
+        goLiveNow = true;
+        updateData.isPublished = true;
+        updateData.publishedAt = new Date();
+      } else {
+        reArm = true;
+      }
+    }
+
     const qotd = await prisma.qOTD.update({
       where: { id: req.params.id },
-      data: parsed.data,
+      data: updateData,
       include: { problem: true },
     });
+
+    if (goLiveNow) {
+      // Same go-live side effects as POST /:id/publish.
+      cancelQotdPublishTimer(qotd.id);
+      invalidateQotdLeaderboardCaches(qotd.id);
+      invalidatePublishedQotdCache();
+      invalidateQotdTodayCache(); // edit just published this QOTD (today's row / summary changed)
+      recomputeStreaksForQOTDSafe(qotd.id);
+      broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
+    } else if (reArm) {
+      cancelQotdPublishTimer(qotd.id);
+      if (qotd.publishAt && !qotd.isPublished) armQotdPublishTimer(qotd);
+    }
     await auditLog(authUser.id, 'UPDATE', 'qotd', qotd.id);
-    return ApiResponse.success(res, qotd, 'QOTD updated successfully');
+    return ApiResponse.success(res, qotd, goLiveNow ? 'QOTD updated and published' : 'QOTD updated successfully');
   } catch {
     return ApiResponse.internal(res, 'Failed to update QOTD');
   }
@@ -689,9 +1154,28 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 qotdRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, isPublished: true, createdById: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
     await prisma.qOTD.delete({ where: { id: req.params.id } });
     cancelQotdPublishTimer(req.params.id); // drop any armed auto-publish timer
+    if (qotd.isPublished) invalidateQotdTodayCache(); // a deleted published QOTD must leave today's row / the summary
     await auditLog(authUser.id, 'DELETE', 'qotd', req.params.id);
+    // Notify the proposer when their unpublished draft is rejected.
+    if (!qotd.isPublished && qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'bell',
+        title: 'Your QOTD proposal was not selected.',
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, { success: true }, 'QOTD deleted successfully');
   } catch {
     return ApiResponse.internal(res, 'Failed to delete QOTD');

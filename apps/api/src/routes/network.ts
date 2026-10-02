@@ -1,8 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
+import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { requireRole } from '../middleware/role.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
@@ -12,9 +14,13 @@ import { emailService } from '../utils/email.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { isCuid, requireCuid, requireUuid } from '../utils/idParams.js';
 
 export const networkRouter = Router();
-const CUID_REGEX = /^c[a-z0-9]{24}$/;
+
+// Mirrors attendance.ts's ATTENDANCE_EXPORT_LIMIT: bound the admin XLSX export
+// so an unbounded findMany can't buffer an arbitrarily large workbook in memory.
+const NETWORK_EXPORT_LIMIT = 5000;
 
 // Rich content fields that support HTML/Markdown
 const RICH_CONTENT_FIELDS = ['bio', 'connectionNote', 'achievements', 'adminNotes', 'vision', 'story', 'expertise'];
@@ -167,9 +173,10 @@ networkRouter.post('/join', authMiddleware, requireNotBlocked('NETWORK'), async 
     if (user.role === 'USER' || user.role === 'PUBLIC') {
       await prisma.user.update({
         where: { id: user.id },
-        data: { role: 'NETWORK' } as any,  
+        data: { role: 'NETWORK' } as any,
       });
-      
+      invalidateCachedAuthUser(user.id);
+
       logger.info(`User ${user.email} joined network`);
       return res.json({ 
         success: true, 
@@ -362,7 +369,7 @@ networkRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
         OR: [
           { slug: idOrSlug },
           { legacySlugs: { has: idOrSlug } },
-          ...(CUID_REGEX.test(idOrSlug) ? [{ id: idOrSlug }] : []),
+          ...(isCuid(idOrSlug) ? [{ id: idOrSlug }] : []),
         ],
       },
       select: publicSelect,
@@ -764,9 +771,20 @@ networkRouter.get('/admin/export', authMiddleware, requireRole('ADMIN'), async (
 
     const shouldIncludePendingUsers = includePendingUsers !== 'false';
 
+    const totalProfiles = await prisma.networkProfile.count({ where });
+    if (totalProfiles > NETWORK_EXPORT_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: `Network export is limited to ${NETWORK_EXPORT_LIMIT} profiles per request. Narrow the filters and try again.`,
+        },
+      });
+    }
+
     const [profiles, pendingUsers] = await Promise.all([
       prisma.networkProfile.findMany({
         where,
+        take: NETWORK_EXPORT_LIMIT,
         orderBy: [{ status: 'asc' }, { displayOrder: 'asc' }, { createdAt: 'desc' }],
         select: {
           id: true,
@@ -1086,6 +1104,9 @@ networkRouter.patch('/admin/pending-users/:userId/revert', authMiddleware, requi
   try {
     const authUser = getAuthUser(req)!;
     const { userId } = req.params;
+    if (!requireUuid(res, userId, 'user ID')) {
+      return;
+    }
 
     const target = await prisma.user.findUnique({
       where: { id: userId },
@@ -1115,6 +1136,7 @@ networkRouter.patch('/admin/pending-users/:userId/revert', authMiddleware, requi
       data: { role: 'USER' },
       select: { id: true, role: true, name: true, email: true },
     });
+    invalidateCachedAuthUser(userId);
 
     await auditLog(authUser.id, 'NETWORK_PENDING_USER_REVERTED', 'User', userId, {
       name: updated.name,
@@ -1137,6 +1159,9 @@ networkRouter.delete('/admin/pending-users/:userId', authMiddleware, requireRole
   try {
     const authUser = getAuthUser(req)!;
     const { userId } = req.params;
+    if (!requireUuid(res, userId, 'user ID')) {
+      return;
+    }
 
     if (authUser.id === userId) {
       return res.status(400).json({
@@ -1190,6 +1215,9 @@ networkRouter.patch('/admin/:id/verify', authMiddleware, requireRole('ADMIN'), a
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireCuid(res, id, 'profile ID')) {
+      return;
+    }
 
     const profile = await prisma.networkProfile.findUnique({
       where: { id },
@@ -1269,6 +1297,9 @@ networkRouter.patch('/admin/:id/reject', authMiddleware, requireRole('ADMIN'), a
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireCuid(res, id, 'profile ID')) {
+      return;
+    }
     const rawReason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
     // Sanitize rejection reason to prevent XSS when displayed
     const reason = rawReason ? sanitizeHtml(rawReason) : '';
@@ -1333,6 +1364,9 @@ networkRouter.patch('/admin/:id', authMiddleware, requireRole('ADMIN'), async (r
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireCuid(res, id, 'profile ID')) {
+      return;
+    }
 
     const existing = await prisma.networkProfile.findUnique({ where: { id } });
     if (!existing) {
@@ -1385,6 +1419,9 @@ networkRouter.delete('/admin/:id', authMiddleware, requireRole('ADMIN'), async (
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireCuid(res, id, 'profile ID')) {
+      return;
+    }
 
     const profile = await prisma.networkProfile.findUnique({ where: { id } });
     if (!profile) {

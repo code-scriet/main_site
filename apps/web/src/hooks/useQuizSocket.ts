@@ -57,7 +57,9 @@ export function useQuizSocket() {
       const { quizId, quizAccessToken } = useQuizStore.getState();
       if (quizId && quizAccessToken) {
         markJoinPending(true);
-        socket.emit('join_quiz', { quizId, quizAccessToken });
+        // foldedRankOk: S4 capability — this bundle reads rank out of
+        // answer_result, so the server may fold it and skip my_rank_update.
+        socket.emit('join_quiz', { quizId, quizAccessToken, foldedRankOk: true });
       }
     });
 
@@ -132,7 +134,8 @@ export function useQuizSocket() {
     useQuizStore.getState().setQuizAccessToken(quizAccessToken);
     useQuizStore.getState().setJoining();
     markJoinPending(true);
-    socketRef.current?.emit('join_quiz', { quizId, quizAccessToken });
+    // foldedRankOk: S4 capability advertisement (see reconnect handler).
+    socketRef.current?.emit('join_quiz', { quizId, quizAccessToken, foldedRankOk: true });
   }, [markJoinPending]);
 
   // Join as host (observer only, doesn't participate in quiz)
@@ -141,7 +144,7 @@ export function useQuizSocket() {
     useQuizStore.getState().setQuizAccessToken(quizAccessToken);
     useQuizStore.getState().setJoining();
     markJoinPending(true);
-    socketRef.current?.emit('join_quiz', { quizId, quizAccessToken });
+    socketRef.current?.emit('join_quiz', { quizId, quizAccessToken, foldedRankOk: true });
   }, [markJoinPending]);
 
   const submitAnswer = useCallback((quizId: string, answer: string, questionId: string) => {

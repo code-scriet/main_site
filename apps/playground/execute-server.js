@@ -1,14 +1,35 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'path';
+import { Server as SocketIOServer } from 'socket.io';
+import { findPlagiarismPairs } from './plagiarism.js';
+
+// ---------------------------------------------------------------------------
+// Contest realtime relay (Phase H) — this mostly-idle box hosts the /competition
+// Socket.io namespace so the main API sheds persistent-connection memory during
+// contests. The relay is DUMB: the main API computes everything (scores, freeze,
+// payloads) and POSTs ready-to-emit events to /internal/contest-emit; we fan them
+// out to the right rooms. Clients connect here for live updates and fall back to
+// main-API REST polling if the relay is unavailable.
+// ---------------------------------------------------------------------------
+let contestIo = null;
+const roomAll = (roundId) => `round:${roundId}`;
+const roomAdmin = (roundId) => `round:${roundId}:admin`;
+const roomUser = (roundId, userId) => `round:${roundId}:user:${userId}`;
 
 // Load env from the monorepo root .env, then the local playground .env
 // (local values override root). This ensures JWT_SECRET matches the main API.
+// Sync CJS require inside this ESM module — used only to lazy-load the OPTIONAL
+// native `eiows` engine (see resolveRelayWsEngine).
+const nodeRequire = createRequire(import.meta.url);
+
 const __dir = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dir, '../../.env') });
 dotenv.config({ path: resolve(__dir, '.env') });
@@ -20,6 +41,58 @@ const PORT = NODE_ENV === 'production'
   : (process.env.EXECUTE_PORT || process.env.PLAYGROUND_EXECUTE_PORT || 5002);
 
 // ---------------------------------------------------------------------------
+// JWT Authentication (shared with main site)
+//
+// Declared BEFORE the middleware chain on purpose: the /internal secret gate below
+// must run ahead of `express.json`, and deriveInternalSecret() calls getJwtSecret()
+// at module-eval time. Keep this block above the CORS/body-parser section — moving
+// it back down puts JWT_SECRET_CANDIDATES in the temporal dead zone, where
+// deriveInternalSecret's own try/catch would swallow the ReferenceError and
+// silently disable the relay.
+// ---------------------------------------------------------------------------
+const JWT_SECRET_CANDIDATES = ['JWT_SECRET', 'JWT_SECRET_KEY', 'AUTH_JWT_SECRET', 'AUTH_SECRET'];
+const DEV_JWT_SECRET = 'dev_local_jwt_secret_change_me_before_production';
+
+function getJwtSecret() {
+  for (const key of JWT_SECRET_CANDIDATES) {
+    const val = (process.env[key] || '').trim();
+    if (val && !['secret', 'your_super_secret_key_change_this_in_production'].includes(val)) {
+      return val;
+    }
+  }
+  if (NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
+  return DEV_JWT_SECRET;
+}
+
+// ---------------------------------------------------------------------------
+// Internal server-to-server secret (contest relay + plagiarism offload).
+// Prefer an explicit INTERNAL_API_SECRET; otherwise DERIVE it from the shared JWT_SECRET
+// (which must already match the main API). This mirrors getInternalApiSecret() in
+// apps/api/src/utils/internalApi.ts byte-for-byte, so both sides compute the same value with
+// no extra config — setting PLAYGROUND_API_URL on the main API alone turns the relay on.
+// ---------------------------------------------------------------------------
+function deriveInternalSecret() {
+  const explicit = (process.env.INTERNAL_API_SECRET || '').trim();
+  if (explicit) return explicit;
+  let jwt = '';
+  try { jwt = getJwtSecret(); } catch { jwt = ''; } // throws only if JWT_SECRET unset in prod → relay stays off
+  return jwt ? crypto.createHash('sha256').update(`${jwt}:contest-relay-internal`).digest('hex') : '';
+}
+const INTERNAL_API_SECRET = deriveInternalSecret();
+const INTERNAL_SECRET_BUF = Buffer.from(INTERNAL_API_SECRET);
+// Constant-time secret check — avoids leaking the secret length/prefix via early-exit
+// timing on the `!==` compare. Length-mismatch short-circuits (timingSafeEqual throws on
+// unequal lengths), which is fine: it only reveals the length, not the bytes.
+function validInternalSecret(req) {
+  if (!INTERNAL_API_SECRET) return false;
+  const provided = req.headers['x-internal-secret'];
+  if (typeof provided !== 'string') return false;
+  const providedBuf = Buffer.from(provided);
+  return providedBuf.length === INTERNAL_SECRET_BUF.length
+    && crypto.timingSafeEqual(providedBuf, INTERNAL_SECRET_BUF);
+}
+
+// ---------------------------------------------------------------------------
 // CORS — controlled via ALLOWED_ORIGIN env var
 // ---------------------------------------------------------------------------
 
@@ -29,6 +102,7 @@ const HARDCODED_PROD_ORIGINS = [
   'https://code.codescriet.dev',
   'https://codescriet.dev',
   'https://www.codescriet.dev',
+  'https://app.codescriet.dev', // main web (admin monitor) — contest relay socket origin
 ];
 
 const PROD_ORIGINS = process.env.ALLOWED_ORIGIN
@@ -63,6 +137,59 @@ app.use(cors({
   maxAge: 86400,
 }));
 
+// Internal server-to-server endpoints (contest relay + plagiarism offload) accept larger
+// bodies for per-problem code batches. Mounted BEFORE the global 1mb parser so it parses
+// /internal first (the global one then skips — body-parser is a no-op once req._body is set).
+//
+// SECURITY: this service is a PUBLIC Render web service, so /internal/* is reachable from
+// the open internet. The secret check therefore runs BEFORE the 12mb parser, not inside the
+// route handlers — otherwise an unauthenticated caller could force a 12 MB allocation plus a
+// blocking JSON.parse per request and stall the event loop on this 512 MB box, taking the
+// contest relay's sockets down with it. validInternalSecret only reads a header, so it is
+// safe to run pre-parse. The per-handler checks stay as defense in depth.
+// CORS is NOT a defense here: the origin callback allows origin-less requests, and CORS
+// never blocks a non-browser client.
+// Abuse limiter for UNAUTHENTICATED callers only.
+//
+// The exemption is load-bearing, not a convenience. This service sits behind Render's
+// edge proxy and does not set `trust proxy`, so `req.ip` resolves to the proxy address
+// for EVERY caller — metering trusted traffic would put the main API's server-to-server
+// emits and an attacker's junk in the SAME bucket. Anyone could then spend ~2 req/s to
+// exhaust it and silently starve every relay push (relayEmit is fire-and-forget, and a
+// 429 is a RESOLVED fetch, so the drop is invisible and the REST fallback — keyed on
+// socket `connected` — never engages). Legitimate load is also far higher than it looks:
+// the leaderboard broadcast alone is throttled to 1/sec per ACTIVE round and issues TWO
+// POSTs (roomAll + roomAdmin) = 120/min for a single round, before any
+// submission/violation/proctor/clarification events.
+//
+// Expressed via `skip` rather than by invoking the limiter inside the handler: both give
+// trusted callers a bypass, but this keeps the limiter a declared middleware on the route,
+// so the rate limiting is visible to readers and to static analysis (CodeQL's
+// "authorization without rate limiting" rule cannot follow an imperatively-invoked
+// limiter). Rate limiting a caller that already holds the secret would buy nothing anyway —
+// forging it requires JWT_SECRET, i.e. full compromise.
+function clientIp(req) {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim() !== '') return cf.trim().split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+const internalAbuseLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'forbidden' },
+  keyGenerator: (req) => clientIp(req),
+  skip: (req) => validInternalSecret(req),
+});
+app.use('/internal', internalAbuseLimiter, (req, res, next) => {
+  // Header-only compare — safe to run before the body parser, which is the whole point:
+  // an unauthenticated caller must never reach the 12mb express.json below.
+  if (!validInternalSecret(req)) return res.status(403).json({ error: 'forbidden' });
+  next();
+});
+app.use('/internal', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Security headers
@@ -89,23 +216,22 @@ app.use((_req, res, next) => {
   }
   next();
 });
+// Query pollution defense: collapse duplicate query params at parse time
+// (`?a=1&a=2` → keep-last single value, matching reader semantics).
+// A custom parser is required because Express 5 re-parses req.query per access,
+// which makes mutation-based sanitizers (e.g. hpp) silent no-ops. Bodies are
+// never touched (relay/plagiarism payloads legitimately carry arrays).
+app.set('query parser', (query) => {
+  const out = {};
+  for (const [key, value] of new URLSearchParams(query)) out[key] = value;
+  return out;
+});
 
 // ---------------------------------------------------------------------------
-// JWT Authentication (shared with main site)
+// JWT Authentication (shared with main site) — getJwtSecret() and the internal
+// secret helpers are declared near the top of this file, above the middleware
+// chain, because the /internal gate needs them before express.json runs.
 // ---------------------------------------------------------------------------
-const JWT_SECRET_CANDIDATES = ['JWT_SECRET', 'JWT_SECRET_KEY', 'AUTH_JWT_SECRET', 'AUTH_SECRET'];
-const DEV_JWT_SECRET = 'dev_local_jwt_secret_change_me_before_production';
-
-function getJwtSecret() {
-  for (const key of JWT_SECRET_CANDIDATES) {
-    const val = (process.env[key] || '').trim();
-    if (val && !['secret', 'your_super_secret_key_change_this_in_production'].includes(val)) {
-      return val;
-    }
-  }
-  if (NODE_ENV === 'production') throw new Error('JWT_SECRET must be set in production');
-  return DEV_JWT_SECRET;
-}
 
 function extractToken(req) {
   const auth = req.headers.authorization;
@@ -115,36 +241,69 @@ function extractToken(req) {
   let cookieToken = null;
   if (cookies) {
     const match = cookies.split(';').find(c => c.trim().startsWith('scriet_session='));
-    if (match) cookieToken = decodeURIComponent(match.split('=').slice(1).join('=').trim());
+    if (match) {
+      const raw = match.split('=').slice(1).join('=').trim();
+      // decodeURIComponent throws a URIError on a malformed escape (e.g. a stray
+      // "%"). optionalAuth is async, so an escaping throw would become an unhandled
+      // rejection and HANG the request instead of 500ing — treat a malformed cookie
+      // as simply absent.
+      try {
+        cookieToken = decodeURIComponent(raw);
+      } catch {
+        cookieToken = null;
+      }
+    }
   }
 
   return { bearerToken, cookieToken };
 }
 
-function optionalAuth(req, _res, next) {
-  const { bearerToken, cookieToken } = extractToken(req);
-  const candidates = [bearerToken, cookieToken].filter(Boolean);
+async function optionalAuth(req, _res, next) {
+  // Everything here is wrapped so `next()` is always reached exactly once. This
+  // middleware is async and registered via app.use(), and Express 4 does not catch
+  // async rejections — an escaping throw would leave the request hanging forever
+  // rather than erroring.
+  try {
+    const { bearerToken, cookieToken } = extractToken(req);
+    const candidates = [bearerToken, cookieToken].filter(Boolean);
 
-  for (const token of candidates) {
-    try {
-      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
-      req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
+    for (const token of candidates) {
+      let decoded;
+      try {
+        decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+      } catch {
+        continue; // try next token candidate (fallback to cookie when bearer token is stale)
+      }
+      // Purpose allowlist (audit S1, mirrors the main API's auth middleware):
+      // special-purpose tokens signed with this shared secret (oauth exchange
+      // codes, invitation claims, quiz access) must not grant playground auth.
+      if (decoded && typeof decoded.purpose === 'string') continue;
+      const userId = decoded?.userId || decoded?.id;
+      if (!userId) continue;
+      // Signature checks out, but the account may have been force-logged-out or
+      // soft-deleted since issuance — the main API rejects those, so we must too.
+      if (await isAccountRevoked(userId, decoded.tokenVersion)) continue;
+      req.user = { id: userId, email: decoded.email, role: decoded.role };
       break;
-    } catch {
-      // Try next token candidate (fallback to cookie when bearer token is stale)
     }
+  } catch (err) {
+    console.error('[auth] optionalAuth failed; continuing anonymous:', err?.message);
   }
 
   next();
 }
 
+// `app.use(optionalAuth)` runs globally before every route, so req.user is already resolved
+// by the time any route-level guard executes. Re-invoking optionalAuth here would repeat the
+// whole extractToken → jwt.verify → isAccountRevoked sequence — now a path that can hit the
+// DB — on every authenticated route for no benefit. It was also unsound: optionalAuth only
+// ever ASSIGNS req.user and never clears it, so a first pass that failed open on a DB blip
+// left a req.user that a second, stricter pass could not retract.
 function requireAuth(req, res, next) {
-  optionalAuth(req, res, () => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
-    }
-    next();
-  });
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Please sign in at codescriet.dev' });
+  }
+  next();
 }
 
 app.use(optionalAuth);
@@ -234,6 +393,97 @@ async function dbQuery(sql, params = []) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Account-revocation check (mirrors the main API's authMiddleware gates).
+//
+// A valid JWT signature is NOT sufficient: the main API rejects a token when the
+// DB-side `token_version` has moved past the claim (admin force-logout) or the row
+// is soft-deleted. Without the same check here, force-logout was cosmetic for the
+// playground — the target kept code execution, snippets and session access for the
+// token's remaining 7-day life, and re-connected instantly after their sockets were
+// dropped. That is the lever used to pull a cheater out of a live contest.
+//
+// Cached 30s and bounded, exactly like apps/api/src/utils/userAuthCache.ts, so the
+// steady-state cost is a Map hit rather than a query per request.
+// ---------------------------------------------------------------------------
+const REVOCATION_TTL_MS = 30_000;
+const REVOCATION_MAX_ENTRIES = 2000;
+// userId → { tokenVersion, isDeleted, missing, expiresAt }
+const revocationCache = new Map();
+// userId → in-flight lookup promise. Single-flight, mirroring competition/roundCache.ts:
+// the arena polls several endpoints per contestant in parallel, so without coalescing every
+// TTL boundary turns into one query PER concurrent request PER user against this server's
+// hardcoded max:5 pg pool — and every contestant's TTL is seeded at contest start, so those
+// boundaries arrive together.
+const revocationInFlight = new Map();
+
+/** Drop one user's cached revocation state (used by the force-logout relay hook). */
+function invalidateRevocationCache(userId) {
+  revocationCache.delete(userId);
+  revocationInFlight.delete(userId);
+}
+
+/**
+ * True when this token must no longer authenticate: the account is soft-deleted, the
+ * row is gone, or the DB watermark has passed the token's `tokenVersion` claim.
+ *
+ * Uses pool.query directly, NOT dbQuery — dbQuery swallows errors into [], which would
+ * make a transient DB fault indistinguishable from "user not found" and lock everyone out.
+ * Never throws: this runs on every request via optionalAuth, so a DB blip must fail OPEN
+ * (the prior behavior was no check at all, so failing open is never worse than the status quo).
+ */
+async function isAccountRevoked(userId, claimTokenVersion) {
+  const claim = typeof claimTokenVersion === 'number' ? claimTokenVersion : 0;
+  const now = Date.now();
+  let state = revocationCache.get(userId);
+
+  if (!state || now >= state.expiresAt) {
+    if (!pool) return false; // no DB configured (local in-memory mode) → preserve prior behavior
+
+    // Coalesce concurrent misses for the same user into ONE query.
+    let lookup = revocationInFlight.get(userId);
+    if (!lookup) {
+      lookup = (async () => {
+        const { rows } = await pool.query(
+          'SELECT token_version, is_deleted FROM users WHERE id = $1',
+          [userId],
+        );
+        // Cache the MISSING case too. Returning early without caching meant a token for a
+        // hard-deleted account re-queried on every single request for the rest of its 7-day
+        // life — the 30s TTL never applied to exactly the identity most likely to be retrying.
+        return rows.length === 0
+          ? { tokenVersion: 0, isDeleted: false, missing: true, expiresAt: Date.now() + REVOCATION_TTL_MS }
+          : {
+              tokenVersion: Number(rows[0].token_version ?? 0),
+              isDeleted: rows[0].is_deleted === true,
+              missing: false,
+              expiresAt: Date.now() + REVOCATION_TTL_MS,
+            };
+      })().finally(() => {
+        revocationInFlight.delete(userId);
+      });
+      revocationInFlight.set(userId, lookup);
+    }
+
+    try {
+      state = await lookup;
+    } catch (err) {
+      console.error('[auth] revocation check failed; allowing request:', err?.message);
+      return false;
+    }
+
+    // delete-then-set keeps Map insertion order usable as LRU recency.
+    revocationCache.delete(userId);
+    revocationCache.set(userId, state);
+    if (revocationCache.size > REVOCATION_MAX_ENTRIES) {
+      const oldest = revocationCache.keys().next().value;
+      if (oldest !== undefined) revocationCache.delete(oldest);
+    }
+  }
+
+  return state.missing || state.isDeleted || state.tokenVersion > claim;
+}
+
 // Max 15 execution history entries with code per user
 const MAX_HISTORY_PER_USER = 15;
 
@@ -242,12 +492,92 @@ const MAX_HISTORY_PER_USER = 15;
 // ---------------------------------------------------------------------------
 const DEFAULT_PLAYGROUND_DAILY_LIMIT = 100;
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
-const LIMIT_RESYNC_COOLDOWN_MS = 5_000;
+const LIMIT_RESYNC_COOLDOWN_MS = 5 * 60_000; // 5 min: single instance => in-memory counters are authoritative; DB resync only catches external edits (admin resets) and cold starts. Was 5s (a ~220ms Neon RTT on most active-user runs).
 
 const playgroundSettingsCache = {
   expiresAt: 0,
   dailyLimit: DEFAULT_PLAYGROUND_DAILY_LIMIT,
 };
+
+// Admin-selected code-execution provider (wandbox | godbolt), forwarded to the CF
+// Worker so the playground honors the same primary as the judge. Cached on its
+// OWN TTL/query — kept separate from the daily-limit read so a missing column on
+// a not-yet-migrated DB can't knock the daily limit back to its default.
+const DEFAULT_CODE_PROVIDER = 'balanced'; // VM: codebox-first via balanced (see resolve)
+const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt', 'balanced', 'codebox'];
+const providerCache = {
+  expiresAt: 0,
+  provider: DEFAULT_CODE_PROVIDER,
+};
+
+function normalizeCodeProvider(value) {
+  return VALID_CODE_PROVIDERS.includes(value) ? value : DEFAULT_CODE_PROVIDER;
+}
+
+// Balanced-mode routing (a miniature of apps/api/src/utils/executionRouting.ts):
+// each execution resolves the setting to ONE concrete provider — CodeBox first
+// when healthy/under its inflight cap, else least-loaded remote; a host that
+// infra-fails is deprioritized for a short cooldown, and JS/TS never go to
+// godbolt (no JS runtime). O(1) memory; the CF Worker's per-request fallback
+// chain remains the safety net underneath.
+const PROVIDER_COOLDOWN_MS = 45_000;
+const providerCooldownUntil = { wandbox: 0, godbolt: 0, codebox: 0 };
+let providerRoundRobin = 0;
+
+function providerCanRunLanguage(provider, language) {
+  if (provider === 'godbolt') return language !== 'javascript' && language !== 'typescript';
+  if (provider === 'codebox') return language !== 'typescript';
+  return true;
+}
+
+function resolveExecutionProvider(setting, language) {
+  // Local-first: CodeBox serves when healthy and below the inflight cap.
+  // Anything else (cooldown, saturation, TS) falls through to the CF Worker
+  // chain, which remains the final backstop - local first, never local-only.
+  if (providerCanRunLanguage('codebox', language)
+      && codeboxHealthyCached() && codeboxInflight < CODEBOX_MAX_INFLIGHT) {
+    if (setting === 'codebox' || setting === 'balanced') return 'codebox';
+  }
+  const candidates = ['wandbox', 'godbolt'].filter((p) => providerCanRunLanguage(p, language));
+  if (candidates.length === 1) return candidates[0];
+  const now = Date.now();
+  const healthy = (p) => providerCooldownUntil[p] <= now;
+
+  if (setting !== 'balanced') {
+    // Fixed primary, but only if it can actually run the language. Junk
+    // settings fall back to wandbox. If the primary is cooling down (or
+    // unsuitable), pre-route to the first healthy candidate INCLUDING local
+    // CodeBox — same semantics the CF Worker's fallback would apply, just
+    // without burning the upstream stall first.
+    const primary = (setting === 'codebox' || setting === 'wandbox' || setting === 'godbolt')
+      ? setting
+      : 'wandbox';
+    if (providerCanRunLanguage(primary, language) && healthy(primary)) return primary;
+    const spare = ['codebox', ...candidates].find((p) =>
+      p !== primary && providerCanRunLanguage(p, language) && healthy(p)
+      && (p !== 'codebox' || codeboxInflight < CODEBOX_MAX_INFLIGHT));
+    if (spare) return spare;
+    return providerCanRunLanguage(primary, language) ? primary : candidates[0];
+  }
+
+  const pool = candidates.filter(healthy);
+  const pick = pool.length > 0 ? pool : candidates;
+  if (pick.length === 1) return pick[0];
+  providerRoundRobin ^= 1;
+  return pick[providerRoundRobin];
+}
+
+function reportProviderInfraFailure(provider) {
+  if (provider in providerCooldownUntil) {
+    providerCooldownUntil[provider] = Date.now() + PROVIDER_COOLDOWN_MS;
+  }
+}
+
+function reportProviderSuccess(provider) {
+  if (provider in providerCooldownUntil) {
+    providerCooldownUntil[provider] = 0;
+  }
+}
 
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
@@ -293,6 +623,32 @@ async function getDailyExecutionLimit({ forceRefresh = false } = {}) {
   }
 
   return playgroundSettingsCache.dailyLimit;
+}
+
+// Resolve the admin-selected execution provider (60s cache). `dbQuery` never
+// throws — on a missing column (pre-migration) it returns [] and we fall to the
+// default, so this is safe to call on every execution without a DB hit per call.
+async function getCodeExecutionProvider() {
+  if (!pool) {
+    return normalizeCodeProvider(process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER);
+  }
+
+  const now = Date.now();
+  if (now < providerCache.expiresAt) {
+    return providerCache.provider;
+  }
+
+  const rows = await dbQuery(
+    `SELECT code_execution_provider AS provider
+     FROM settings
+     WHERE id = 'default'
+     LIMIT 1`
+  );
+  providerCache.provider = normalizeCodeProvider(
+    rows[0]?.provider || process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER,
+  );
+  providerCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+  return providerCache.provider;
 }
 
 function toHistoryItem(row) {
@@ -368,11 +724,18 @@ async function flushUserSession(userId, reason = 'manual') {
   if (!session || !pool) return;
   if (!session.dirtyUsage && !session.dirtyHistory) return;
 
+  // Every statement of the transaction MUST run on one checked-out client:
+  // with pg, each pool.query() may use a *different* connection, so BEGIN
+  // could land on connection A, the writes on B (running outside any
+  // transaction), COMMIT on C — and A is left idle-in-transaction, holding
+  // locks and Neon compute. Harmless only under zero concurrency; the 60s
+  // periodic flush, limit-reached flushes, and shutdown flush can overlap.
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
+    await client.query('BEGIN');
 
     if (session.dirtyUsage) {
-      await pool.query(
+      await client.query(
         `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
          VALUES ($1, CURRENT_DATE, $2, NOW())
          ON CONFLICT (user_id, usage_date)
@@ -382,13 +745,18 @@ async function flushUserSession(userId, reason = 'manual') {
     }
 
     if (session.dirtyHistory) {
-      await pool.query(`DELETE FROM executions WHERE user_id = $1 AND code IS NOT NULL`, [userId]);
+      await client.query(`DELETE FROM executions WHERE user_id = $1 AND code IS NOT NULL`, [userId]);
 
-      for (const item of session.history.slice(0, MAX_HISTORY_PER_USER)) {
-        await pool.query(
-          `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::"ExecutionStatus", $8)`,
-          [
+      // One multi-VALUES INSERT instead of up to MAX_HISTORY_PER_USER (15)
+      // single-row statements.
+      const items = session.history.slice(0, MAX_HISTORY_PER_USER);
+      if (items.length > 0) {
+        const placeholders = [];
+        const params = [];
+        let p = 1;
+        for (const item of items) {
+          placeholders.push(`($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}::"ExecutionStatus", $${p++})`);
+          params.push(
             item.id || crypto.randomUUID(),
             userId,
             item.language,
@@ -397,18 +765,25 @@ async function flushUserSession(userId, reason = 'manual') {
             item.durationMs || 0,
             item.status || 'SUCCESS',
             item.executedAt || new Date().toISOString(),
-          ]
+          );
+        }
+        await client.query(
+          `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
+           VALUES ${placeholders.join(', ')}`,
+          params
         );
       }
     }
 
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     session.dirtyUsage = false;
     session.dirtyHistory = false;
     console.log(`[SessionFlush] user=${userId} reason=${reason} usage=${session.todayCount} history=${session.history.length}`);
   } catch (err) {
-    await pool.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[SessionFlush] Failed:', err.message);
+  } finally {
+    client.release();
   }
 }
 
@@ -422,10 +797,36 @@ async function flushAllDirtySessions(reason = 'periodic') {
   }
 }
 
+// Day-rollover sweep for the in-memory fallback maps. These kept one entry
+// per unique user/IP ever seen (entries were only overwritten on that same
+// key's next access) — bytes each, but the process is kept warm 24/7 by
+// UptimeRobot, so growth was unbounded. Prefs is a DB-fallback cache, so a
+// size cap with oldest-first eviction is safe (defaults apply on a miss).
+const PREFS_MEMORY_MAX_ENTRIES = 500;
+function sweepFallbackMaps() {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [key, entry] of userExecCounts.entries()) {
+    if (entry.date !== today) userExecCounts.delete(key);
+  }
+  for (const [key, entry] of ipExecCounts.entries()) {
+    if (entry.date !== today) ipExecCounts.delete(key);
+  }
+  while (userPrefsMemory.size > PREFS_MEMORY_MAX_ENTRIES) {
+    const oldest = userPrefsMemory.keys().next().value;
+    if (oldest === undefined) break;
+    userPrefsMemory.delete(oldest);
+  }
+}
+
 setInterval(() => {
   flushAllDirtySessions('periodic').catch((err) => {
     console.error('[SessionFlush] Periodic flush error:', err.message);
   });
+  try {
+    sweepFallbackMaps();
+  } catch (err) {
+    console.error('[Sweep] Fallback map sweep error:', err.message);
+  }
 }, 60_000);
 
 async function gracefulFlushAndExit(signal) {
@@ -469,11 +870,13 @@ process.on('SIGINT', () => {
  * Uses a compact per-user/day counter table instead of scanning executions.
  * This makes checks O(1) and drastically reduces database load.
  */
-async function checkUserRateLimit(userId) {
+async function checkUserRateLimit(userId, preloadedSession = null) {
   const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     try {
-      const session = await getUserSession(userId);
+      // Caller may hand us a session it already bootstrapped in parallel
+      // (block gate) — saves a sequential Neon round trip on cold sessions.
+      const session = preloadedSession || await getUserSession(userId);
       const allowed = session.todayCount < dailyLimit;
       return { allowed, remaining: Math.max(0, dailyLimit - session.todayCount), dailyLimit };
     } catch (err) {
@@ -521,6 +924,32 @@ function checkIpRateLimit(ip) {
   entry.count++;
   return { allowed: entry.count <= MAX_IP_EXECUTIONS, remaining: Math.max(0, MAX_IP_EXECUTIONS - entry.count) };
 }
+
+// ---------------------------------------------------------------------------
+// Windowed request limiter for the authed CRUD routes (snippets / prefs /
+// session / history / admin). /api/execute keeps its own daily-quota metering
+// — this only caps the routes that previously had no per-window limit at all.
+// Keyed by the authenticated userId (optionalAuth runs globally, so req.user
+// is populated before route middlewares); falls back to the client IP for the
+// one public route it wraps (GET /api/snippets/shared/:token). Bounded map
+// swept at 2x the window, same pattern as ipExecCounts / execCache.
+// ---------------------------------------------------------------------------
+// express-rate-limit instance (its MemoryStore self-bounds per window — no manual
+// map/sweep needed) keyed by the authenticated userId, falling back to client IP
+// for the one public route it wraps. Standardized limiter that the security
+// tooling recognizes as a proper rate-limit control.
+const crudRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120, // generous — these are CRUD calls
+  standardHeaders: true,
+  legacyHeaders: false,
+  // We key primarily by verified userId, so IP-trust validation doesn't apply.
+  validate: { trustProxy: false, xForwardedForHeader: false },
+  keyGenerator: (req) => (req.user?.id
+    ? `u:${req.user.id}`
+    : `ip:${clientIp(req)}`),
+  message: { success: false, error: 'Too many requests. Please slow down and try again in a minute.' },
+});
 
 // ---------------------------------------------------------------------------
 // Security — blocked code patterns
@@ -581,18 +1010,25 @@ const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
 const EXECUTION_TIMEOUT = 15_000; // 15 seconds
 const MAX_OUTPUT_SIZE = 50_000; // 50 KB
 const MAX_STDIN_SIZE = 10 * 1024; // 10 KB
+// Hard cap on submitted code size, enforced BEFORE any regex scan so a large
+// body (express.json allows up to 1mb) can't burn security-pattern CPU. Far
+// beyond any legitimate playground program.
+const MAX_CODE_SIZE = 100_000; // 100 KB
 const COMPILER_OPTIONS_REGEX = /^[a-zA-Z0-9,+\-_. ]{0,120}$/;
 
 // ---------------------------------------------------------------------------
 // Execution Result Cache — avoids redundant cloud calls for identical code
 // ---------------------------------------------------------------------------
-const EXEC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const EXEC_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes (identical code => identical result; provider label refreshes live on hits)
 const EXEC_CACHE_MAX_SIZE = 500;
 const execCache = new Map(); // key → { result, expiresAt }
 
 function execCacheKey(language, code, stdin, cacheScope = 'anonymous') {
-  // Use a fast hash: language + code length + first/last chars + stdin
-  // Full collision avoidance via full code comparison in get()
+  // Key = scope + language + code length + a 64-bit prefix of sha256(code + stdin).
+  // Lookup is key-equality only — there is deliberately no full-code comparison in get()
+  // (an earlier comment here claimed one existed; it never did). Collision would require
+  // two programs of identical length and language, under the same user/IP scope, colliding
+  // on 64 bits of sha256 — not a practical concern at this cache's size and 5-minute TTL.
   return `${cacheScope}:${language}:${code.length}:${crypto.createHash('sha256').update(code + (stdin || '')).digest('hex').slice(0, 16)}`;
 }
 
@@ -669,6 +1105,127 @@ function sanitizeError(message) {
     .replace(/prog\.(java|c|cpp|py|js|ts)/g, (_, ext) => `source.${ext}`);
 }
 
+// Wandbox runs every execution in a throwaway container. When its host is out of
+// capacity the upstream returns "OCI runtime error: crun: clone: Resource
+// temporarily unavailable" (a clone()/fork() EAGAIN) in compiler_error / stderr
+// with no program output — an infrastructure blip, not the user's code. We
+// detect it so the run can be retried and, if it still fails, shown as a
+// friendly "try again" instead of a bogus compilation error.
+const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
+function isInfraFailure(text) {
+  return !!text && INFRA_FAILURE_RE.test(text);
+}
+
+// ---- CodeBox (local Judge0-compatible engine) as 4th provider ----
+// Local-first: CodeBox serves when healthy and below the inflight cap.
+// The CF Worker chain stays as the final backstop (never local-only).
+const CODEBOX_URL = process.env.CODEBOX_URL || 'http://127.0.0.1:3000';
+const CODEBOX_TOKEN = process.env.CODEBOX_TOKEN || '';
+const CODEBOX_HEALTH_TTL_MS = 30_000;
+const CODEBOX_MAX_INFLIGHT = 4; // worker concurrency is 1; queue absorbs the rest
+const CODEBOX_LANG_IDS = { cpp: 54, c: 50, java: 62, javascript: 63, python: 71 };
+let codeboxHealth = { expiresAt: 0, ok: true };
+let codeboxInflight = 0;
+
+function codeboxRefreshHealth() {
+  fetch(`${CODEBOX_URL}/health`, { signal: AbortSignal.timeout(5000) })
+    .then((r) => { codeboxHealth = { expiresAt: Date.now() + CODEBOX_HEALTH_TTL_MS, ok: r.ok }; })
+    .catch(() => { codeboxHealth = { expiresAt: Date.now() + CODEBOX_HEALTH_TTL_MS, ok: false }; });
+}
+
+function codeboxHealthyCached() {
+  if (Date.now() >= codeboxHealth.expiresAt) codeboxRefreshHealth();
+  return codeboxHealth.ok;
+}
+
+async function executeCodeBox(language, code, stdin, config, controller, timeout) {
+  // Uses the caller's AbortController/timeout (outer finally clears it).
+  // Any infra failure is tagged EXEC_INFRA_UNAVAILABLE so executeWithRetry
+  // re-resolves and spills to the CF Worker chain.
+  codeboxInflight++;
+  try {
+    let response;
+    try {
+      response = await fetch(`${CODEBOX_URL}/submissions?wait=true`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(CODEBOX_TOKEN ? { 'X-Auth-Token': CODEBOX_TOKEN } : {}),
+        },
+        body: JSON.stringify({
+          source_code: code,
+          language_id: CODEBOX_LANG_IDS[language],
+          stdin: stdin || '',
+          memory_limit: language === 'java' ? 512000 : 256000,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      reportProviderInfraFailure('codebox');
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    }
+    if (!response.ok) {
+      if (response.status >= 500) {
+        reportProviderInfraFailure('codebox');
+        const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+        infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+        throw infraErr;
+      }
+      throw new Error(`CodeBox HTTP ${response.status}`);
+    }
+    const j = await response.json();
+    const st = (j && j.status) || {};
+    const stdout = clean(j.stdout || '');
+    let exitCode = 0;
+    let compilerErr = '';
+    let runErr = '';
+    if (st.id === 3) {
+      exitCode = 0;
+    } else if (st.id === 6) {
+      exitCode = 1;
+      compilerErr = clean(j.compile_output || j.stderr || 'Compilation failed');
+    } else if (st.id === 5) {
+      exitCode = 1;
+      runErr = 'Time limit exceeded';
+    } else if (st.id === 13) {
+      reportProviderInfraFailure('codebox');
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    } else {
+      exitCode = (typeof j.exit_code === 'number' && j.exit_code !== 0) ? j.exit_code : 1;
+      runErr = clean(j.stderr || '') || `Runtime error (status ${st.description || st.id || 'unknown'})`;
+    }
+    const hasOutput = !!stdout;
+    const isCompileError = !!compilerErr && !hasOutput;
+    reportProviderSuccess('codebox');
+    return {
+      language,
+      version: config.version,
+      provider: 'codebox',
+      run: {
+        stdout,
+        stderr: isCompileError ? '' : runErr,
+        code: exitCode,
+        signal: j.exit_signal || null,
+        output: stdout || runErr,
+      },
+      compile: (compilerErr) ? {
+        stdout: '',
+        stderr: isCompileError ? sanitizeError(compilerErr) : '',
+        code: isCompileError ? 1 : 0,
+        signal: null,
+        output: isCompileError ? sanitizeError(compilerErr) : '',
+      } : undefined,
+    };
+  } finally {
+    codeboxInflight--;
+  }
+}
+
+
 async function executeCode(language, code, stdin) {
   const config = COMPILERS[language];
   if (!config) throw new Error(`Unsupported language: ${language}. Supported: ${SUPPORTED_LANGUAGES.join(', ')}`);
@@ -677,10 +1234,16 @@ async function executeCode(language, code, stdin) {
   const timeout = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT);
 
   try {
+    const providerSetting = await getCodeExecutionProvider();
+    const provider = resolveExecutionProvider(providerSetting, language);
+    if (provider === 'codebox') {
+      return await executeCodeBox(language, code, stdin, config, controller, timeout);
+    }
     const body = {
       compiler: config.compiler,
       code,
       stdin: stdin || '',
+      provider,
     };
 
     // Add compiler options if specified and valid
@@ -716,6 +1279,14 @@ async function executeCode(language, code, stdin) {
       throw new Error(sanitizeError(result.error));
     }
 
+    // Router health accounting: a redeployed worker reports which provider
+    // actually served (`judge_provider`) and whether the requested one
+    // infra-failed en route (`judge_fallback`). Absent fields (older worker)
+    // degrade to requested-provider-only accounting.
+    if (result.judge_fallback === true) {
+      reportProviderInfraFailure(provider);
+    }
+
     // Parse Wandbox response fields:
     //   program_output  = stdout from the program
     //   program_error   = stderr from the program (may contain warnings, not always errors)
@@ -729,6 +1300,26 @@ async function executeCode(language, code, stdin) {
     const compilerErr = clean(result.compiler_error);
     const compilerOut = clean(result.compiler_output);
     const signal = result.signal || null;
+
+    // Upstream host capacity failure (no program ran) — not the user's code.
+    // Throw a tagged retryable error so the caller can retry / show a friendly
+    // message instead of presenting it as a spurious compilation error.
+    if (!stdout && isInfraFailure(compilerErr || stderr)) {
+      // Every provider in the worker's chain failed for this request — cool
+      // down both the one we asked for and the one that answered (if known),
+      // so the retry (and other users) steer around them briefly.
+      reportProviderInfraFailure(provider);
+      if (result.judge_provider && result.judge_provider !== provider) {
+        reportProviderInfraFailure(result.judge_provider);
+      }
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    }
+
+    // Any non-infra outcome (clean run, warnings, a real compile error) came
+    // from a healthy host.
+    reportProviderSuccess(result.judge_provider || provider);
 
     // Determine if this is truly an error:
     // - If we have stdout (program_output), the program ran successfully.
@@ -749,7 +1340,7 @@ async function executeCode(language, code, stdin) {
     return {
       language,
       version: config.version,
-      provider: 'codescriet',
+      provider: result.judge_provider || provider,
       run: {
         stdout,
         stderr: isCompileError ? '' : runStderr,
@@ -770,6 +1361,157 @@ async function executeCode(language, code, stdin) {
   }
 }
 
+// Wandbox occasionally can't spawn a container (host capacity / clone EAGAIN).
+// That failure is transient — a short retry almost always lands on a healthy
+// host, so in normal operation the user never sees an error.
+async function executeWithRetry(language, code, stdin, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await executeCode(language, code, stdin);
+    } catch (err) {
+      lastErr = err;
+      const retryable = err?.code === 'EXEC_INFRA_UNAVAILABLE' || isInfraFailure(err?.message);
+      if (!retryable || i === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// ---------------------------------------------------------------------------
+// Internal — cache flush from the main API (settings PATCH/PUT). Lets admin
+// setting flips (provider, limits) take effect instantly instead of waiting
+// out the 60s settings TTLs. Secret-gated like all /internal routes.
+// ---------------------------------------------------------------------------
+app.post('/internal/flush-caches', (req, res) => {
+  const keys = Array.isArray(req.body?.keys) ? req.body.keys : [];
+  playgroundSettingsCache.expiresAt = 0;
+  providerCache.expiresAt = 0;
+  codeboxHealth.expiresAt = 0;
+  // Result cache is keyed by code only: flush it only when execution-affecting
+  // settings changed (provider pick or quota), otherwise keep warm hits.
+  if (keys.includes('*') || keys.includes('codeExecutionProvider') || keys.includes('playgroundDailyLimit')) {
+    execCache.clear();
+  }
+  return res.json({ ok: true, flushed: keys });
+});
+
+// ---------------------------------------------------------------------------
+// Internal — drop one user's in-memory quota/session state (admin grant path).
+// The next run re-reads fresh counters from the DB, so quota grants take
+// effect instantly instead of waiting out the 5-min resync. Secret-gated.
+// ---------------------------------------------------------------------------
+app.post('/internal/sessions/invalidate', (req, res) => {
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  userSessions.delete(userId);
+  userExecCounts.delete(userId);
+  return res.json({ ok: true, userId });
+});
+
+// ---------------------------------------------------------------------------
+// Internal — CPU offload from the main API (contest plagiarism). Server-to-server
+// only: gated on a shared INTERNAL_API_SECRET, never reachable by a browser. The main
+// API sends one problem's submissions per call; we run the O(N²) similarity here (this
+// server is mostly idle) and return flagged pairs. Larger json limit for code batches.
+// ---------------------------------------------------------------------------
+// deriveInternalSecret() / validInternalSecret() are declared near the top of this
+// file so the app-level /internal gate can reject unauthenticated callers BEFORE the
+// 12mb body parser runs. The per-handler checks below are defense in depth.
+// ---------------------------------------------------------------------------
+
+app.post('/internal/plagiarism', async (req, res) => {
+  if (!validInternalSecret(req)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const threshold = Math.min(1, Math.max(0.5, typeof req.body?.threshold === 'number' ? req.body.threshold : 0.8));
+
+    // Preferred path: the main API sends only { roundId, problemIds, threshold }, and we
+    // read the code blobs from the shared DB HERE — so the main API's 512MB never holds
+    // them. Per-problem queries cap memory to one problem's submissions at a time (served
+    // by the (problem_id, context_type, context_key) index), then the O(N²) similarity
+    // runs on this idle box. Returns flagged pairs tagged with problemId.
+    if (typeof req.body?.roundId === 'string') {
+      if (!pool || !dbReady) return res.status(503).json({ error: 'db unavailable' });
+      const roundId = req.body.roundId;
+      const problemIds = Array.isArray(req.body?.problemIds)
+        ? req.body.problemIds.filter((p) => typeof p === 'string')
+        : [];
+      const pairs = [];
+      for (const problemId of problemIds) {
+        const { rows } = await pool.query(
+          `SELECT ps.user_id, ps.code, u.name AS user_name
+           FROM problem_submissions ps JOIN users u ON u.id = ps.user_id
+           WHERE ps.context_type = 'CONTEST' AND ps.context_key = $1 AND ps.problem_id = $2`,
+          [roundId, problemId],
+        );
+        if (rows.length < 2) continue;
+        const items = rows.map((r) => ({ userId: r.user_id, userName: r.user_name || '', code: r.code || '' }));
+        for (const p of findPlagiarismPairs(items, threshold)) pairs.push({ problemId, ...p });
+      }
+      return res.json({ pairs });
+    }
+
+    // Legacy/fallback: the caller pre-fetched a single problem's submissions as `items`.
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const clean = items
+      .filter((s) => s && typeof s.userId === 'string' && typeof s.code === 'string')
+      .map((s) => ({ userId: s.userId, userName: String(s.userName ?? ''), code: s.code }));
+    const pairs = findPlagiarismPairs(clean, threshold);
+    return res.json({ pairs });
+  } catch (err) {
+    console.error('[plagiarism] compute failed:', err?.message);
+    return res.status(500).json({ error: 'compute failed' });
+  }
+});
+
+// Relay emit: the main API POSTs { room, event, payload } (or { rooms: [...] }); we
+// fan it out over the /competition namespace. Server-to-server only.
+app.post('/internal/contest-emit', (req, res) => {
+  if (!validInternalSecret(req)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const { room, rooms, event, payload } = req.body || {};
+    if (!event || (!room && !Array.isArray(rooms))) return res.status(400).json({ error: 'room + event required' });
+    if (contestIo) {
+      const targets = Array.isArray(rooms) ? rooms : [room];
+      for (const r of targets) if (r) contestIo.of('/competition').to(r).emit(event, payload ?? {});
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[relay] emit failed:', err?.message);
+    return res.status(500).json({ error: 'emit failed' });
+  }
+});
+
+// Relay disconnect: main API force-logout/soft-delete drops a user's contest sockets.
+app.post('/internal/disconnect-user', async (req, res) => {
+  if (!validInternalSecret(req)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  try {
+    const userId = req.body?.userId;
+    if (userId) {
+      // Drop the cached revocation state so the bumped token_version takes effect on
+      // the very next HTTP request instead of after the 30s TTL. Without this, a
+      // force-logged-out user could keep executing code for up to 30s after the kick.
+      invalidateRevocationCache(userId);
+    }
+    if (contestIo && userId) {
+      const sockets = await contestIo.of('/competition').fetchSockets();
+      for (const s of sockets) if (s.data?.userId === userId) s.disconnect(true);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'disconnect failed' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Routes — Execution
 // ---------------------------------------------------------------------------
@@ -777,7 +1519,16 @@ async function executeCode(language, code, stdin) {
 app.post('/api/execute', async (req, res) => {
   try {
     const { language, code, stdin = '' } = req.body;
-    const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const requestIp = clientIp(req);
+    // Server-Timing: per-stage server costs on every execute response so
+    // slowness is attributable (block/quota/exec), not guessed.
+    const tMarks = [];
+    let tPrev = Date.now();
+    const mark = (name) => {
+      const now = Date.now();
+      tMarks.push(`${name};dur=${now - tPrev}`);
+      tPrev = now;
+    };
 
     if (!language || !code) {
       return res.status(400).json({ success: false, error: 'Language and code are required' });
@@ -791,19 +1542,21 @@ app.post('/api/execute', async (req, res) => {
       return res.status(400).json({ success: false, error: 'stdin is too large (max 10KB)' });
     }
 
+    // O(1) admission checks run BEFORE anything that scans the code (security
+    // regexes, hashing): a hard size cap first, then auth/quota/IP metering, so
+    // an anonymous flood of large bodies can't burn regex CPU.
+    if (typeof code !== 'string') {
+      return res.status(400).json({ success: false, error: 'code must be a string' });
+    }
+
+    if (code.length > MAX_CODE_SIZE) {
+      return res.status(400).json({ success: false, error: 'Code is too large (max 100KB)' });
+    }
+
     if (!COMPILERS[language]) {
       return res.status(400).json({
         success: false,
         error: `Language '${language}' not supported for cloud execution. Supported: ${SUPPORTED_LANGUAGES.join(', ')}`,
-      });
-    }
-
-    // Security check
-    const security = checkSecurityPatterns(code);
-    if (!security.safe) {
-      return res.status(400).json({
-        success: false,
-        error: 'This code contains patterns that are not allowed for security reasons.',
       });
     }
 
@@ -814,14 +1567,20 @@ app.post('/api/execute', async (req, res) => {
     // when the DB hiccups. The single exception is 42P01 (relation does not
     // exist) which is the documented "pre-migration" safety net — without it
     // the playground would be unreachable until the migration runs.
+    // The gate query and the session bootstrap are independent: run them
+    // concurrently so a cold session costs one Neon RTT, not two.
     if (req.user && pool) {
-      try {
-        const blockCheck = await pool.query(
+      const [blockOutcome, sessionOutcome] = await Promise.allSettled([
+        pool.query(
           'SELECT expires_at FROM user_blocks WHERE user_id = $1 AND feature = $2 LIMIT 1',
           [req.user.id, 'PLAYGROUND'],
-        );
-        if (blockCheck.rows.length > 0) {
-          const expiresAt = blockCheck.rows[0].expires_at;
+        ),
+        getUserSession(req.user.id),
+      ]);
+      if (blockOutcome.status === 'fulfilled') {
+        const rows = blockOutcome.value.rows;
+        if (rows.length > 0) {
+          const expiresAt = rows[0].expires_at;
           if (!expiresAt || new Date(expiresAt) > new Date()) {
             return res.status(403).json({
               success: false,
@@ -829,26 +1588,30 @@ app.post('/api/execute', async (req, res) => {
             });
           }
         }
-      } catch (err) {
-        if (err?.code === '42P01') {
-          // Pre-migration: user_blocks table not yet created. Allow the request
-          // through; once the migration runs the gate engages automatically.
-        } else {
-          console.error('[playground] block check failed; failing closed', {
-            code: err?.code,
-            message: err?.message || String(err),
-          });
-          return res.status(503).json({
-            success: false,
-            error: 'Service temporarily unavailable. Please retry shortly.',
-          });
-        }
+      } else if (blockOutcome.reason?.code === '42P01') {
+        // Pre-migration: user_blocks table not yet created. Allow the request
+        // through; once the migration runs the gate engages automatically.
+      } else {
+        console.error('[playground] block check failed; failing closed', {
+          code: blockOutcome.reason?.code,
+          message: blockOutcome.reason?.message || String(blockOutcome.reason),
+        });
+        return res.status(503).json({
+          success: false,
+          error: 'Service temporarily unavailable. Please retry shortly.',
+        });
       }
+      if (sessionOutcome.status === 'fulfilled') {
+        userSession = sessionOutcome.value;
+      }
+      // Rejected session falls through as null: checkUserRateLimit below
+      // fetches it itself exactly as before (same in-memory fallback).
     }
 
     // Rate limiting — all languages are metered
+    mark('block');
     if (req.user) {
-      const limit = await checkUserRateLimit(req.user.id);
+      const limit = await checkUserRateLimit(req.user.id, userSession);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
       if (!limit.allowed) {
         const session = await getUserSession(req.user.id);
@@ -862,7 +1625,7 @@ app.post('/api/execute', async (req, res) => {
         }
 
         userSession = session;
-      } else if (pool) {
+      } else if (pool && !userSession) {
         userSession = await getUserSession(req.user.id);
       }
 
@@ -894,7 +1657,19 @@ app.post('/api/execute', async (req, res) => {
       }
     }
 
+    // Security check — deliberately AFTER admission/metering (see above): only
+    // requests that passed the size cap and rate limits pay the regex scan.
+    mark('quota');
+    const security = checkSecurityPatterns(code);
+    if (!security.safe) {
+      return res.status(400).json({
+        success: false,
+        error: 'This code contains patterns that are not allowed for security reasons.',
+      });
+    }
+
     const startMs = Date.now();
+    mark('sec');
     const cacheScope = req.user?.id ? `user:${req.user.id}` : `ip:${requestIp}`;
 
     // Check execution cache — return cached result if identical code was run recently
@@ -905,11 +1680,19 @@ app.post('/api/execute', async (req, res) => {
       result = cached;
       fromCache = true;
       console.log(`[Execute] Cache hit for ${language} (${code.length} chars)`);
+      // Refresh the provider label: the cached result may predate a settings
+      // flip, and a stale label ("still local") is worse than no label.
+      try {
+        const liveSetting = await getCodeExecutionProvider();
+        const live = resolveExecutionProvider(liveSetting, language);
+        if (live) result = { ...result, provider: live };
+      } catch { /* keep stored label on resolver failure */ }
     } else {
-      result = await executeCode(language, code, stdin);
+      result = await executeWithRetry(language, code, stdin);
       setCachedExecution(language, code, stdin, result, cacheScope);
     }
     const durationMs = fromCache ? 0 : (Date.now() - startMs);
+    mark(fromCache ? 'exec-cached' : 'exec');
 
     // Session-first persistence: keep history in memory and flush on session end.
     if (req.user) {
@@ -933,16 +1716,23 @@ app.post('/api/execute', async (req, res) => {
       }
     }
 
+    res.setHeader('Server-Timing', tMarks.join(', '));
     return res.json({
       success: true,
       data: result,
-      meta: { durationMs, userId: req.user?.id || null, provider: 'codescriet', cached: fromCache },
+      meta: { durationMs, userId: req.user?.id || null, provider: result.provider || 'codescriet', cached: fromCache },
     });
   } catch (error) {
     console.error('[Execute] Execution error:', error);
     const message = error instanceof Error ? error.message : 'Code execution failed';
     if (message.includes('abort')) {
       return res.status(408).json({ success: false, error: 'Execution timed out (15s limit).' });
+    }
+    if (error?.code === 'EXEC_INFRA_UNAVAILABLE' || isInfraFailure(message)) {
+      return res.status(503).json({
+        success: false,
+        error: 'The execution service is briefly at capacity. Please run it again in a moment.',
+      });
     }
     return res.status(500).json({ success: false, error: sanitizeError(message) || 'Code execution failed' });
   }
@@ -955,7 +1745,7 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // Auth profile endpoint used by playground UI fallback when main API auth check is unstable.
-app.get('/api/auth/me', requireAuth, async (req, res) => {
+app.get('/api/auth/me', requireAuth, crudRateLimit, async (req, res) => {
   try {
     if (!pool || !dbReady) {
       return res.status(503).json({ success: false, error: 'Database unavailable' });
@@ -994,7 +1784,7 @@ function generateShareToken() {
   return crypto.randomBytes(8).toString('base64url');
 }
 
-app.post('/api/snippets', requireAuth, async (req, res) => {
+app.post('/api/snippets', requireAuth, crudRateLimit, async (req, res) => {
   const { title, language, code, isPublic = false } = req.body;
   if (!title || !language || !code) {
     return res.status(400).json({ success: false, error: 'title, language, and code are required' });
@@ -1018,7 +1808,7 @@ app.post('/api/snippets', requireAuth, async (req, res) => {
   return res.status(201).json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.get('/api/snippets', requireAuth, async (req, res) => {
+app.get('/api/snippets', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(
     `SELECT * FROM snippets WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 100`,
     [req.user.id]
@@ -1035,14 +1825,14 @@ app.get('/api/snippets/shared/:token', async (req, res) => {
   return res.json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.get('/api/snippets/:id', requireAuth, async (req, res) => {
+app.get('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
   return res.json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.put('/api/snippets/:id', requireAuth, async (req, res) => {
+app.put('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
@@ -1068,7 +1858,7 @@ app.put('/api/snippets/:id', requireAuth, async (req, res) => {
   return res.json({ success: true, data: mapSnippetRow(updated[0] || rows[0]) });
 });
 
-app.delete('/api/snippets/:id', requireAuth, async (req, res) => {
+app.delete('/api/snippets/:id', requireAuth, crudRateLimit, async (req, res) => {
   const rows = await dbQuery(`SELECT user_id FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
   if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
   if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
@@ -1095,7 +1885,7 @@ function mapSnippetRow(row) {
 // Execution History — last 15 per user (with code), all-time stats (no code)
 // ---------------------------------------------------------------------------
 
-app.get('/api/executions/history', requireAuth, async (req, res) => {
+app.get('/api/executions/history', requireAuth, crudRateLimit, async (req, res) => {
   if (pool) {
     const session = await getUserSession(req.user.id);
     return res.json({ success: true, data: session.history });
@@ -1119,7 +1909,7 @@ app.get('/api/executions/history', requireAuth, async (req, res) => {
   })) });
 });
 
-app.get('/api/executions/stats', requireAuth, async (req, res) => {
+app.get('/api/executions/stats', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     const session = await getUserSession(req.user.id);
@@ -1164,7 +1954,7 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
 });
 
 // Session bootstrap: one DB read on session start for both limit + history
-app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
+app.get('/api/session/bootstrap', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   // On tab reload / fresh login, force DB rehydrate so admin resets are reflected immediately.
   const session = await refreshUserSessionFromDatabase(req.user.id, 'session-bootstrap');
@@ -1192,7 +1982,7 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
 });
 
 // Preflight: check current session limit before execution starts
-app.get('/api/session/preflight', requireAuth, async (req, res) => {
+app.get('/api/session/preflight', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const session = await getUserSession(req.user.id);
   if (session.todayCount >= dailyLimit) {
@@ -1215,7 +2005,7 @@ app.get('/api/session/preflight', requireAuth, async (req, res) => {
 });
 
 // Record client-side execution into in-memory session cache
-app.post('/api/session/record', requireAuth, async (req, res) => {
+app.post('/api/session/record', requireAuth, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const { language, code = '', output = '', durationMs = 0, status = 'SUCCESS', executedAt } = req.body || {};
   if (!language) {
@@ -1271,7 +2061,7 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
 });
 
 // Session end: flush in-memory usage/history to DB once
-app.post('/api/session/end', requireAuth, async (req, res) => {
+app.post('/api/session/end', requireAuth, crudRateLimit, async (req, res) => {
   await flushUserSession(req.user.id, 'session-end');
   return res.json({ success: true, message: 'Session flushed' });
 });
@@ -1289,7 +2079,7 @@ function requireAdmin(req, res, next) {
 }
 
 /** Reset a specific user's daily execution limit */
-app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const { userId } = req.params;
   const { note = '' } = req.body;
 
@@ -1330,7 +2120,7 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
 });
 
 /** Get today's execution counts for all users (admin dashboard) */
-app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/execution-counts', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const dailyLimit = await getDailyExecutionLimit();
   const rows = await dbQuery(
     `SELECT
@@ -1367,7 +2157,7 @@ app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, re
 });
 
 /** Debug a specific user's session usage: in-memory vs persisted DB */
-app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, crudRateLimit, async (req, res) => {
   const { userId } = req.params;
   const dailyLimit = await getDailyExecutionLimit({ forceRefresh: true });
   const session = userSessions.get(userId) || null;
@@ -1417,7 +2207,7 @@ app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, async (re
 // ---------------------------------------------------------------------------
 const userPrefsMemory = new Map();
 
-app.get('/api/prefs', requireAuth, async (req, res) => {
+app.get('/api/prefs', requireAuth, crudRateLimit, async (req, res) => {
   const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
   // Try DB first
   const rows = await dbQuery(
@@ -1437,7 +2227,7 @@ app.get('/api/prefs', requireAuth, async (req, res) => {
   return res.json({ success: true, data: prefs });
 });
 
-app.put('/api/prefs', requireAuth, async (req, res) => {
+app.put('/api/prefs', requireAuth, crudRateLimit, async (req, res) => {
   const { theme, fontSize, keybinding, lastLanguage } = req.body;
   const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
   const existing = userPrefsMemory.get(req.user.id) || defaultPrefs;
@@ -1473,6 +2263,8 @@ app.get('/health', (_req, res) => {
     dbConnected: dbReady,
     activeSessions: userSessions.size,
     cachedExecutions: execCache.size,
+    // S7a: which WebSocket engine the /competition relay actually loaded.
+    wsEngine: relayActiveWsEngine,
   });
 });
 
@@ -1507,3 +2299,132 @@ const server = app.listen(PORT, () => {
   console.log(`Languages:    ${SUPPORTED_LANGUAGES.join(', ')}`);
   console.log(`Timeout:      ${EXECUTION_TIMEOUT / 1000}s`);
 });
+
+// ---------------------------------------------------------------------------
+// Contest /competition Socket.io namespace (relay). Auth via the shared JWT;
+// rooms gated by event registration (pg) / admin role. Reuses the HTTP CORS
+// allowlist so browser→relay is allowed for code./www./codescriet.dev.
+// ---------------------------------------------------------------------------
+// S7a: eiows (C++, ≈5-8x lower per-connection memory) is the DEFAULT relay
+// engine. optionalDependency + try/require so it can never hard-break the relay:
+// WS_ENGINE=ws forces stock `ws`; an unavailable eiows falls back to `ws` LOUDLY
+// (error log + the /health `wsEngine` field); WS_ENGINE_STRICT=true refuses to
+// start instead of falling back. Wire protocol is identical → clients unaffected.
+let relayActiveWsEngine = 'ws';
+function resolveRelayWsEngine() {
+  if (process.env.WS_ENGINE === 'ws') {
+    console.log('[relay] WebSocket engine forced to stock `ws` (WS_ENGINE=ws)');
+    relayActiveWsEngine = 'ws';
+    return undefined;
+  }
+  try {
+    // MUST go through createRequire: this file is ESM ("type": "module"), where a bare
+    // `require` is not defined at all. The previous bare call threw ReferenceError on
+    // EVERY boot, was swallowed by this catch, and silently pinned the relay to stock
+    // `ws` — so the ≈5-8x per-connection memory saving never applied to the box that
+    // actually holds the contest sockets. (WS_ENGINE_STRICT=true would likewise have
+    // refused to boot unconditionally.) Mirrors apps/api/src/utils/socket.ts.
+    const { Server } = nodeRequire('eiows');
+    console.log('[relay] Socket.IO using eiows (C++) WebSocket engine (low-memory default)');
+    relayActiveWsEngine = 'eiows';
+    return Server;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (process.env.WS_ENGINE_STRICT === 'true') {
+      console.error('[relay] eiows required (WS_ENGINE_STRICT=true) but failed to load — refusing to start:', detail);
+      throw new Error('eiows unavailable and WS_ENGINE_STRICT=true: ' + detail, { cause: err });
+    }
+    console.error('[relay] eiows unavailable — FELL BACK to stock `ws`; the per-connection memory headroom is NOT active. Rebuild eiows or set WS_ENGINE=ws:', detail);
+    relayActiveWsEngine = 'ws';
+    return undefined;
+  }
+}
+
+const relayWsEngine = resolveRelayWsEngine();
+contestIo = new SocketIOServer(server, {
+  cors: { origin: ALLOWED_ORIGINS, credentials: true, methods: ['GET', 'POST'] },
+  transports: ['websocket'],
+  pingInterval: 10000,
+  pingTimeout: 30000,
+  // Key omitted (not undefined) when unused — engine.io's Object.assign merge
+  // would copy an explicit undefined over its `ws` default and break connects.
+  ...(relayWsEngine ? { wsEngine: relayWsEngine } : {}),
+});
+
+function authSocket(socket) {
+  const auth = socket.handshake.auth || {};
+  const headerToken = (socket.handshake.headers?.authorization || '').replace(/^Bearer /, '');
+  const cookie = socket.handshake.headers?.cookie || '';
+  const cookieMatch = cookie.split(';').find((c) => c.trim().startsWith('scriet_session='));
+  const cookieToken = cookieMatch ? decodeURIComponent(cookieMatch.split('=').slice(1).join('=').trim()) : null;
+  for (const token of [auth.token, headerToken, cookieToken].filter(Boolean)) {
+    try {
+      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+      if (decoded && typeof decoded.purpose === 'string') continue; // reject special-purpose tokens
+      return {
+        id: decoded.userId || decoded.id,
+        role: decoded.role,
+        // Carried so `join` can compare it against the live DB watermark (force-logout).
+        tokenVersion: typeof decoded.tokenVersion === 'number' ? decoded.tokenVersion : 0,
+      };
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+contestIo.of('/competition').use((socket, next) => {
+  const user = authSocket(socket);
+  if (!user?.id) return next(new Error('AUTH_INVALID'));
+  socket.data.userId = user.id;
+  socket.data.role = user.role;
+  socket.data.tokenVersion = user.tokenVersion;
+  next();
+});
+
+contestIo.of('/competition').on('connection', (socket) => {
+  const userId = socket.data.userId;
+
+  socket.on('join', async (payload) => {
+    const roundId = payload?.roundId;
+    if (!roundId || typeof roundId !== 'string') return socket.emit('contest:error', { message: 'roundId required' });
+    if (!pool || !dbReady) return socket.emit('contest:error', { message: 'unavailable' });
+    try {
+      const round = await pool.query('SELECT event_id FROM competition_rounds WHERE id = $1', [roundId]);
+      if (round.rowCount === 0) return socket.emit('contest:error', { message: 'Round not found' });
+      // Authorize against the LIVE DB row, not the (≤7-day-old) JWT: a demoted admin must
+      // not keep admin-monitor visibility, and a soft-deleted or force-logged-out user must
+      // not join at all. One indexed PK lookup per join.
+      const account = await pool.query(
+        'SELECT role, is_deleted, token_version FROM users WHERE id = $1',
+        [userId],
+      );
+      if (account.rowCount === 0 || account.rows[0].is_deleted) {
+        return socket.emit('contest:error', { message: 'Account unavailable' });
+      }
+      // Force-logout watermark: an admin pulling a cheater out of a live round bumps
+      // token_version, so a stale-but-signed token must not re-join the arena.
+      if (Number(account.rows[0].token_version ?? 0) > (socket.data.tokenVersion ?? 0)) {
+        return socket.emit('contest:error', { message: 'Session expired. Please sign in again.' });
+      }
+      const isAdmin = ['ADMIN', 'PRESIDENT'].includes(account.rows[0].role);
+      if (isAdmin) { socket.join(roomAdmin(roundId)); return; }
+      const reg = await pool.query('SELECT id FROM event_registrations WHERE user_id = $1 AND event_id = $2', [userId, round.rows[0].event_id]);
+      if (reg.rowCount === 0) return socket.emit('contest:error', { message: 'Not registered for this event' });
+      socket.join(roomAll(roundId));
+      socket.join(roomUser(roundId, userId));
+    } catch (err) {
+      console.error('[relay] join failed:', err?.message);
+      socket.emit('contest:error', { message: 'Could not join round' });
+    }
+  });
+
+  socket.on('leave', (payload) => {
+    const roundId = payload?.roundId;
+    if (!roundId) return;
+    socket.leave(roomAll(roundId));
+    socket.leave(roomAdmin(roundId));
+    socket.leave(roomUser(roundId, userId));
+  });
+});
+
+console.log(`Contest relay: /competition Socket.io namespace ready (origins: ${ALLOWED_ORIGINS.join(', ')})`);

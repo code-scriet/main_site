@@ -1,0 +1,651 @@
+/*
+ * Dark-mode homepage (home-v2) styles — DEV-K PR #90 (feat/homepage-warm-redesign).
+ * Co-located + imported by HomeDark.tsx so it ships in the lazy dark-only chunk;
+ * light/default visitors never download it. Global light-mode bleed rules from the
+ * original PR were dropped and the shared .hcta CTA rules re-scoped under .home-v2
+ * so this file cannot affect the light site. See plan for details.
+ */
+/* ============================================================================
+ * HOMEPAGE GLASS REDESIGN (home-v2)
+ * Self-contained dark-charcoal glassmorphism experience for the marketing
+ * homepage. Scoped under .home-v2 so it never leaks into dashboard/public
+ * pages. The wrapper also carries the `dark` class so Tailwind dark: variants
+ * inside resolve regardless of the global theme toggle.
+ * ========================================================================== */
+
+.home-v2 {
+  /* Light theme (default).
+   * Built dark-first, so the light palette is tuned to avoid the cream-on-cream
+   * wash-out: opaque glass surfaces, firmer borders, a deeper ember accent (the
+   * amber-400 used in dark mode is near-invisible on cream), and a soft card
+   * shadow so panels separate from the page. */
+  /* Light theme — warm palette derived from the SCRIET / code.scriet logo:
+   * deep amber, golden orange, soft saffron over ivory/sand/cream papers.
+   * Handcrafted + academic, never pure white or cold grey. */
+  --hx-amber: #d97706;          /* deep amber — borders/accents/text */
+  --hx-amber-2: #f59e0b;        /* golden orange */
+  --hx-edge: #fcfaf6;           /* ivory paper — avatar ring gaps */
+  --hx-glass: #fefcf8;          /* warm card surface (not pure white) */
+  --hx-glass-2: #fffaf2;
+  --hx-glass-border: rgba(217, 119, 6, 0.08);   /* amber-tinted hairline */
+  --hx-glass-border-strong: rgba(217, 119, 6, 0.16);
+  --hx-ink: #2a1d0e;            /* warm near-black */
+  --hx-ink-dim: rgba(60, 44, 24, 0.74);
+  --hx-ink-faint: rgba(60, 44, 24, 0.56);
+  --hx-dot: rgba(120, 80, 20, 0.08);
+  --hx-particle: rgba(217, 119, 6, 0.5);
+  --hx-glow: rgba(245, 158, 11, 0.12);
+  --hx-card-shadow: 0 8px 24px rgba(120, 80, 20, 0.08);
+  --hx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* Full-width homepage: sections span the viewport (with comfortable gutters),
+   * capped only on ultrawide so line lengths stay sane. */
+  --hv-maxw: 1760px;
+  --hv-gutter: clamp(20px, 5vw, 72px);
+
+  position: relative;
+  isolation: isolate;
+  /* Hero base — a warm amber glow blooming from the top (echoing the logo's
+   * radiant gradient) over cream paper, so the page has real warmth + depth
+   * instead of one flat tone. */
+  background:
+    radial-gradient(80% 60% at 50% -10%, rgba(245, 158, 11, 0.20), transparent 55%),
+    radial-gradient(65% 55% at 88% 8%, rgba(217, 119, 6, 0.14), transparent 55%),
+    radial-gradient(60% 55% at 6% 34%, rgba(251, 191, 36, 0.12), transparent 58%),
+    linear-gradient(180deg, #fbf3e6 0%, #f6ecda 55%, #f8f1e4 100%);
+  color: var(--hx-ink);
+  overflow: clip;
+}
+
+/* Full-width container override (scoped to the homepage). Widens the section
+ * wrappers that use Tailwind `.container`; intentionally-narrow inner caps
+ * (max-w-md/xl/2xl/3xl on text blocks) still win because they are smaller. */
+.home-v2 .container {
+  max-width: var(--hv-maxw);
+  padding-left: var(--hv-gutter);
+  padding-right: var(--hv-gutter);
+}
+
+/* Dark theme — driven by the global theme toggle (html.dark) */
+html.dark .home-v2 {
+  --hx-amber: #f97316;          /* brighter accent reads well on charcoal */
+  --hx-amber-2: #fbbf24;
+  --hx-edge: #161413;
+  --hx-glass: rgba(255, 255, 255, 0.04);
+  --hx-glass-2: rgba(255, 255, 255, 0.06);
+  --hx-glass-border: rgba(255, 255, 255, 0.08);
+  --hx-glass-border-strong: rgba(255, 255, 255, 0.14);
+  --hx-ink: rgba(255, 255, 255, 0.92);
+  --hx-ink-dim: rgba(255, 255, 255, 0.70);
+  --hx-ink-faint: rgba(255, 255, 255, 0.50);
+  --hx-dot: rgba(255, 255, 255, 0.05);
+  --hx-card-shadow: none;
+  --hx-particle: rgba(251, 191, 36, 0.5);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #1c1a18 0%, transparent 55%),
+    linear-gradient(180deg, #141312 0%, #121212 35%, #161413 100%);
+}
+
+/* Semantic text tiers — theme-aware. Used across the home components so a
+ * single token flip retints the whole page. */
+.home-v2 .hx-t1 { color: var(--hx-ink); }
+.home-v2 .hx-t2 { color: var(--hx-ink-dim); }
+.home-v2 .hx-t3 { color: var(--hx-ink-faint); }
+
+/* ---- Site-wide background depth layer ---- */
+.home-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Faint dot grid with a radial mask fading toward the edges */
+.home-bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--hx-dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 80%);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 80%);
+}
+
+/* Floating blur orbs */
+.home-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  will-change: transform;
+}
+.home-orb--1 {
+  width: 520px; height: 520px;
+  top: -120px; left: -80px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.22), transparent 70%);
+  animation: home-orb-a 46s var(--hx-ease) infinite;
+}
+.home-orb--2 {
+  width: 460px; height: 460px;
+  top: 30%; right: -120px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.16), transparent 70%);
+  animation: home-orb-b 54s var(--hx-ease) infinite;
+}
+.home-orb--3 {
+  width: 600px; height: 600px;
+  bottom: -160px; left: 20%;
+  background: radial-gradient(circle, rgba(234, 88, 12, 0.14), transparent 70%);
+  animation: home-orb-c 62s var(--hx-ease) infinite;
+}
+
+/* Calmer drift (slower duration + gentler translate/scale) so the dark page's
+ * ambient motion settles at the same unhurried pace as the light homepage. */
+@keyframes home-orb-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(36px, 24px) scale(1.06); }
+}
+@keyframes home-orb-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30px, 36px) scale(1.05); }
+}
+@keyframes home-orb-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(24px, -30px) scale(1.05); }
+}
+
+/* Rising amber particles */
+.home-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 9999px;
+  background: var(--hx-particle, rgba(251, 191, 36, 0.5));
+  will-change: transform, opacity;
+  animation: home-particle-rise linear infinite;
+}
+@keyframes home-particle-rise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  8% { opacity: 0.9; }
+  88% { opacity: 0.65; }
+  100% { transform: translate(var(--drift, 0px), -104vh); opacity: 0; }
+}
+
+/* ---- Glass primitives ---- */
+.glass-card {
+  background: var(--hx-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--hx-glass-border);
+  border-radius: 20px;
+  box-shadow: var(--hx-card-shadow, none);
+  transition:
+    transform 260ms var(--hx-ease),
+    border-color 260ms var(--hx-ease),
+    box-shadow 260ms var(--hx-ease),
+    background 260ms var(--hx-ease);
+}
+.glass-card:hover {
+  border-color: rgba(249, 115, 22, 0.35);
+  box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
+}
+.glass-card--lift:hover { transform: translateY(-4px); }
+
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  background: var(--hx-glass);
+  border: 1px solid var(--hx-glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Amber gradient text — deeper on cream (light) so it actually reads, brighter
+ * on charcoal (dark). */
+.hx-grad-text {
+  background: linear-gradient(120deg, #ea580c 0%, #c2410c 50%, #ea580c 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+html.dark .hx-grad-text {
+  background: linear-gradient(120deg, #fbbf24 0%, #f97316 55%, #fb923c 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ---- Logo glow ring ---- */
+.home-logo-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.home-logo-halo {
+  position: absolute;
+  inset: -55%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.28), transparent 70%);
+  animation: home-breathe 5s ease-in-out infinite;
+  pointer-events: none;
+}
+.home-logo-ring {
+  position: absolute;
+  inset: -14%;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent 0%, rgba(251, 191, 36, 0.55) 25%, transparent 55%, rgba(249, 115, 22, 0.45) 80%, transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  animation: home-spin 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes home-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+@keyframes home-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Gentle floating for the hero showcase panel */
+.home-float { animation: home-float 6s ease-in-out infinite; will-change: transform; }
+@keyframes home-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Soft amber glow beneath an element */
+.hx-underglow { position: relative; }
+.hx-underglow::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -28px;
+  height: 60px;
+  background: radial-gradient(ellipse at center, rgba(249, 115, 22, 0.35), transparent 70%);
+  filter: blur(28px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ---- Bento grid ---- */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.bento-card {
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  border-radius: 22px;
+  background: var(--hx-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--hx-glass-border);
+  box-shadow: var(--hx-card-shadow, none);
+  transition:
+    transform 260ms var(--hx-ease),
+    border-color 260ms var(--hx-ease),
+    box-shadow 260ms var(--hx-ease);
+}
+.bento-card::before {
+  content: "";
+  position: absolute;
+  top: -40%; right: -30%;
+  width: 70%; height: 80%;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), transparent 70%);
+  opacity: 0.6;
+  transition: opacity 260ms var(--hx-ease);
+  pointer-events: none;
+}
+.bento-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow: 0 0 44px rgba(249, 115, 22, 0.18);
+}
+.bento-card:hover::before { opacity: 1; }
+.bento-card--hero { grid-column: span 2; grid-row: span 2; }
+@media (max-width: 900px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+  .bento-card--hero { grid-column: span 2; grid-row: span 1; }
+}
+@media (max-width: 520px) {
+  .bento-grid { grid-template-columns: 1fr; }
+  .bento-card--hero { grid-column: span 1; }
+}
+
+/* ============================================================================
+ * GLASS NAVBAR (homepage overlay variant) — rendered outside .home-v2 scope
+ * ========================================================================== */
+.navx-home {
+  background: rgba(247, 243, 236, 0.72) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(27, 23, 20, 0.08) !important;
+}
+html.dark .navx-home {
+  background: rgba(18, 18, 18, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.navx-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(27, 23, 20, 0.66);
+  transition: color 200ms var(--hx-ease, ease), background 200ms var(--hx-ease, ease);
+}
+.navx-link:hover { color: #1b1714; background: rgba(27, 23, 20, 0.05); }
+.navx-link[data-active="true"] { color: #b4520f; }
+html.dark .navx-link { color: rgba(255, 255, 255, 0.72); }
+html.dark .navx-link:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+html.dark .navx-link[data-active="true"] { color: #fdba74; }
+.navx-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.28);
+  box-shadow: inset 0 0 16px rgba(249, 115, 22, 0.18);
+  z-index: -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-orb,
+  .home-particle,
+  .home-logo-halo,
+  .home-logo-ring,
+  .home-float { animation: none !important; }
+  .glass-card,
+  .bento-card { transition: none; }
+}
+
+/* Home headings use the bold sans display face (overrides the public-scope
+ * Newsreader serif applied to h1–h6). Appended last so it wins specificity ties. */
+.home-v2 :is(h1, h2, h3, h4, h5, h6) {
+  font-family: 'Sora', 'Outfit', system-ui, -apple-system, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--hx-ink);
+}
+/* Card titles that sit on a dark image overlay must stay light in both themes. */
+.home-v2 .on-media :is(h1, h2, h3, h4, h5, h6) { color: #fff; }
+.home-v2 .hx-grad-text { color: transparent; }
+
+/* ============================================================================
+ * HOMEPAGE ADD-ONS: animated terminal, stack diagram, illustrated icons
+ * ========================================================================== */
+
+/* ---- Animated terminal ---- */
+.hx-terminal {
+  position: relative;
+  border-radius: 14px;
+  background: rgba(20, 20, 20, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+/* Subtle scanline shimmer */
+.hx-terminal::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+  pointer-events: none;
+  animation: hx-scan 8s linear infinite;
+}
+@keyframes hx-scan {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 60px; }
+}
+.hx-cursor {
+  display: inline-block;
+  width: 9px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #fbbf24;
+  animation: hx-blink 1s steps(1) infinite;
+}
+@keyframes hx-blink { 50% { opacity: 0; } }
+
+/* ---- Stack diagram ---- */
+/* Position wrapper keeps the centring transform separate from Framer's
+ * scale/opacity animation on the inner card. */
+.hx-node-pos {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.hx-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--hx-glass);
+  border: 1px solid var(--hx-glass-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  white-space: nowrap;
+  transition: border-color 240ms var(--hx-ease), box-shadow 240ms var(--hx-ease);
+}
+.hx-node[data-active="true"] {
+  border-color: color-mix(in srgb, var(--ca, #f97316) 60%, transparent);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--ca, #f97316) 32%, transparent);
+}
+.hx-node-ico {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ca, #f97316) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ca, #f97316) 32%, transparent);
+  color: var(--ca, #f97316);
+}
+
+/* ---- Illustrated icons ---- */
+.home-illus {
+  transition: filter 240ms var(--hx-ease);
+}
+.home-illus:hover {
+  filter: drop-shadow(0 0 7px rgba(249, 115, 22, 0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-terminal::after { animation: none; }
+  .hx-cursor { animation: none; }
+}
+
+/* The legacy dark theme remaps Tailwind amber/orange utilities to its red/rose
+ * accents via these CSS variables (see the `html.dark :is([class~="text-amber-*"])`
+ * rules above). The homepage forces `.dark` but wants a true-amber palette, so we
+ * redefine the accent variables within `.home-v2` — every remapped utility then
+ * resolves to amber instead of red, regardless of the global theme toggle. */
+.home-v2 {
+  --accent-red: 249 115 22;     /* text-amber-500, ring-amber-500, from-amber-500 */
+  --accent-orange: 249 115 22;  /* text-amber-600, to-orange-500/600 */
+  --accent-amber: 251 191 36;   /* text-amber-400, from-amber-400 */
+  --warm-1: 253 186 116;        /* text-amber-300/200/100 */
+  --warm-2: 251 191 36;         /* hover:text-amber-600/700 */
+}
+
+/* NOTE: the original PR's `html:not(.dark) .home-v2 …` light-mode remaps
+ * (white-text/glass → dark ink, etc.) were removed — this homepage only ever
+ * renders in dark mode (gated in HomePage.tsx), so they were dead rules in the
+ * dark-only chunk. */
+
+/* ---- Subtle headline gradient (ink → faint amber, theme-aware) ---- */
+.home-v2 .hx-head-grad {
+  background: linear-gradient(
+    176deg,
+    var(--hx-ink) 0%,
+    var(--hx-ink) 48%,
+    color-mix(in srgb, var(--hx-ink) 62%, #f97316) 100%
+  );
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ---- Hero scroll indicator ---- */
+.hx-scroll {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--hx-ink-faint);
+}
+.hx-scroll-mouse {
+  width: 24px;
+  height: 38px;
+  border-radius: 12px;
+  border: 2px solid var(--hx-glass-border-strong);
+  display: flex;
+  justify-content: center;
+  padding-top: 7px;
+}
+.hx-scroll-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--hx-amber);
+  animation: hx-scroll-bounce 1.6s var(--hx-ease) infinite;
+}
+@keyframes hx-scroll-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50% { transform: translateY(10px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-scroll-dot { animation: none; }
+}
+
+/* Floating subtle particles behind the "Be part of something bigger" CTA.
+ * Scoped to .home-v2 so it only styles the dark homepage's CTA and never the
+ * shared light-mode .hcta band. */
+.home-v2 .hcta { position: relative; z-index: 1; }
+.home-v2 .hcta-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.home-v2 .hcta-particles i {
+  position: absolute;
+  bottom: -14px;
+  border-radius: 9999px;
+  /* Brighter amber + soft glow so the rising droplets read clearly against the
+   * deep ember CTA in dark mode (more prominent than the original faint dots). */
+  background: rgba(251, 146, 60, 0.85);
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.7);
+  animation: hcta-rise linear infinite;
+  will-change: transform, opacity;
+}
+@keyframes hcta-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 0.95; }
+  85% { opacity: 0.7; }
+  100% { transform: translateY(-760px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-v2 .hcta-particles { display: none; }
+}
+
+/* ============================================================================
+ * LIGHT-THEME COLOUR SYSTEM — multi-accent, alternating sections, depth.
+ * Scoped to .home-v2; dark mode keeps the charcoal glass look.
+ * ========================================================================== */
+.home-v2 {
+  /* Warm, logo-derived accent family (no purple/blue). */
+  --c-primary: #f97316;   /* orange */
+  --c-gold: #f59e0b;      /* amber-gold */
+  --c-red: #ef4444;       /* warm red */
+  --c-rust: #c2410c;      /* deep rust / maroon */
+  --c-success: #22c55e;   /* green — the one tasteful contrast */
+}
+
+/* Warm brand gradient for highlight words (gold → orange → red), drawn from
+ * the logo's own palette. */
+.home-v2 .hx-grad-text {
+  background: linear-gradient(90deg, #fbbf24 0%, #f97316 52%, #dc2626 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Sharper headline hierarchy */
+.home-v2 :is(h1, h2, h3) { letter-spacing: -0.04em; }
+
+/* NOTE: removed the light-mode `html:not(.dark) .home-v2` card shadows and the
+ * alternating warm `.hsec-*` section backgrounds — dead in this dark-only chunk. */
+.home-v2 .hsec { position: relative; }
+/* Dark mode: sections stay transparent so the charcoal depth layer shows. */
+html.dark .home-v2 :is(.hsec-ivory, .hsec-sand, .hsec-mist, .hsec-cream, .hsec-honey) {
+  background: transparent;
+}
+
+/* ---- Category-coloured cards (bento + nodes) via --ca custom prop ---- */
+.home-v2 .cat-chip {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--ca, var(--c-primary));
+  background: color-mix(in srgb, var(--ca, var(--c-primary)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ca, var(--c-primary)) 30%, transparent);
+}
+.home-v2 .bento-card[style*="--ca"]::before {
+  background: radial-gradient(circle, color-mix(in srgb, var(--ca) 22%, transparent), transparent 70%);
+}
+.home-v2 .bento-card[style*="--ca"]:hover {
+  border-color: color-mix(in srgb, var(--ca) 45%, transparent);
+  box-shadow: 0 0 44px color-mix(in srgb, var(--ca) 22%, transparent);
+}
+
+/* NOTE: the original PR's light-mode global bleed rules (html:not(.dark) page
+ * canvas + [data-public][data-home] footer/canvas retints) were intentionally
+ * dropped here — the dark homepage never renders in light mode, and those rules
+ * would have recoloured the entire light site. See plan §3. */
+
+/* ============================================================================
+ * PERFORMANCE — pause the infinite background animations whenever the depth
+ * layer isn't actually being looked at. `.home-bg.is-paused` is toggled from
+ * HomeBackground.tsx on tab-hidden (visibilitychange) and when the layer
+ * scrolls out of view (IntersectionObserver), so orbs/particles stop consuming
+ * GPU/battery off-screen — important on Android. Reveal animations are
+ * untouched (they own their own one-shot timing).
+ * ========================================================================== */
+.home-bg.is-paused .home-orb,
+.home-bg.is-paused .home-particle {
+  animation-play-state: paused;
+}
+
+/* ---- Android / small-phone trims (desktop stays pixel-identical) ----
+ * blur(120px) over 460–600px orbs is the dominant GPU cost on phones; cap the
+ * blur radius and drop the largest orb so scrolling stays smooth. */
+@media (max-width: 640px) {
+  .home-orb { filter: blur(64px); }
+  .home-orb--1 { width: 360px; height: 360px; }
+  .home-orb--2 { width: 320px; height: 320px; }
+  .home-orb--3 { display: none; }
+}

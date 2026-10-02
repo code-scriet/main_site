@@ -4,6 +4,7 @@
  * Only at quiz load (read questions) and quiz end (write results).
  */
 
+import { Prisma } from '@prisma/client';
 import { logger } from '../utils/logger.js';
 import { prisma } from '../lib/prisma.js';
 import type { Server as SocketIOServer } from 'socket.io';
@@ -41,6 +42,9 @@ export interface AnswerRecord {
   questionId: string;
 }
 
+// NOTE: adding a stateful field here? Update quizSnapshot.ts (roomToSnapshot /
+// applySnapshotToRoom) — the crash-snapshot copies fields by name and a missed
+// one silently restores as its initQuiz default.
 export interface QuizRoom {
   quizId: string;
   meta: {
@@ -56,6 +60,20 @@ export interface QuizRoom {
   pausedTimeRemaining: number | null; // ms remaining when paused
   questions: QuizQuestionData[];
   players: Map<string, PlayerState>;
+  // B3: kick is final for this room. A kicked player's 20-min quiz access
+  // token stays valid, so join_quiz checks this set to stop instant rejoins.
+  // Bytes per kick; freed with the room.
+  kickedUserIds: Set<string>;
+  // O(1) counters maintained at every connect/disconnect/answer/kick/advance
+  // transition — they replace per-submit scans over the players map (the
+  // all-answered check was O(n) per submit ⇒ O(n²) per question at scale).
+  // answeredCount counts ALL players who answered the current question
+  // (including ones who disconnected after answering — matching the old
+  // answer_count_update scan); answeredConnectedCount counts only connected
+  // answered players (matching the old all-answered `every` over connected).
+  connectedCount: number;
+  answeredCount: number;
+  answeredConnectedCount: number;
   answerSubmissionLocks: Set<string>;
   currentAnswers: Map<string, AnswerRecord>;
   // All answers accumulated across all questions for final persistence
@@ -246,6 +264,10 @@ export const quizStore = {
       pausedTimeRemaining: null,
       questions,
       players: new Map(),
+      kickedUserIds: new Set(),
+      connectedCount: 0,
+      answeredCount: 0,
+      answeredConnectedCount: 0,
       answerSubmissionLocks: new Set(),
       currentAnswers: new Map(),
       allAnswers: [] as (AnswerRecord & { userId: string })[],
@@ -282,9 +304,14 @@ export const quizStore = {
 
     const existing = room.players.get(userId);
     if (existing) {
-      // Reconnect
+      // Reconnect — counters only move on a real false→true transition so a
+      // duplicate join from an already-connected socket can't drift them.
       existing.socketId = socketId;
-      existing.connected = true;
+      if (!existing.connected) {
+        existing.connected = true;
+        room.connectedCount += 1;
+        if (existing.answeredCurrentQuestion) room.answeredConnectedCount += 1;
+      }
       return {
         isNew: false,
         currentState: {
@@ -305,6 +332,7 @@ export const quizStore = {
       answeredCurrentQuestion: false,
       connected: true,
     });
+    room.connectedCount += 1;
 
     return {
       isNew: true,
@@ -451,7 +479,11 @@ export const quizStore = {
       player.score += pointsAwarded;
       player.correctCount += (isCorrect && !isUnscoredType) ? 1 : 0;
       player.totalAnswerTimeMs += timeMs;
-      player.answeredCurrentQuestion = true;
+      if (!player.answeredCurrentQuestion) {
+        player.answeredCurrentQuestion = true;
+        room.answeredCount += 1;
+        if (player.connected) room.answeredConnectedCount += 1;
+      }
 
       // Store in current answers
       room.currentAnswers.set(userId, {
@@ -488,8 +520,11 @@ export const quizStore = {
       }
       room.questionAnalytics.set(question.id, analytics);
 
-      const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected);
-      const allAnswered = connectedPlayers.every(p => p.answeredCurrentQuestion);
+      // O(1) integer compare — was a per-submit materialize + scan of the
+      // players map (O(n) per submit ⇒ O(n²) per question at 900 players).
+      // Same semantics as `every(connected ⇒ answered)`: the submitter is
+      // connected, so connectedCount ≥ 1 here.
+      const allAnswered = room.connectedCount > 0 && room.answeredConnectedCount >= room.connectedCount;
 
       return {
         isCorrect: isUnscoredType ? null : isCorrect,
@@ -526,10 +561,12 @@ export const quizStore = {
     // Clear answer rate limits between questions
     clearAnswerRateLimitForQuiz(quizId);
 
-    // Reset all players' answered flag
+    // Reset all players' answered flag (+ the O(1) counters that mirror it)
     for (const player of room.players.values()) {
       player.answeredCurrentQuestion = false;
     }
+    room.answeredCount = 0;
+    room.answeredConnectedCount = 0;
 
     room.currentQuestionIndex += 1;
 
@@ -627,6 +664,12 @@ export const quizStore = {
               currentQuestionIndex: room.currentQuestionIndex,
               totalParticipants: room.players.size,
               pinActive: false, // Deactivate PIN after quiz ends
+              // B5: pin/joinCode are globally @unique and meaningless once the
+              // quiz ends, but retired rows kept them forever — every new open
+              // then collided with history at ~N/900000 per attempt (P2002 →
+              // 500). Null them so the codes return to the pool.
+              pin: null,
+              joinCode: null,
             },
           });
 
@@ -646,31 +689,53 @@ export const quizStore = {
             });
           }
 
-          // Update all participants with final scores/ranks
-          for (const entry of leaderboard) {
-            await tx.quizParticipant.updateMany({
-              where: { quizId, userId: entry.userId },
-              data: {
-                finalScore: entry.score,
-                finalRank: entry.rank,
-                correctCount: entry.correctCount,
-                totalAnswerTimeMs: BigInt(entry.totalAnswerTimeMs),
-              },
-            });
+          // Update all participants with final scores/ranks in ONE statement.
+          // The previous per-entry updateMany loop issued ~n sequential
+          // statements over a single pooled Neon connection (est. 30-90s at
+          // the 900-player ceiling, blocking the pool for the whole window).
+          if (leaderboard.length > 0) {
+            const participantRows = Prisma.join(leaderboard.map((entry) => Prisma.sql`(
+              ${entry.userId}::text,
+              ${entry.score}::int,
+              ${entry.rank}::int,
+              ${entry.correctCount}::int,
+              ${entry.totalAnswerTimeMs}::bigint
+            )`));
+            await tx.$executeRaw`
+              UPDATE quiz_participants AS p
+              SET final_score = v.final_score,
+                  final_rank = v.final_rank,
+                  correct_count = v.correct_count,
+                  total_answer_time_ms = v.total_answer_time_ms
+              FROM (VALUES ${participantRows})
+                AS v(user_id, final_score, final_rank, correct_count, total_answer_time_ms)
+              WHERE p.quiz_id = ${quizId} AND p.user_id = v.user_id
+            `;
           }
 
-          // Update per-question analytics
-          for (const [questionId, analytics] of room.questionAnalytics.entries()) {
-            const avgTime = analytics.totalAnswers > 0 ? Math.round(analytics.totalTimeMs / analytics.totalAnswers) : 0;
-            await tx.quizQuestion.update({
-              where: { id: questionId },
-              data: {
-                totalAnswers: analytics.totalAnswers,
-                correctCount: analytics.correctCount,
-                avgAnswerTimeMs: avgTime,
-                answerDistribution: analytics.distribution,
-              },
-            });
+          // Per-question analytics: same VALUES-join shape (one statement
+          // instead of one update per question).
+          if (room.questionAnalytics.size > 0) {
+            const analyticsRows = Prisma.join(Array.from(room.questionAnalytics.entries()).map(([questionId, analytics]) => {
+              const avgTime = analytics.totalAnswers > 0 ? Math.round(analytics.totalTimeMs / analytics.totalAnswers) : 0;
+              return Prisma.sql`(
+                ${questionId}::text,
+                ${analytics.totalAnswers}::int,
+                ${analytics.correctCount}::int,
+                ${avgTime}::int,
+                ${JSON.stringify(analytics.distribution)}::jsonb
+              )`;
+            }));
+            await tx.$executeRaw`
+              UPDATE quiz_questions AS q
+              SET total_answers = v.total_answers,
+                  correct_count = v.correct_count,
+                  avg_answer_time_ms = v.avg_answer_time_ms,
+                  answer_distribution = v.answer_distribution
+              FROM (VALUES ${analyticsRows})
+                AS v(question_id, total_answers, correct_count, avg_answer_time_ms, answer_distribution)
+              WHERE q.id = v.question_id AND q.quiz_id = ${quizId}
+            `;
           }
         });
 
@@ -768,25 +833,31 @@ export const quizStore = {
     // Ignore stale disconnect events from an older socket after a reconnect.
     if (player.socketId !== socketId) return null;
 
-    player.connected = false;
+    if (player.connected) {
+      player.connected = false;
+      room.connectedCount = Math.max(0, room.connectedCount - 1);
+      if (player.answeredCurrentQuestion) {
+        room.answeredConnectedCount = Math.max(0, room.answeredConnectedCount - 1);
+      }
+    }
 
-    const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected).length;
-    return { connectedPlayers, displayName: player.displayName };
+    return { connectedPlayers: room.connectedCount, displayName: player.displayName };
   },
 
+  // _io is unused; kept for signature stability (quizSocket + quizSnapshot both
+  // thread it through). If the store ever starts using it, note both callers
+  // pass the ROOT server, not the /quiz namespace.
   scheduleEmptyRoomCleanup(quizId: string, _io: SocketIOServer): void {
     const room = quizRooms.get(quizId);
     if (!room) return;
 
-    const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected).length;
-    if (connectedPlayers > 0) return;
+    if (room.connectedCount > 0) return;
 
     room.emptyRoomTimer = setTimeout(async () => {
       const currentRoom = quizRooms.get(quizId);
       if (!currentRoom) return;
 
-      const stillConnected = Array.from(currentRoom.players.values()).filter(p => p.connected).length;
-      if (stillConnected === 0) {
+      if (currentRoom.connectedCount === 0) {
         logger.info(`Quiz ${quizId} abandoned — persisting and cleaning up`);
         await this.persistResultsAndCleanup(quizId, 'ABANDONED');
       }
@@ -848,6 +919,19 @@ export const quizStore = {
     const socketId = player.socketId;
     const displayName = player.displayName;
     room.players.delete(userId);
+    room.kickedUserIds.add(userId);
+    // Removal takes the player out of every counter a rescan would produce
+    // (their answer records in currentAnswers/allAnswers stay, matching the
+    // pre-counter behavior where kicked players vanished from scans only).
+    if (player.connected) {
+      room.connectedCount = Math.max(0, room.connectedCount - 1);
+      if (player.answeredCurrentQuestion) {
+        room.answeredConnectedCount = Math.max(0, room.answeredConnectedCount - 1);
+      }
+    }
+    if (player.answeredCurrentQuestion) {
+      room.answeredCount = Math.max(0, room.answeredCount - 1);
+    }
     return { socketId, displayName };
   },
 
@@ -873,9 +957,7 @@ export const quizStore = {
   },
 
   getConnectedPlayerCount(quizId: string): number {
-    const room = quizRooms.get(quizId);
-    if (!room) return 0;
-    return Array.from(room.players.values()).filter(p => p.connected).length;
+    return quizRooms.get(quizId)?.connectedCount ?? 0;
   },
 
   /** Find which quiz room a user is currently in */
@@ -886,5 +968,14 @@ export const quizStore = {
       }
     }
     return null;
+  },
+
+  /**
+   * S6: room ids for the crash-snapshot scheduler (quizSnapshot.ts). Purely
+   * additive read — the snapshot system observes rooms via getRoom() and never
+   * changes engine behavior.
+   */
+  listRoomIds(): string[] {
+    return Array.from(quizRooms.keys());
   },
 };

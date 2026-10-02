@@ -3,17 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
+  "engines": {
+    "node": "20.x"
+  },
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "bash ./scripts/free-dev-ports.sh && concurrently -n \"API,WEB,PLAYGROUND\" -c \"blue,green,magenta\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run playground\"",
     "start": "npm run build && npm run start:prod",
     "start:prod": "NODE_ENV=production concurrently \"npm run start --workspace=apps/api\" \"npm run preview --workspace=apps/web\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
-    "build:web:seo": "node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js",
-    "prerender": "node scripts/prerender.js",
+    "build:web:seo": "node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs",
+    "prerender": "node scripts/prerender.mjs",
     "web": "npm run dev --workspace=apps/web",
     "api": "npm run dev --workspace=apps/api",
     "playground": "concurrently -n \"EXEC,PLAYGROUND\" -c \"cyan,magenta\" \"cd apps/playground && node execute-server.js\" \"npm run dev --workspace=apps/playground\"",
@@ -28,34 +30,35 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:day-attendance": "npx tsx scripts/migrate-day-attendance.ts",
     "db:audit:competition-autosaves": "tsx scripts/audit-competition-autosaves.ts",
+    "db:prune": "tsx scripts/prune-old-records.ts",
+    "db:seed:test-qotd": "tsx scripts/seed-test-qotd.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
-    "test:stability": "node --import tsx --test apps/api/src/quiz/*.test.ts apps/api/src/routes/*.test.ts apps/api/src/utils/*.test.ts apps/web/tests/*.test.ts",
+    "test:stability": "node --import tsx --test apps/api/src/quiz/*.test.ts apps/api/src/routes/*.test.ts apps/api/src/utils/*.test.ts apps/api/src/competition/*.test.ts apps/web/tests/*.test.ts apps/playground/tests/*.test.ts",
+    "stress:judge": "node --import tsx scripts/stress/run-stress.mjs",
     "setup": "npm install && npm run db:migrate && npm run db:seed"
   },
   "devDependencies": {
-    "@fontsource/cinzel": "^5.2.8",
-    "@fontsource/playfair-display": "^5.2.8",
     "@playwright/test": "^1.59.1",
     "@types/node": "^20.19.27",
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
-    "prisma": "^5.8.0",
+    "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.3.3"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@prisma/client": "^5.8.0"
+    "@neon/config": "^1.8.2",
+    "@neon/env": "^1.4.7",
+    "@prisma/client": "^7.8.0"
   },
   "overrides": {
-    "qs": "6.15.0"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "qs": "^6.15.2",
+    "ws": "^8.21.0"
   }
 }

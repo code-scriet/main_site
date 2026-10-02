@@ -51,6 +51,18 @@ export interface CreateEventRegistrationParams {
    * and the token's `registrationId` claim can never disagree.
    */
   registrationId?: string;
+  /**
+   * Overrides the registration's recorded moment. Omitted by every organic flow
+   * (which takes the column's now() default); supplied only by the PRES/SA retro
+   * console, which reconstructs a registration for an event that already happened.
+   * Already validated against the event's start by resolveBackdate at the route.
+   */
+  timestamp?: Date;
+  /**
+   * Actor id, set ONLY alongside a backdated `timestamp`. Marks the row as
+   * retroactively created so it is never mistaken for an organic registration.
+   */
+  backdatedBy?: string | null;
 }
 
 export interface CreateEventRegistrationResult {
@@ -79,6 +91,8 @@ export async function createEventRegistrationInTx(
       registrationType: params.registrationType ?? RegistrationType.PARTICIPANT,
       customFieldResponses: params.customFieldResponses,
       attendanceToken,
+      ...(params.timestamp ? { timestamp: params.timestamp } : {}),
+      ...(params.backdatedBy ? { backdatedBy: params.backdatedBy } : {}),
     },
     select: createdRegistrationSelect,
   });
@@ -93,4 +107,55 @@ export async function createEventRegistrationInTx(
   });
 
   return { registration, attendanceToken };
+}
+
+/** Thrown by assertWithinActiveEventLimitInTx — callers map it to their own HTTP error shape. */
+export class EventLimitExceededError extends Error {
+  constructor(
+    public readonly limit: number,
+    public readonly activeCount: number,
+  ) {
+    super(`Active-event registration limit reached (${activeCount}/${limit})`);
+    this.name = 'EventLimitExceededError';
+  }
+}
+
+/**
+ * L2: enforce Settings.maxEventsPerUser server-side, inside the caller's
+ * serializable transaction (so two concurrent intakes can't both slip under
+ * the cap). Counts the caller's PARTICIPANT registrations on events that
+ * haven't finished (UPCOMING/ONGOING) — GUEST invitations never count, and
+ * PAST events free their slots.
+ *
+ * Call from every PARTICIPANT intake (solo registration, team create, team
+ * join) before createEventRegistrationInTx. Deliberately NOT called from the
+ * guest-invitation accept flow.
+ *
+ * A limit below 1 disables the check (the admin UI floors the field at 1;
+ * out-of-band nonsense values must not brick all registration).
+ */
+export async function assertWithinActiveEventLimitInTx(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<void> {
+  const settings = await tx.settings.findUnique({
+    where: { id: 'default' },
+    select: { maxEventsPerUser: true },
+  });
+  const limit = settings?.maxEventsPerUser ?? 5;
+  if (!Number.isInteger(limit) || limit < 1) {
+    return;
+  }
+
+  const activeCount = await tx.eventRegistration.count({
+    where: {
+      userId,
+      registrationType: RegistrationType.PARTICIPANT,
+      event: { status: { in: ['UPCOMING', 'ONGOING'] } },
+    },
+  });
+
+  if (activeCount >= limit) {
+    throw new EventLimitExceededError(limit, activeCount);
+  }
 }

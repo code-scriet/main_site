@@ -1,9 +1,11 @@
+// MUST be first: populates process.env before any import constructs the Prisma
+// client (Prisma 7's pg adapter reads DATABASE_URL at import time). See loadEnv.ts.
+import './config/loadEnv.js';
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import passport from 'passport';
 import { createServer } from 'http';
 import { Prisma } from '@prisma/client';
@@ -30,8 +32,10 @@ import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { searchRouter } from './routes/search.js';
+import { backdateRouter } from './routes/backdate.js';
 import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
+import { recoverQuizzesFromSnapshots, startQuizSnapshotScheduler, stopQuizSnapshotScheduler } from './quiz/quizSnapshot.js';
 import { quizStore } from './quiz/quizStore.js';
 import { playgroundRouter } from './routes/playground.js';
 import { creditsRouter } from './routes/credits.js';
@@ -39,25 +43,31 @@ import { attendanceRouter } from './routes/attendance.js';
 import { teamsRouter } from './routes/teams.js';
 import competitionRouter, { recoverActiveRounds } from './routes/competition.js';
 import { problemsRouter } from './routes/problems.js';
+import { problemSheetsRouter } from './routes/problemSheets.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
+import { clearAllContestRooms } from './competition/competitionRealtime.js';
+import { isContestPriorityActive } from './competition/contestMode.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
 import { initializeDatabase, populateAnnouncementSlugs, populateProfileSlugs } from './utils/init.js';
-import { initializeSocket } from './utils/socket.js';
+import { initializeSocket, getActiveWsEngine } from './utils/socket.js';
 import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
-import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
+import { escapeHtml } from './utils/sanitize.js';
+import { isUuid } from './utils/idParams.js';
+import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
+import { flushCertificateViews, stopCertificateViewFlusher } from './utils/certificateViewCounter.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
+import { getClientIp } from './utils/clientIp.js';
+import { resolveRateLimitKey, resolveAuthRateLimitKey, isUserRateLimitKey } from './utils/rateLimitKey.js';
 
-// Load monorepo root .env first, then local .env (local overrides root).
-// In production (Render) neither file exists — env vars come from the dashboard.
-dotenv.config({ path: '../../.env' });
-dotenv.config();
+// Environment is loaded by ./config/loadEnv.js (imported first, above) so the
+// Prisma client sees DATABASE_URL at construction time.
 
 const app = express();
 const httpServer = createServer(app);
@@ -207,6 +217,9 @@ initQuizSocket(io);
 // Initialize Attendance Socket namespace
 initializeAttendanceSocket(io);
 
+// Competition realtime is relayed to the (idle) playground server's /competition
+// namespace (apps/playground/execute-server.js) — see competition/competitionRealtime.ts.
+
 // Neon keep-alive: prevent cold connection starts
 let keepAliveFailureCount = 0;
 const ENABLE_DB_KEEPALIVE = process.env.ENABLE_DB_KEEPALIVE === 'true';
@@ -214,6 +227,9 @@ const DB_KEEPALIVE_INTERVAL_MS = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 
 
 if (ENABLE_DB_KEEPALIVE) {
   setInterval(async () => {
+    // During a live contest the DB is already busy with the contest itself — skip the
+    // keep-alive ping (contest priority mode).
+    if (isContestPriorityActive()) return;
     try {
       await prisma.$queryRaw`SELECT 1`;
       keepAliveFailureCount = 0;
@@ -255,6 +271,15 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '2mb' }));
+// Express 5 exposes req.query through a re-parsing getter, so mutation-based
+// sanitizers (e.g. hpp) are silent no-ops here. Collapse duplicate query params
+// at parse time instead: keep-last matches getQueryString() semantics used by
+// every reader, and bodies are never touched (they legitimately carry arrays).
+app.set('query parser', (query: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const [key, value] of new URLSearchParams(query)) out[key] = value;
+  return out;
+});
 
 // CSRF protection for cookie-authenticated writes:
 // mutating requests must come from an allowed browser origin unless they use Bearer auth.
@@ -291,24 +316,67 @@ if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true')
   app.use(requestLogger);
 }
 
+// S2: temporary prod diagnostics for the IP-resolution readback (see
+// docs/deep-audit/ops-checklist.md, lands with PR #51). One line per request comparing the three
+// candidate identities; enable via LOG_IP_DIAGNOSTICS=true for ~24h, record
+// the verdict, then unset.
+if (process.env.LOG_IP_DIAGNOSTICS === 'true') {
+  app.use('/api', (req, _res, next) => {
+    logger.info('ip-diagnostics', {
+      path: req.path,
+      expressIp: req.ip ?? null,
+      cfConnectingIp: req.headers['cf-connecting-ip'] ?? null,
+      xForwardedFor: req.headers['x-forwarded-for'] ?? null,
+      resolved: getClientIp(req),
+    });
+    next();
+  });
+}
+
 // Rate limiting - General API
+// NAT-safe keying (contest capacity): requests with a VALID access token are
+// bucketed per-user; only anonymous traffic shares the IP bucket. Without
+// this, 120-200 students behind one campus NAT share a single 500/15min
+// bucket (~33 req/min for the whole hall) and a contest dies at the front
+// door. Bucket-minting by token rotation is impossible — resolveRateLimitKey
+// only grants a user bucket after HMAC signature verification; junk tokens
+// stay pinned to the IP. IP resolution still goes through getClientIp() (S2)
+// so the HTTP and socket layers agree about what "the client IP" is.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // limit each IP to 500 requests per windowMs
+  // Per-user budget is sized for the contest arena's polling fallback
+  // (status + leaderboard + clarifications + proctor heartbeat ≈ 15-20/min
+  // when the socket relay is down). The anonymous IP bucket is wider than the
+  // old 500 because it is now shared ONLY by unauthenticated traffic — e.g. a
+  // NAT'd hall bootstrapping sign-ins — not by every request from campus.
+  max: (req) => (isUserRateLimitKey(resolveRateLimitKey(req)) ? 800 : 2000),
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => resolveRateLimitKey(req),
 });
 app.use('/api', limiter);
 
-// More lenient rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints. Keying (NAT-safe, see
+// utils/rateLimitKey.ts): verified sessions per-user (covers /auth/me),
+// anonymous credential posts per (IP, email) — so a 200-student login storm
+// from one campus NAT works, while brute-forcing any SINGLE account from one
+// IP is capped tighter than the old shared bucket. Spray attacks across many
+// emails from one IP remain bounded by the general limiter's IP bucket.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 50 auth attempts per 15 minutes
+  // (skipSuccessfulRequests: only FAILED attempts count toward these.)
+  // per-user 300 · per-(IP,email) 15 failed tries per account · plain-IP 50
+  // (OAuth redirects/exchange-code carry no email; keeps the legacy headroom).
+  max: (req) => {
+    if (isUserRateLimitKey(resolveRateLimitKey(req))) return 300;
+    return typeof (req.body as { email?: unknown } | undefined)?.email === 'string' ? 15 : 50;
+  },
   message: { error: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
+  keyGenerator: (req) => resolveAuthRateLimitKey(req),
 });
 
 // Passport setup
@@ -337,6 +405,10 @@ app.get('/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     environment: NODE_ENV,
     version: process.env.npm_package_version || '1.0.0',
+    // S7a: which WebSocket engine actually loaded — 'eiows' (C++, the low-memory
+    // default) or 'ws' (fell back / forced). Lets you confirm the memory win is
+    // live with one curl instead of grepping boot logs.
+    wsEngine: getActiveWsEngine(),
   });
 });
 
@@ -374,6 +446,62 @@ app.get('/ping', (req, res) => {
   res.status(200).send('pong');
 });
 
+// S-03 — public OG-image page for a user's streak share. LinkedIn's crawler reads
+// og:image here (it doesn't run JS, so the SPA can't set it); humans are redirected
+// to the dashboard. og:image is ONLY the user's STORED streakCardUrl — never a value
+// from the request — so this can't be turned into an open og:image redirector.
+// This route lives at the API ROOT (outside the `/api` general limiter) but still
+// hits the DB on an attacker-controllable path param, so it carries its own bound.
+const shareLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
+app.get('/share/streak/:userId', shareLimiter, async (req, res) => {
+  const frontend = process.env.FRONTEND_URL || 'https://codescriet.dev';
+  const dest = `${frontend}/dashboard/coding?tab=qotd`;
+  const userId = String(req.params.userId ?? '');
+  // Reject obviously-malformed ids before touching the DB: user ids are uuids, so a
+  // non-uuid path can never resolve. Skips a wasted lookup on junk/scan traffic
+  // (defense alongside shareLimiter) and matches the project's id-guard convention.
+  if (!isUuid(userId)) {
+    res.set('Cache-Control', 'public, max-age=60');
+    return res.redirect(302, dest);
+  }
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, streakCardUrl: true, currentStreak: true, isDeleted: true },
+    });
+    if (!user || user.isDeleted || !user.streakCardUrl) {
+      res.set('Cache-Control', 'public, max-age=60');
+      return res.redirect(302, dest);
+    }
+    const img = escapeHtml(user.streakCardUrl);
+    const title = escapeHtml(`${user.name ?? 'A member'}'s coding streak on code.scriet`);
+    const desc = escapeHtml(`${user.currentStreak ?? 0}-day problem-solving streak on code.scriet. Come build with us.`);
+    const destEsc = escapeHtml(dest);
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>${title}</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${desc}">
+<meta property="og:image" content="${img}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${img}">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0; url=${destEsc}">
+</head><body>Redirecting to <a href="${destEsc}">code.scriet</a>…</body></html>`);
+  } catch {
+    return res.redirect(302, frontend);
+  }
+});
+
 // Sitemap and SEO routes at ROOT level (no rate limiting, for Google bots)
 // These are served at api.codescriet.dev/sitemap.xml and api.codescriet.dev/robots.txt
 app.use('/sitemap.xml', sitemapRouter);
@@ -403,12 +531,16 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
+// S-09: mounted BEFORE /api/problems so "sheets" isn't captured by the problems /:idOrSlug route.
+app.use('/api/problems/sheets', problemSheetsRouter);
 app.use('/api/problems', problemsRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/competition', competitionRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/search', searchRouter);
+// Retroactive event records (PRES/SA only) — gating lives inside the router.
+app.use('/api/backdate', backdateRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging.
@@ -421,6 +553,7 @@ const testEmailLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many test emails, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), testEmailLimiter, async (req: express.Request, res: express.Response) => {
   try {
@@ -509,6 +642,9 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // Graceful shutdown
 let shuttingDown = false;
 let shutdownTimer: NodeJS.Timeout | null = null;
+// Set when shutdown was triggered by a crash (uncaughtException) so the
+// otherwise-clean drain still reports failure instead of exit 0.
+let fatalCrash = false;
 
 const shutdown = async () => {
   if (shuttingDown) {
@@ -520,8 +656,17 @@ const shutdown = async () => {
   stopEventStatusScheduler();
   stopReminderScheduler();
   stopQotdAutoPublishScheduler();
+  stopRegistrationOpenScheduler();
+  stopQuizSnapshotScheduler(); // S6: stop the writer before rooms are flushed below
+  stopCertificateViewFlusher();
+  clearAllContestRooms(); // drop in-memory contest realtime state (throttle timers)
 
-  // Close Socket.io server first — disconnects all clients (quiz + attendance)
+  // Write back any certificate views buffered since the last 30s tick, so a normal
+  // restart/redeploy loses none. Settled (not awaited bare) — telemetry must never
+  // block or fail the shutdown path.
+  await Promise.allSettled([flushCertificateViews()]);
+
+  // Close Socket.io server first — disconnects all clients (quiz + attendance + competition)
   io.close();
 
   // Persist all active quiz sessions before exit
@@ -544,11 +689,11 @@ const shutdown = async () => {
   httpServer.close(async () => {
     try {
       await prisma.$disconnect();
-      logger.info('Clean exit');
+      logger.info(fatalCrash ? 'Drained after crash' : 'Clean exit');
       if (shutdownTimer) {
         clearTimeout(shutdownTimer);
       }
-      process.exit(0);
+      process.exit(fatalCrash ? 1 : 0);
     } catch (error) {
       logger.error('Error during Prisma disconnect', {
         error: error instanceof Error ? error.message : String(error),
@@ -560,6 +705,31 @@ const shutdown = async () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// G1: crash forensics + graceful drain on a 24/7 single process.
+// Node 20's default kills the process on an unhandled rejection with no
+// context. Every `void`ed promise in the codebase (audit writes, socket
+// sweeps, email sends) is individually .catch'ed today, but one future miss
+// inside a socket handler would otherwise take down every live quiz with no
+// diagnostic. Log it; only an uncaught *exception* forces an exit.
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', {
+    reason: reason instanceof Error ? reason.stack || reason.message : String(reason),
+  });
+});
+
+// An uncaught exception leaves undefined state — exit, but through the same
+// graceful path SIGTERM takes: schedulers stop, sockets close, live quizzes
+// persist as ABANDONED. A crash becomes a clean quiz persist instead of data
+// loss. shutdown() is idempotent (shuttingDown flag) and its 28s hard-timeout
+// still guarantees the process dies even if the drain itself is wedged.
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception — draining and exiting', {
+    error: error.stack || error.message,
+  });
+  fatalCrash = true;
+  void shutdown();
+});
 
 const startHttpServerWithRetry = (attempt = 1) => {
   const onError = (error: NodeJS.ErrnoException) => {
@@ -586,14 +756,17 @@ const startHttpServerWithRetry = (attempt = 1) => {
     httpServer.removeListener('error', onError);
     logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
     void recoverActiveRounds();
+    // S6 (flag-gated no-op unless ENABLE_QUIZ_SNAPSHOT=true): rebuild crashed
+    // live quizzes from local snapshots, THEN start the periodic writer — the
+    // writer prunes rows for rooms that don't exist, so starting it first
+    // would delete the very snapshots recovery is about to read.
+    void recoverQuizzesFromSnapshots(io).finally(() => startQuizSnapshotScheduler());
   });
 };
 
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
   .then(() => hydrateRuntimeSecurityEnvFromSettings())
-  .then(() => populateAnnouncementSlugs())
-  .then(() => populateProfileSlugs())
   .then(() => {
     // On by default in production (see ENABLE_BACKGROUND_SCHEDULERS above) so
     // scheduled QOTDs publish and event reminders send without manual setup.
@@ -601,11 +774,18 @@ initializeDatabase()
       startEventStatusScheduler();
       startReminderScheduler();
       startQotdAutoPublishScheduler();
+      startRegistrationOpenScheduler();
     } else {
       logger.info('Background schedulers disabled (development default; set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
     }
 
     startHttpServerWithRetry();
+
+    // Slug backfills are repair passes over legacy rows (both no-op once the
+    // data settled) — they don't gate request handling, so they run after
+    // listen instead of adding serial table scans to every deploy's
+    // unavailability window. Errors are caught inside each function.
+    void populateAnnouncementSlugs().then(() => populateProfileSlugs());
   })
   .catch((error) => {
     logger.error('Failed to start server:', error);

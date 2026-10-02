@@ -1,20 +1,27 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { Prisma, type UserBlockFeature } from '@prisma/client';
 import crypto from 'crypto';
-import { prisma } from '../lib/prisma.js';
+import { prisma, DB_POOL_MAX } from '../lib/prisma.js';
+import { createConcurrencyLimiter } from '../utils/concurrency.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { socketEvents, disconnectUserSockets } from '../utils/socket.js';
 import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
+import { zodFieldErrors } from '../utils/zodErrors.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
+import { signAccessToken } from '../utils/jwt.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
+import { invalidateUserBlockCache } from '../middleware/blocks.js';
+import { uuidParamGuard } from '../utils/idParams.js';
+import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
@@ -24,7 +31,60 @@ type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
  * auto-issued blocks while leaving anything an admin later writes alone. */
 const SOFT_DELETE_AUTO_REASON = 'Auto-block on soft-delete';
 
+/**
+ * Mirrors auth.ts setSessionCookie attribute-for-attribute (httpOnly, secure,
+ * sameSite, maxAge, domain, path) so the cookie written here replaces the same
+ * session cookie the login paths set. Keep the two in sync until the session
+ * helpers move to a shared util.
+ */
+const setSessionCookie = (res: Response, token: string) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('scriet_session', token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...(isProd ? { domain: '.codescriet.dev' } : {}),
+    path: '/',
+  });
+};
+
+/**
+ * S6: rotate the caller's session after a credential change. Bumps tokenVersion
+ * (kills every outstanding JWT, incl. a possible attacker's), invalidates the
+ * auth LRU so the bump applies now (not after the 30s TTL), and returns a fresh
+ * token signed with the new watermark so the CURRENT session survives.
+ */
+async function rotateSessionAfterCredentialChange(
+  res: Response,
+  user: { id: string },
+  data: Record<string, unknown>,
+): Promise<string> {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { ...data, tokenVersion: { increment: 1 } },
+    select: { id: true, name: true, email: true, role: true, tokenVersion: true },
+  });
+  invalidateCachedAuthUser(user.id);
+
+  const freshToken = signAccessToken({
+    userId: updated.id,
+    id: updated.id,
+    name: updated.name || undefined,
+    email: updated.email,
+    role: updated.role,
+    tokenVersion: updated.tokenVersion,
+  });
+  setSessionCookie(res, freshToken);
+  return freshToken;
+}
+
 export const usersRouter = Router();
+
+// Reject malformed :id path params before they reach Prisma (User PK is a uuid).
+// Fires only for routes that match an `:id` segment; literal routes like
+// `/me`, `/search`, `/export`, `/` are unaffected. Valid ids fall straight through.
+usersRouter.param('id', uuidParamGuard('user ID'));
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional();
 
@@ -117,7 +177,7 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
         hasPassword: !!password,
       }
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch profile' } });
   }
 });
@@ -128,10 +188,7 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     const authUser = getAuthUser(req)!;
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: { message: parsed.error.errors[0]?.message || 'Invalid profile update payload' },
-      });
+      return ApiResponse.validationError(res, zodFieldErrors(parsed.error));
     }
 
     const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = parsed.data;
@@ -189,8 +246,51 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     invalidateCachedAuthUser(authUser.id);
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update profile' } });
+  }
+});
+
+// S-03 — store the user's latest streak-share card (Cloudinary URL) so the public
+// GET /share/streak/:userId route can serve it as og:image. The URL is validated to
+// the Cloudinary host to stop arbitrary og:image injection on that public page.
+usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const parsed = z.object({ url: z.string().url().max(1000) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'A valid image URL is required');
+    let host: string;
+    try { host = new URL(parsed.data.url).hostname; } catch { return ApiResponse.badRequest(res, 'Invalid URL'); }
+    if (!parsed.data.url.startsWith('https://') || !/(^|\.)cloudinary\.com$/i.test(host)) {
+      return ApiResponse.badRequest(res, 'Streak card must be an https Cloudinary URL');
+    }
+    // Best-effort: delete the previous streak card from Cloudinary before overwriting
+    // the URL. Each share generates a new unique asset; without cleanup, every active
+    // user accumulates one orphaned asset per share click (storage quota drain).
+    // Fire-and-forget — don't let a Cloudinary outage block the user's share flow.
+    if (isCloudinaryConfigured) {
+      const prev = await prisma.user.findUnique({ where: { id: authUser.id }, select: { streakCardUrl: true } });
+      if (prev?.streakCardUrl && prev.streakCardUrl !== parsed.data.url) {
+        const match = prev.streakCardUrl.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-z]+)?$/i);
+        if (match?.[1]) {
+          const publicId = match[1];
+          cloudinary.uploader.destroy(publicId).catch(() => undefined);
+          // New cards live in the dedicated streak-cards/ folder (no gallery row), but
+          // cards uploaded before that change went through /upload/image and DID create
+          // an UploadedImage row (publicId === Cloudinary public_id). Drop any such row
+          // alongside the asset so it can't resurface as a 404 gallery thumbnail. Scoped
+          // to the owner; fire-and-forget, like the destroy above.
+          prisma.uploadedImage.deleteMany({ where: { publicId, userId: authUser.id } }).catch(() => undefined);
+        }
+      }
+    }
+    await prisma.user.update({ where: { id: authUser.id }, data: { streakCardUrl: parsed.data.url } });
+    // Trail the change: streakCardUrl is the public og:image of /share/streak/:id, so
+    // keep a record of who set it. Not auth-relevant — no cache/tokenVersion bump.
+    await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { field: 'streakCardUrl' });
+    return ApiResponse.success(res, { streakCardUrl: parsed.data.url });
+  } catch {
+    return ApiResponse.internal(res, 'Failed to save streak card');
   }
 });
 
@@ -218,14 +318,11 @@ usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: R
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'CREATE', 'user', authUser.id, { action: 'password_added' });
-    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.' });
-  } catch (error) {
+    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.', token: freshToken });
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to add password' } });
   }
 });
@@ -259,14 +356,11 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { action: 'password_change' });
-    res.json({ success: true, message: 'Password changed successfully' });
-  } catch (error) {
+    res.json({ success: true, message: 'Password changed successfully', token: freshToken });
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to change password' } });
   }
 });
@@ -291,7 +385,7 @@ usersRouter.get('/me/registrations', authMiddleware, async (req: Request, res: R
     });
 
     res.json({ success: true, data: registrations });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
@@ -339,7 +433,7 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
     });
 
     res.json({ success: true, data: users });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to search users' } });
   }
 });
@@ -347,33 +441,24 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
 // Export all users to Excel (admin)
 usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
-    const users = await prisma.user.findMany({
-      where: { role: { not: 'NETWORK' } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        bio: true,
-        profileCompleted: true,
-        oauthProvider: true,
-        githubUrl: true,
-        linkedinUrl: true,
-        twitterUrl: true,
-        websiteUrl: true,
-        createdAt: true,
-        _count: { select: { registrations: true, qotdSubmissions: true } },
-      },
-    });
-
     const ExcelJS = await import('exceljs');
-    const workbook = new ExcelJS.default.Workbook();
+
+    // Streaming export (mirrors GET /api/quiz/:quizId/export): the buffered
+    // Workbook held the full-table cell graph AND the serialized buffer in RAM
+    // simultaneously — the queries below are cursor-batched, but the workbook
+    // itself still accumulated every row. The WorkbookWriter writes each
+    // committed row straight to `res`, so peak memory is bounded by one
+    // 500-row batch plus zip buffers. Headers must be set before the writer is
+    // constructed (it starts writing immediately); from here on, failures can
+    // only truncate the download, not return a JSON error.
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx"`);
+
+    const workbook = new ExcelJS.default.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
@@ -398,75 +483,138 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
       { header: 'Joined', key: 'joined', width: 22 },
     ];
 
-    // Style header row
-    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    worksheet.getRow(1).fill = {
+    // Streaming mode: committed rows are gone, so styles must be applied at
+    // add time (the old post-hoc `eachRow` border/fill pass doesn't exist here).
+    const thinBorder = {
+      top: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      bottom: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      left: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      right: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+    };
+
+    // Style header row (the old eachRow pass bordered row 1 too)
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFD97706' }, // Amber color
     };
-    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
-    worksheet.getRow(1).height = 25;
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    headerRow.height = 25;
+    headerRow.border = thinBorder;
+    headerRow.commit();
 
-    // Add data rows
-    users.forEach((user, index) => {
-      worksheet.addRow({
-        sno: index + 1,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone || 'N/A',
-        course: user.course || 'N/A',
-        branch: user.branch || 'N/A',
-        year: user.year || 'N/A',
-        profileCompleted: user.profileCompleted ? 'Yes' : 'No',
-        authMethod: user.oauthProvider || 'Email/Password',
-        eventsRegistered: user._count.registrations,
-        qotdSubmissions: user._count.qotdSubmissions,
-        github: user.githubUrl || '',
-        linkedin: user.linkedinUrl || '',
-        joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    // C1: the old single query exported only the 100 newest accounts while the
+    // UI labels this "Export all users" — silent data loss in the artifact
+    // admins trust most. Cursor-batch the full table instead (mail.ts
+    // bulk-audience pattern); summary counts accumulate per batch.
+    const EXPORT_BATCH_SIZE = 500;
+    let cursor: string | undefined;
+    let serial = 0;
+    const roleCounts = { ADMIN: 0, CORE_MEMBER: 0, USER: 0 };
+    let profilesCompleted = 0;
+
+    while (true) {
+      const users = await prisma.user.findMany({
+        where: { role: { not: 'NETWORK' } },
+        // Cursor pagination needs a unique tiebreaker; id keeps the
+        // newest-first sheet order stable across batches.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: EXPORT_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          phone: true,
+          course: true,
+          branch: true,
+          year: true,
+          profileCompleted: true,
+          oauthProvider: true,
+          githubUrl: true,
+          linkedinUrl: true,
+          createdAt: true,
+          _count: { select: { registrations: true, qotdSubmissions: true } },
+        },
       });
-    });
 
-    // Add alternating row colors
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 1) {
+      if (users.length === 0) break;
+      cursor = users[users.length - 1].id;
+
+      for (const user of users) {
+        serial += 1;
+        if (user.role === 'ADMIN') roleCounts.ADMIN += 1;
+        else if (user.role === 'CORE_MEMBER') roleCounts.CORE_MEMBER += 1;
+        else if (user.role === 'USER') roleCounts.USER += 1;
+        if (user.profileCompleted) profilesCompleted += 1;
+
+        const row = worksheet.addRow({
+          sno: serial,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone || 'N/A',
+          course: user.course || 'N/A',
+          branch: user.branch || 'N/A',
+          year: user.year || 'N/A',
+          profileCompleted: user.profileCompleted ? 'Yes' : 'No',
+          authMethod: user.oauthProvider || 'Email/Password',
+          eventsRegistered: user._count.registrations,
+          qotdSubmissions: user._count.qotdSubmissions,
+          github: user.githubUrl || '',
+          linkedin: user.linkedinUrl || '',
+          joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        });
+        // Alternating row colors (same parity as the old eachRow pass)
         row.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+          fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
         };
+        row.border = thinBorder;
+        row.commit();
       }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
 
-    // Add summary sheet
+      if (users.length < EXPORT_BATCH_SIZE) break;
+    }
+    worksheet.commit();
+
+    // Add summary sheet — no header row; set widths directly (before any
+    // commit). Column-level font doesn't reach committed rows in streaming
+    // mode, so bold is applied per-cell instead.
     const summarySheet = workbook.addWorksheet('Summary');
-    summarySheet.addRow(['Total Users', users.length]);
-    summarySheet.addRow(['Admins', users.filter(u => u.role === 'ADMIN').length]);
-    summarySheet.addRow(['Core Members', users.filter(u => u.role === 'CORE_MEMBER').length]);
-    summarySheet.addRow(['Members', users.filter(u => u.role === 'USER').length]);
-    summarySheet.addRow(['Profiles Completed', users.filter(u => u.profileCompleted).length]);
-    summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
-
     summarySheet.getColumn(1).width = 20;
-    summarySheet.getColumn(1).font = { bold: true };
     summarySheet.getColumn(2).width = 30;
 
-    // Send Excel file
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx"`);
+    const summaryData: [string, string | number][] = [
+      ['Total Users', serial],
+      ['Admins', roleCounts.ADMIN],
+      ['Core Members', roleCounts.CORE_MEMBER],
+      ['Members', roleCounts.USER],
+      ['Profiles Completed', profilesCompleted],
+      ['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
+    ];
+    for (const [label, value] of summaryData) {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+      row.commit();
+    }
+    summarySheet.commit();
 
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('User export error:', { error: error instanceof Error ? error.message : String(error) });
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to export users' } });
   }
 });
@@ -741,15 +889,14 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     // Check permissions: Super admin can see everyone, other admins cannot see other admins
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     
-    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'You cannot view other admin/president profiles' } });
     }
 
     res.json({ success: true, data: targetUser });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch user' } });
   }
 });
@@ -798,15 +945,14 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     // Check permissions: Super admin can edit everyone, other admins cannot edit other admins
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = authUser.email === superAdminEmail;
+    const isSuperAdminUser = isSuperAdmin(authUser);
     
-    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'You cannot edit other admin/president profiles' } });
     }
 
     // Prevent editing super admin unless you are super admin
-    if (targetUser.email === superAdminEmail && !isSuperAdmin) {
+    if (isSuperAdmin(targetUser) && !isSuperAdminUser) {
       return res.status(403).json({ success: false, error: { message: 'Cannot modify super admin' } });
     }
 
@@ -836,7 +982,12 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(branch !== undefined && { branch: nextBranch }),
         ...(year !== undefined && { year: nextYear }),
         profileCompleted: isProfileCompletion,
-        ...(hashedPassword && { password: hashedPassword }),
+        // S6 follow-up (PR-3 review): an admin-set password must evict the
+        // target's existing sessions, exactly like the self-service change
+        // flow — otherwise a compromised account keeps its stolen JWTs for up
+        // to 7 days after an admin resets the password. The target signs in
+        // fresh with the new password; no token is returned here.
+        ...(hashedPassword && { password: hashedPassword, tokenVersion: { increment: 1 } }),
       },
       select: {
         id: true,
@@ -864,7 +1015,7 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     socketEvents.userUpdated(user.id);
 
     res.json({ success: true, data: user, message: 'User profile updated successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to update user profile' } });
   }
 });
@@ -1096,6 +1247,7 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
     });
 
     invalidateCachedAuthUser(targetUser.id);
+    invalidateUserBlockCache(targetUser.id);
     await auditLog(authUser.id, 'SOFT_DELETE', 'user', targetUser.id, {
       email: targetUser.email,
       role: targetUser.role,
@@ -1153,6 +1305,7 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         websiteUrl: true, createdAt: true, updatedAt: true,
         lastLoginAt: true, lastLoginIp: true,
         currentStreak: true, longestStreak: true, longestStreakAt: true,
+        streakCardUrl: true,
         isDeleted: true, deletedAt: true, deletedBy: true,
         tokenVersion: true,
         networkProfile: {
@@ -1187,7 +1340,9 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       (target as Record<string, unknown>).lastLoginIp = null;
     }
 
-    // not N+1: single $transaction, all caps explicit
+    // not N+1: all caps explicit; concurrency bounded below the pool (see comment
+    // on the Promise.all below).
+    const readLimit = createConcurrencyLimiter(Math.max(2, DB_POOL_MAX - 1));
     const [
       eventRegistrations,
       certificates,
@@ -1203,8 +1358,28 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       auditCount,
       ledTeamsCount,
       teamMembershipsCount,
-    ] = await prisma.$transaction([
-      prisma.eventRegistration.findMany({
+      problemSubsTotal,
+      problemSubsAccepted,
+      qotdAcceptedSolved,
+      eventsCreatedCount,
+      announcementsCreatedCount,
+      quizzesCreatedCount,
+      qotdsCreatedCount,
+      problemsCreatedCount,
+      problemSheetsCreatedCount,
+      invitationsReceivedCount,
+      invitationsSentCount,
+      uploadedImagesCount,
+      // S2a: read-only admin snapshot — no read feeds a later write, so the
+      // single-MVCC-snapshot guarantee of $transaction([]) is unneeded. A bare
+      // Promise.all fans all 26 reads across the pool at once, momentarily
+      // grabbing EVERY one of the frozen 5 connections (HC #1/#3) and able to
+      // queue a latency-critical live-quiz persist behind admin vanity stats.
+      // Bounding to POOL−1 keeps the parallel win (~ceil(26/4) vs 26 sequential
+      // round-trips) while ALWAYS leaving a connection free. Response shape is
+      // identical — each `readLimit(() => …)` runs its query, just gated on a slot.
+    ] = await Promise.all([
+      readLimit(() => prisma.eventRegistration.findMany({
         where: { userId: targetId },
         select: {
           id: true, eventId: true, timestamp: true, attended: true, scannedAt: true,
@@ -1213,28 +1388,28 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         },
         orderBy: { timestamp: 'desc' },
         take: 100,
-      }),
-      prisma.certificate.findMany({
+      })),
+      readLimit(() => prisma.certificate.findMany({
         where: { recipientId: targetId },
         select: { id: true, certId: true, type: true, eventName: true, issuedAt: true, isRevoked: true, viewCount: true },
         orderBy: { issuedAt: 'desc' },
         take: 50,
-      }),
-      prisma.qOTDSubmission.findMany({
+      })),
+      readLimit(() => prisma.qOTDSubmission.findMany({
         where: { userId: targetId },
         select: { id: true, timestamp: true, qotd: { select: { id: true, date: true, difficulty: true, question: true } } },
         orderBy: { timestamp: 'desc' },
         take: 100,
-      }),
-      prisma.execution.count({ where: { userId: targetId } }),
-      prisma.snippet.count({ where: { userId: targetId } }),
-      prisma.playgroundDailyUsage.findMany({
+      })),
+      readLimit(() => prisma.execution.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.snippet.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.playgroundDailyUsage.findMany({
         where: { userId: targetId },
         select: { usageDate: true, count: true },
         orderBy: { usageDate: 'desc' },
         take: 30,
-      }),
-      prisma.quizParticipant.findMany({
+      })),
+      readLimit(() => prisma.quizParticipant.findMany({
         where: { userId: targetId },
         select: {
           id: true, finalScore: true, finalRank: true, joinedAt: true,
@@ -1242,14 +1417,29 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         },
         orderBy: { joinedAt: 'desc' },
         take: 50,
-      }),
-      prisma.competitionSubmission.count({ where: { userId: targetId } }),
-      prisma.pollVote.count({ where: { userId: targetId } }),
-      prisma.pollFeedback.count({ where: { userId: targetId } }),
-      prisma.poll.count({ where: { createdBy: targetId } }),
-      prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } }),
-      prisma.eventTeam.count({ where: { leaderId: targetId } }),
-      prisma.eventTeamMember.count({ where: { userId: targetId } }),
+      })),
+      readLimit(() => prisma.competitionSubmission.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.pollVote.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.pollFeedback.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.poll.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } })),
+      readLimit(() => prisma.eventTeam.count({ where: { leaderId: targetId } })),
+      readLimit(() => prisma.eventTeamMember.count({ where: { userId: targetId } })),
+      // Coding: judged-submission volume + AC rate, and QOTD solves (ACCEPTED).
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId } })),
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId, verdict: 'ACCEPTED' } })),
+      readLimit(() => prisma.problemSubmission.count({ where: { userId: targetId, contextType: 'QOTD', verdict: 'ACCEPTED' } })),
+      // Content authored by this user (drives the "Created" section).
+      readLimit(() => prisma.event.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.announcement.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.quiz.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.qOTD.count({ where: { createdById: targetId } })),
+      readLimit(() => prisma.problem.count({ where: { createdBy: targetId } })),
+      readLimit(() => prisma.problemSheet.count({ where: { createdBy: targetId } })),
+      // Network/community + uploads.
+      readLimit(() => prisma.eventInvitation.count({ where: { inviteeUserId: targetId } })),
+      readLimit(() => prisma.eventInvitation.count({ where: { invitedById: targetId } })),
+      readLimit(() => prisma.uploadedImage.count({ where: { userId: targetId } })),
     ]);
 
     return ApiResponse.success(res, {
@@ -1268,6 +1458,25 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         ledTeams: ledTeamsCount,
         teamMemberships: teamMembershipsCount,
         auditEntries: auditCount,
+        invitationsReceived: invitationsReceivedCount,
+        invitationsSent: invitationsSentCount,
+        uploadedImages: uploadedImagesCount,
+      },
+      // Coding inference: total judged submissions, accepted, AC rate %, QOTD solves.
+      coding: {
+        totalSubmissions: problemSubsTotal,
+        accepted: problemSubsAccepted,
+        acRate: problemSubsTotal > 0 ? Math.round((problemSubsAccepted / problemSubsTotal) * 100) : 0,
+        qotdSolved: qotdAcceptedSolved,
+      },
+      contentCreated: {
+        events: eventsCreatedCount,
+        announcements: announcementsCreatedCount,
+        quizzes: quizzesCreatedCount,
+        qotds: qotdsCreatedCount,
+        problems: problemsCreatedCount,
+        problemSheets: problemSheetsCreatedCount,
+        polls: createdPollsCount,
       },
       eventRegistrations,
       certificates,
@@ -1484,8 +1693,12 @@ usersRouter.post('/:id/blocks', authMiddleware, requireRole('ADMIN'), async (req
         expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
       },
     });
-    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', block.id, {
-      userId: target.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
+    invalidateUserBlockCache(target.id);
+    // entityId = the blocked user's id (NOT the UserBlock row id) so this action
+    // surfaces in the target's audit trail (the user-audit query filters
+    // entityId on user/user_block). The UserBlock row id is kept in metadata.
+    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', target.id, {
+      blockId: block.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
     });
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, block, 'Block applied');
@@ -1511,6 +1724,7 @@ usersRouter.delete('/:id/blocks/:feature', authMiddleware, requireRole('ADMIN'),
     const result = await prisma.userBlock.deleteMany({
       where: { userId: target.id, feature: feature as UserBlockFeature },
     });
+    invalidateUserBlockCache(target.id);
     await auditLog(authUser.id, 'UNBLOCK_USER', 'user_block', target.id, { feature, removed: result.count });
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, { removed: result.count }, 'Block removed');
@@ -1618,6 +1832,7 @@ usersRouter.post('/:id/restore', authMiddleware, requireRole('ADMIN'), async (re
     });
 
     invalidateCachedAuthUser(target.id);
+    invalidateUserBlockCache(target.id);
     await auditLog(authUser.id, 'RESTORE_USER', 'user', target.id);
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, { id: target.id, isDeleted: false }, 'User restored');

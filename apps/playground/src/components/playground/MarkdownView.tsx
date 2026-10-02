@@ -16,8 +16,10 @@ export function MarkdownView({ source, className }: MarkdownViewProps) {
     );
   }
 
+  // `break-words` keeps a long identifier or URL in the statement from forcing the
+  // whole pane to scroll sideways on a phone.
   return (
-    <div className={cn('playground-markdown text-sm leading-6 text-zinc-700 dark:text-zinc-300', className)}>
+    <div className={cn('playground-markdown break-words text-sm leading-6 text-zinc-700 dark:text-zinc-300', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

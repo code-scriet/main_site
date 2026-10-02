@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { CertType, Prisma, RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -18,11 +19,13 @@ import { guestsOnly, isGuest, isParticipant, participantsOnly } from '../utils/r
 import { socketEvents } from '../utils/socket.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const invitationsRouter = Router();
 
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000;
-const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER', 'APPRECIATION'] as const;
 const EMAIL_ADDRESS_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const claimRateLimiter = rateLimit({
@@ -31,6 +34,7 @@ const claimRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many invitation claim attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const invitationDetailInclude = Prisma.validator<Prisma.EventInvitationInclude>()({
@@ -851,6 +855,9 @@ invitationsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
 invitationsRouter.get('/event/:eventId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const eventId = req.params.eventId;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
     const event = await prisma.event.findUnique({
       where: { id: eventId },
       select: { id: true },
@@ -995,6 +1002,9 @@ invitationsRouter.post('/claim', claimRateLimiter, authMiddleware, async (req: R
 // PATCH /api/invitations/:id
 invitationsRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'invitation ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateInvitationSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1048,6 +1058,9 @@ invitationsRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
 // DELETE /api/invitations/:id
 invitationsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'invitation ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     let revokedInvitation: InvitationRecord | null = null;
 
@@ -1115,6 +1128,9 @@ invitationsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (re
 // POST /api/invitations/:id/resend
 invitationsRouter.post('/:id/resend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'invitation ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const invitation = await prisma.eventInvitation.findUnique({
       where: { id: req.params.id },
@@ -1188,6 +1204,9 @@ invitationsRouter.post('/:id/resend', authMiddleware, requireRole('ADMIN'), asyn
 // POST /api/invitations/:id/accept
 invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'invitation ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     let result:
       | {
@@ -1360,6 +1379,9 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
 // POST /api/invitations/:id/decline
 invitationsRouter.post('/:id/decline', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'invitation ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     let invitation: InvitationRecord | null = null;
 

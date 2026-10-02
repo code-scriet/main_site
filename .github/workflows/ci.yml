@@ -32,17 +32,106 @@ jobs:
       - name: Lint Web
         run: npm run lint --workspace=apps/web
 
+      # The playground is a DEPLOYED service (playground-web + playground-api) that
+      # previously had no CI coverage at all: a typecheck error in its Vite app, or a
+      # syntax error in execute-server.js (plain JS — never compiled, hosts the contest
+      # relay + judge proxy), would only surface at deploy/boot time in production.
+      # Grouped with the other lint steps so a lint failure fails fast, before builds.
+      - name: Lint Playground
+        run: npm run lint --workspace=apps/playground
+
       - name: Build API
         run: npm run build --workspace=apps/api
 
       - name: Build Web
         run: npm run build --workspace=apps/web
 
+      - name: Build Playground
+        run: npm run build --workspace=apps/playground
+
+      # `workers/executor.js` and `plagiarism.js` are ESM but sit under package.json
+      # files with no `"type": "module"` (the repo root), so `node --check` only parses
+      # them because Node >= 20.19 auto-detects module syntax. Keep `node-version` at
+      # 20 or newer above — an older runner would report a false syntax error here.
+      - name: Syntax-check playground server + CF worker
+        run: |
+          node --check apps/playground/execute-server.js
+          node --check apps/playground/plagiarism.js
+          node --check workers/executor.js
+
       # Fast, DB-free unit/stability tests (quiz scoring, auth/jwt, utils, web stores).
       - name: Stability tests
         run: npm run test:stability
 
-      # Gate on HIGH+ advisories in production dependencies. Moderate findings are
-      # reported but do not fail the build (avoids blocking on transitive noise).
+      # Gate on HIGH+ advisories in production dependencies. Still blocking, but via
+      # scripts/audit-gate.mjs instead of a bare `npm audit --audit-level=high`: a plain
+      # audit is all-or-nothing, so a single unfixable-but-inapplicable advisory forces
+      # either `|| true` (gate silently stops protecting anything) or a risky dependency
+      # jump. The gate fails on every high/critical EXCEPT GHSA ids explicitly reviewed
+      # and justified in that file. Moderate/low are reported only.
       - name: Security audit (production deps)
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
+
+  # End-to-end smoke (specs are DB-free: api /ping + /health, web
+  # /privacy-policy + /signin) but the API cannot boot without a reachable
+  # database (initializeDatabase). A postgres service + migrate deploy gives the
+  # job a scratch DB — this also smoke-tests from-scratch migrations on every run.
+  # Separate job so e2e browser flakes never block the validate gate's signal, and
+  # vice versa. playwright.config.ts boots both servers via webServer
+  # (NODE_ENV=test). Verified passing locally before wiring (4/4).
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: club_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Prisma 7: migrate CLI reads DIRECT_URL (prisma.config.ts), runtime driver
+    # adapter reads DATABASE_URL (apps/api/src/lib/prisma.ts). Both point at the
+    # scratch service here.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/club_e2e
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/club_e2e
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=prisma/schema.prisma
+
+      - name: Migrate scratch database
+        run: npx prisma migrate deploy --schema=./prisma/schema.prisma
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --only-shell
+
+      # --reporter=blob so the failure-upload below has a blob-report to attach.
+      - name: Run e2e tests
+        run: npx playwright test --reporter=blob
+
+      - name: Upload blob report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report
+          path: blob-report

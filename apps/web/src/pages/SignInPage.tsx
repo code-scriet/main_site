@@ -10,6 +10,7 @@ import { Chrome, Github, Mail, AlertCircle, Loader2, Eye, EyeOff, Lock, User, Ar
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { addPlaygroundAuthHandoff, isPlaygroundOrigin } from '@/lib/playgroundUrl';
+import { getSafeNextUrl } from '@/lib/safeNext';
 import { getStoredAuthToken } from '@/lib/authToken';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -30,25 +31,6 @@ const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'tea
     ? `/events/${eventId}`
     : `/events/${eventId}?register=1`
 );
-
-const getSafeNextUrl = (rawNext: string | null): string | null => {
-  if (!rawNext) return null;
-  try {
-    const parsed = new URL(rawNext, window.location.origin);
-    const allowedOrigins = new Set([
-      window.location.origin,
-      'https://codescriet.dev',
-      'https://www.codescriet.dev',
-      'https://code.codescriet.dev',
-      ...(import.meta.env.DEV
-        ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
-        : []),
-    ]);
-    return allowedOrigins.has(parsed.origin) ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-};
 
 const redirectToNext = (navigate: ReturnType<typeof useNavigate>, targetUrl: string) => {
   const parsed = new URL(targetUrl);
@@ -220,8 +202,13 @@ export default function SignInPage() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    // Matches the backend registerSchema (min 8, max 72 — bcrypt's effective limit).
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (password.length > 72) {
+      setError('Password must be at most 72 characters');
       return;
     }
     
@@ -431,13 +418,22 @@ export default function SignInPage() {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             className="pl-10 h-12"
+                            autoComplete="email"
                             required
                           />
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <label htmlFor="signin-password" className="text-sm font-medium text-gray-700">Password</label>
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="signin-password" className="text-sm font-medium text-gray-700">Password</label>
+                          <Link
+                            to="/forgot-password"
+                            className="text-sm text-amber-600 hover:text-amber-700 hover:underline"
+                          >
+                            Forgot password?
+                          </Link>
+                        </div>
                         <div className="relative">
                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                           <Input
@@ -447,6 +443,7 @@ export default function SignInPage() {
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="pl-10 pr-10 h-12"
+                            autoComplete="current-password"
                             required
                           />
                           <button
@@ -541,6 +538,7 @@ export default function SignInPage() {
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 className="pl-10 h-12"
+                                autoComplete="name"
                                 required
                               />
                             </div>
@@ -557,6 +555,7 @@ export default function SignInPage() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 className="pl-10 h-12"
+                                autoComplete="email"
                                 required
                               />
                             </div>
@@ -569,12 +568,14 @@ export default function SignInPage() {
                               <Input
                                 id="signup-password"
                                 type={showPassword ? 'text' : 'password'}
-                                placeholder="At least 6 characters"
+                                placeholder="At least 8 characters"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 className="pl-10 pr-10 h-12"
+                                autoComplete="new-password"
                                 required
-                                minLength={6}
+                                minLength={8}
+                                maxLength={72}
                               />
                               <button
                                 type="button"
@@ -598,6 +599,7 @@ export default function SignInPage() {
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
                                 className="pl-10 h-12"
+                                autoComplete="new-password"
                                 required
                               />
                             </div>

@@ -4,9 +4,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, ExternalLink, Download, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Award, ExternalLink, Download, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight, Linkedin, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import { linkedInAddCertUrl } from '@/lib/linkedin';
 import { DSCard, EmptyState, MonoChip, Pill, SegmentedTabs } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -21,9 +22,10 @@ const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
   COMPLETION: 'success',
   WINNER: 'warning',
   SPEAKER: 'info',
+  APPRECIATION: 'info',
 };
 
-type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER' | 'APPRECIATION';
 
 export default function DashboardCertificates() {
   const { token } = useAuth();
@@ -33,12 +35,23 @@ export default function DashboardCertificates() {
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [page, setPage] = useState(1);
 
+  // Fetch-all: walk every server page (backend caps 50/page) so no
+  // certificate is ever silently truncated — same guarantee as Users.
   const q = useQuery({
     queryKey: ['my-certificates'],
     queryFn: async () => {
-      const r = await api.getMyCertificates(token!);
-      const list = Array.isArray(r) ? r : (r as { certificates: unknown[] }).certificates;
-      return (list ?? []) as CertificateCardData[];
+      const mine: CertificateCardData[] = [];
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+      while (mine.length < total) {
+        const r = await api.getMyCertificates(token!, { page, limit: 50 });
+        const list = (Array.isArray(r) ? r : r.certificates ?? []) as CertificateCardData[];
+        mine.push(...list);
+        total = Array.isArray(r) ? list.length : (r.total ?? list.length);
+        if (list.length === 0) break;
+        page += 1;
+      }
+      return mine;
     },
     enabled: Boolean(token),
     refetchOnWindowFocus: true,
@@ -72,6 +85,7 @@ export default function DashboardCertificates() {
     COMPLETION: allSorted.filter((c) => c.type === 'COMPLETION').length,
     WINNER: allSorted.filter((c) => c.type === 'WINNER').length,
     SPEAKER: allSorted.filter((c) => c.type === 'SPEAKER').length,
+    APPRECIATION: allSorted.filter((c) => c.type === 'APPRECIATION').length,
   }), [allSorted]);
   const verifyLink = (certId: string) => `${window.location.origin}/verify/${certId}`;
   const copyLink = async (certId: string) => {
@@ -91,6 +105,9 @@ export default function DashboardCertificates() {
         <div>
           <h1 className="text-[24px] font-semibold tracking-tight">My certificates</h1>
           <p className="text-[13px] text-[var(--ds-text-3)] mt-1">All certificates are verifiable on a public URL.</p>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            {q.isLoading ? 'Loading…' : `${allSorted.length} total`}
+          </p>
         </div>
         <Button size="sm" variant="outline" asChild>
           <a href="/verify" target="_blank" rel="noreferrer">
@@ -109,6 +126,7 @@ export default function DashboardCertificates() {
               { value: 'COMPLETION', label: 'Completion', count: typeCounts.COMPLETION },
               { value: 'WINNER', label: 'Winner', count: typeCounts.WINNER },
               { value: 'SPEAKER', label: 'Speaker', count: typeCounts.SPEAKER },
+              { value: 'APPRECIATION', label: 'Appreciation', count: typeCounts.APPRECIATION },
             ]}
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as TypeFilter)}
@@ -208,6 +226,12 @@ export default function DashboardCertificates() {
                   <span className="text-[12px] text-[var(--ds-text-3)] font-mono tabular-nums">
                     Issued {new Date(picked.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
+                  {typeof picked.viewCount === 'number' && picked.viewCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ds-text-3)] tabular-nums" title="How many times your verification page has been opened">
+                      <Eye size={12} />
+                      Viewed {picked.viewCount.toLocaleString('en-IN')}{picked.viewCount === 1 ? ' time' : ' times'}
+                    </span>
+                  )}
                   {picked.isRevoked && <Pill tone="danger" size="sm">Revoked</Pill>}
                 </div>
                 {picked.isRevoked && picked.revokedReason && (
@@ -232,6 +256,23 @@ export default function DashboardCertificates() {
                       Open verify page
                     </a>
                   </Button>
+                  {!picked.isRevoked && (
+                    <Button size="sm" variant="outline" asChild>
+                      <a
+                        href={linkedInAddCertUrl({
+                          certId: picked.certId,
+                          type: picked.type,
+                          eventName: picked.eventName,
+                          issuedAt: picked.issuedAt,
+                        })}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Linkedin size={13} className="mr-1.5" />
+                        Add to LinkedIn
+                      </a>
+                    </Button>
+                  )}
                 </div>
               </div>
             </>

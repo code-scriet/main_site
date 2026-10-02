@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -7,8 +8,9 @@ import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
-import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { requireUuid } from '../utils/idParams.js';
+import { setSharedPublicCache } from '../utils/response.js';
 
 export const teamRouter = Router();
 
@@ -66,8 +68,6 @@ const normalizeExplicitOverride = (value?: string): string => {
   return value?.trim() ?? '';
 };
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const teamMemberUserSelect = {
   id: true,
   name: true,
@@ -79,6 +79,26 @@ const teamMemberUserSelect = {
   twitterUrl: true,
   websiteUrl: true,
 } as const;
+
+// Single canonical lookup for the public team-member profile, by current slug,
+// id, or a retired slug. Current identity (unique slug / id, which can never
+// collide — slugs are word-strings, ids are UUIDs) resolves in ONE query; the
+// legacySlugs array-contains fallback runs only on a miss, so a slug that was
+// reassigned still resolves to its *current* owner, never the previous one.
+// Replaces the two near-identical 3-sequential-findUnique chains that the /:id
+// and /slug/:slug handlers used to carry.
+async function findTeamMemberByIdOrSlug(idOrSlug: string) {
+  return (
+    (await prisma.teamMember.findFirst({
+      where: { OR: [{ slug: idOrSlug }, { id: idOrSlug }] },
+      include: { user: { select: teamMemberUserSelect } },
+    })) ??
+    (await prisma.teamMember.findFirst({
+      where: { legacySlugs: { has: idOrSlug } },
+      include: { user: { select: teamMemberUserSelect } },
+    }))
+  );
+}
 
 const toCleanSlugBase = (raw: string): string => generateSlug(raw) || 'team-member';
 
@@ -216,8 +236,10 @@ teamRouter.get('/', async (req: Request, res: Response) => {
           orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
         });
 
+    // Public team directory — no per-user fields, identical for everyone.
+    setSharedPublicCache(req, res, 60);
     res.json({ success: true, data: teamMembers.map((member) => mergeWithUserData(member, !isCompact)) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
   }
 });
@@ -264,11 +286,12 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
       _count: { id: true },
     });
 
+    setSharedPublicCache(_req, res, 60);
     res.json({
       success: true,
       data: teams.map((t) => ({ team: t.team, count: t._count.id })),
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch teams' } });
   }
 });
@@ -276,39 +299,14 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
 // Get team member by ID
 teamRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const idOrSlug = req.params.id;
-    const teamMember = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.teamMember.findUnique({
-          where: { id: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { slug: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: idOrSlug } },
-          include: { user: { select: teamMemberUserSelect } },
-        }))
-      : (await prisma.teamMember.findUnique({
-          where: { slug: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: idOrSlug } },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { id: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        }));
+    const teamMember = await findTeamMemberByIdOrSlug(req.params.id);
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
     }
 
     res.json({ success: true, data: mergeWithUserData(teamMember) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team member' } });
   }
 });
@@ -316,32 +314,7 @@ teamRouter.get('/:id', async (req: Request, res: Response) => {
 // Get team member by slug (public profile page)
 teamRouter.get('/slug/:slug', async (req: Request, res: Response) => {
   try {
-    const slugOrId = req.params.slug;
-    const teamMember = UUID_REGEX.test(slugOrId)
-      ? (await prisma.teamMember.findUnique({
-          where: { id: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { slug: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: slugOrId } },
-          include: { user: { select: teamMemberUserSelect } },
-        }))
-      : (await prisma.teamMember.findUnique({
-          where: { slug: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: slugOrId } },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { id: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        }));
+    const teamMember = await findTeamMemberByIdOrSlug(req.params.slug);
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
@@ -412,6 +385,9 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 // Update team member (admin only)
 teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'team member ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateTeamMemberSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -511,6 +487,9 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireUuid(res, id, 'team member ID')) {
+      return;
+    }
 
     // Check if user is authorized (admin or linked user)
     const existing = await prisma.teamMember.findUnique({ where: { id } });
@@ -577,6 +556,9 @@ teamRouter.patch('/:id/link-user', authMiddleware, requireRole('ADMIN'), async (
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireUuid(res, id, 'team member ID')) {
+      return;
+    }
     const { userId } = req.body;
 
     if (userId !== null && typeof userId !== 'string') {
@@ -651,7 +633,7 @@ teamRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req: R
 
     await auditLog(authUser.id, 'UPDATE', 'team_member', 'batch', { action: 'reorder' });
     res.json({ success: true, message: 'Team members reordered successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, error: { message: 'Failed to reorder team members' } });
   }
 });
@@ -659,11 +641,24 @@ teamRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req: R
 // Delete team member
 teamRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'team member ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
+    // Guardrail: deleting a member that no longer exists (stale UI row, double
+    // submit) used to throw P2025 and surface as a misleading 500.
+    const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
+    }
     await prisma.teamMember.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'team_member', req.params.id);
     res.json({ success: true, message: 'Team member removed successfully' });
   } catch (error) {
+    logger.error('Failed to delete team member', {
+      error: error instanceof Error ? error.message : String(error),
+      id: req.params.id,
+    });
     res.status(500).json({ success: false, error: { message: 'Failed to delete team member' } });
   }
 });

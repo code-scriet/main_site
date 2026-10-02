@@ -1,7 +1,20 @@
 import { ProblemLanguage, SubmissionVerdict } from '@prisma/client';
+import {
+  buildJudgeStdin,
+  frameMarker,
+  makeJudgeNonce,
+  parseFrames,
+  scrubHarnessInternals,
+} from './judgeFrames.js';
 import { logger } from './logger.js';
+import {
+  executionRouter,
+  getConfiguredProviderSetting,
+  type ExecutionProvider,
+} from './executionRouting.js';
 import { buildHarness as buildPythonHarness } from './judgeHarnesses/python.js';
 import { buildHarness as buildJavaScriptHarness } from './judgeHarnesses/javascript.js';
+import { buildHarness as buildCHarness } from './judgeHarnesses/c.js';
 import { buildHarness as buildCppHarness } from './judgeHarnesses/cpp.js';
 import { buildHarness as buildJavaHarness } from './judgeHarnesses/java.js';
 
@@ -26,6 +39,15 @@ export interface JudgeResult {
   }>;
   totalRuntimeMs: number;
   compilerOutput?: string;
+  /** Host that actually served this run (codebox|wandbox|godbolt). Display-only. */
+  provider?: string;
+  /**
+   * Set when the harness output could not be trusted — duplicate frames for one
+   * test id, or frames for a test that was never sent. Callers MUST NOT refund
+   * the submit cap / daily quota for a tampered run (unlike a genuine
+   * JUDGE_ERROR, this is not the platform's fault).
+   */
+  tampered?: boolean;
 }
 
 interface CompilerConfig {
@@ -37,13 +59,102 @@ interface CompilerConfig {
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
 const EXECUTOR_ORIGIN_HEADER = process.env.EXECUTOR_ORIGIN_HEADER
   || (process.env.NODE_ENV === 'development' ? 'http://localhost:5002' : 'https://code.codescriet.dev');
+// Shared secret for the CF Worker (M1). Optional — the worker only enforces it
+// once EXECUTOR_SECRET is set in ITS environment; sending it unconditionally
+// when configured here makes the judge ready for that flip.
+const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
+// Local Judge0 engine (CodeBox, loopback). Same box, no external dependency;
+// the CF Worker chain below stays as the backstop when CodeBox is unhealthy.
+const CODEBOX_URL = process.env.CODEBOX_URL || 'http://127.0.0.1:3000';
+const CODEBOX_TOKEN = process.env.CODEBOX_TOKEN || '';
+const CODEBOX_LANG_IDS: Record<ProblemLanguage, number> = {
+  PYTHON: 71,
+  JAVASCRIPT: 63,
+  CPP: 54,
+  C: 50,
+  JAVA: 62,
+};
+
+function codeBoxInfraError(): Error {
+  const err = new Error('EXEC_INFRA_UNAVAILABLE');
+  (err as NodeJS.ErrnoException).code = 'EXEC_INFRA_UNAVAILABLE';
+  return err;
+}
+
+/**
+ * Run the harnessed batch on the local CodeBox (Judge0-compatible) engine and
+ * shape the result exactly like a CF Worker response so ALL downstream parsing
+ * (marker frames, per-test verdicts, infra detection) is shared. Throws
+ * EXEC_INFRA_UNAVAILABLE-tagged errors when CodeBox itself is down so callers
+ * spill to the worker chain via cooldown.
+ */
+async function runJudgeViaCodeBox(
+  language: ProblemLanguage,
+  wrappedCode: string,
+  stdin: string,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  let response: Response;
+  try {
+    response = await fetch(`${CODEBOX_URL}/submissions?wait=true`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(CODEBOX_TOKEN ? { 'X-Auth-Token': CODEBOX_TOKEN } : {}),
+      },
+      body: JSON.stringify({
+        source_code: wrappedCode,
+        language_id: CODEBOX_LANG_IDS[language],
+        stdin,
+        // JVM needs headroom for threads+heap (CodeBox default 128-256MB OOMs
+        // "unable to create native thread"); cap is 512000.
+        memory_limit: language === 'JAVA' ? 512000 : 256000,
+      }),
+      signal,
+    });
+  } catch {
+    executionRouter.reportInfraFailure('codebox');
+    throw codeBoxInfraError();
+  }
+  if (!response.ok) {
+    if (response.status >= 500) {
+      executionRouter.reportInfraFailure('codebox');
+      throw codeBoxInfraError();
+    }
+    throw new Error(`CodeBox HTTP ${response.status}`);
+  }
+  const j = (await response.json()) as {
+    stdout?: string | null;
+    stderr?: string | null;
+    compile_output?: string | null;
+    exit_code?: number | null;
+    status?: { id?: number; description?: string };
+  };
+  const statusId = j.status?.id ?? 0;
+  if (statusId === 13) {
+    executionRouter.reportInfraFailure('codebox');
+    throw codeBoxInfraError();
+  }
+  const stdout = j.stdout ?? '';
+  const stderr = j.stderr ?? '';
+  const compileOut = j.compile_output ?? '';
+  if (statusId === 3) {
+    return { program_output: stdout, program_error: stderr, compiler_error: '', compiler_output: compileOut, status: '0', signal: null, judge_provider: 'codebox' };
+  }
+  if (statusId === 6) {
+    return { program_output: '', program_error: '', compiler_error: compileOut || stderr || 'Compilation failed', compiler_output: compileOut, status: '1', signal: null, judge_provider: 'codebox' };
+  }
+  if (statusId === 5) {
+    return { program_output: stdout, program_error: stderr || 'Time limit exceeded', compiler_error: '', compiler_output: compileOut, status: '1', signal: null, judge_provider: 'codebox' };
+  }
+  const code = typeof j.exit_code === 'number' && j.exit_code !== 0 ? j.exit_code : 1;
+  return { program_output: stdout, program_error: stderr, compiler_error: '', compiler_output: compileOut, status: String(code), signal: null, judge_provider: 'codebox' };
+}
 const EXECUTION_TIMEOUT_MS = 15_000;
 // Compiled languages (Java, C++) need extra headroom for compilation + the
 // per-test fork/ClassLoader isolation overhead. Interpreted languages stay
 // at the baseline.
 const COMPILED_EXECUTION_TIMEOUT_MS = 30_000;
-const SUBMIT_CONCURRENCY = 5;
-const TESTRUN_CONCURRENCY = 10;
 const ACTUAL_OUTPUT_LIMIT = 5 * 1024;
 const COMPILER_OUTPUT_LIMIT = 10 * 1024;
 
@@ -55,34 +166,23 @@ const COMPILERS: Record<ProblemLanguage, CompilerConfig> = {
   // (Codeforces, AtCoder, etc). Lets users guard their `freopen("input.txt", …)`
   // template blocks with `#ifndef ONLINE_JUDGE` so they don't trip the judge.
   CPP: { compiler: 'gcc-13.2.0', options: 'warning,c++17', compilerOptionRaw: '-DONLINE_JUDGE' },
+  C: { compiler: 'gcc-13.2.0-c', options: 'warning', compilerOptionRaw: '-DONLINE_JUDGE' },
   JAVA: { compiler: 'openjdk-jdk-22+36' },
 };
 
-class Semaphore {
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
+// Wandbox runs every execution in a throwaway container. When its host is out of
+// capacity the upstream returns messages like
+//   "Error: OCI runtime error: crun: clone: Resource temporarily unavailable"
+// (a clone()/fork() EAGAIN) inside compiler_error / stderr, with no program
+// output. That is an infrastructure outage — NOT the student's code. It must
+// surface as JUDGE_ERROR (retryable, rolls back the submit cap, never persists a
+// verdict), never as COMPILATION_ERROR, which would both mislead the user and
+// clobber a prior ACCEPTED verdict on resubmit.
+const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
 
-  constructor(private readonly limit: number) {}
-
-  async acquire(): Promise<() => void> {
-    if (this.active >= this.limit) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-
-    this.active += 1;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.active -= 1;
-      const next = this.waiters.shift();
-      if (next) next();
-    };
-  }
+function isInfraFailure(text: string | undefined): boolean {
+  return !!text && INFRA_FAILURE_RE.test(text);
 }
-
-const submitSemaphore = new Semaphore(SUBMIT_CONCURRENCY);
-const testRunSemaphore = new Semaphore(TESTRUN_CONCURRENCY);
 
 function truncate(value: string | undefined, maxBytes: number): string | undefined {
   if (!value) return undefined;
@@ -101,8 +201,8 @@ function normalizeOutput(value: string): string {
     .replace(/\n+$/g, '');
 }
 
-function buildHarness(language: ProblemLanguage, userCode: string, testCases: Array<{ id: string; input: string }>, timeLimitMs: number): string {
-  const opts = { userCode, testCases, approach: 'A' as const, timeLimitMs };
+function buildHarness(language: ProblemLanguage, userCode: string, testCases: Array<{ id: string; input: string }>, timeLimitMs: number, nonce: string): string {
+  const opts = { userCode, testCases, approach: 'A' as const, timeLimitMs, nonce };
   switch (language) {
     case 'PYTHON':
       return buildPythonHarness(opts);
@@ -110,23 +210,13 @@ function buildHarness(language: ProblemLanguage, userCode: string, testCases: Ar
       return buildJavaScriptHarness(opts);
     case 'CPP':
       return buildCppHarness(opts);
+    case 'C':
+      return buildCHarness(opts);
     case 'JAVA':
       return buildJavaHarness(opts);
     default:
       throw new Error(`Unsupported problem language: ${language}`);
   }
-}
-
-function buildJudgeStdin(testCases: Array<{ id: string; input: string }>): string {
-  let stdin = `__N=${testCases.length}\n`;
-  for (const testCase of testCases) {
-    const input = testCase.input ?? '';
-    stdin += `__ID=${testCase.id}\n`;
-    stdin += `__LEN=${Buffer.byteLength(input, 'utf8')}\n`;
-    stdin += input;
-    stdin += '\n';
-  }
-  return stdin;
 }
 
 function decodeFramePayload(payload: string): string {
@@ -135,22 +225,6 @@ function decodeFramePayload(payload: string): string {
   } catch {
     return '[judge output decode failed]';
   }
-}
-
-function parseFrames(stdout: string): Map<string, { status: string; runtimeMs: number; payload: string }> {
-  const frames = new Map<string, { status: string; runtimeMs: number; payload: string }>();
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line.startsWith('__JUDGE:')) continue;
-    const parts = line.split(':');
-    if (parts.length < 5) continue;
-    const [, testId, status, runtimeRaw, ...payloadParts] = parts;
-    frames.set(testId, {
-      status,
-      runtimeMs: Number.parseInt(runtimeRaw, 10) || 0,
-      payload: payloadParts.join(':'),
-    });
-  }
-  return frames;
 }
 
 function cleanWorkerText(value: unknown): string {
@@ -165,6 +239,7 @@ function cleanWorkerText(value: unknown): string {
 // signatures into a clear, actionable message; leave genuine user errors as-is.
 function humanizeCompilerError(language: ProblemLanguage, raw: string | undefined): string | undefined {
   if (!raw) return raw;
+  raw = scrubHarnessInternals(raw);
 
   let hint = '';
   if (language === 'CPP' && /__user_main\b/.test(raw)) {
@@ -179,6 +254,19 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
       '',
       'A function-only solution (e.g. just `string reverseWords(...)` with no main) cannot',
       'run here. Put your logic in main(), or call your function from main().',
+    ].join('\n');
+  } else if (language === 'C' && /__user_main\b/.test(raw)) {
+    hint = [
+      'Your C solution must define an entry point — these problems read input from',
+      'standard input and write the answer to standard output (not a bare function):',
+      '',
+      '    #include <stdio.h>',
+      '    int main(void) {',
+      '        // read input with scanf',
+      '        // print your answer with printf',
+      '    }',
+      '',
+      'A function-only solution with no main cannot run here.',
     ].join('\n');
   } else if (language === 'JAVA' && /__UserMain\b/.test(raw)) {
     // `__UserMain` is the harness's renamed copy of the student's `class Main`; it
@@ -221,18 +309,29 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
 }
 
 export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
-  const release = await (req.mode === 'submit' ? submitSemaphore : testRunSemaphore).acquire();
+  // Admin-selected execution provider setting (wandbox | godbolt | balanced),
+  // read from the 5-min settings cache so this stays a no-op DB-wise on the hot
+  // judge path. The router resolves it to ONE concrete provider per request
+  // (balanced = least-loaded split, JS pinned to Wandbox, unhealthy providers
+  // deprioritized); the CF Worker still falls back to the other host on an
+  // infra failure as the last-resort net.
+  const setting = await getConfiguredProviderSetting();
+  const provider = executionRouter.chooseProvider(setting, req.language, req.mode);
+  const release = await executionRouter.acquire(provider, req.mode);
   const totalStartedAt = Date.now();
 
   try {
     const compiler = COMPILERS[req.language];
+    const nonce = makeJudgeNonce();
+    const marker = frameMarker(nonce);
     const wrappedCode = buildHarness(
       req.language,
       req.userCode,
       req.testCases.map(({ id, input }) => ({ id, input })),
       req.timeLimitMs,
+      nonce,
     );
-    const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })));
+    const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })), nonce);
     const controller = new AbortController();
     const isCompiled = req.language === 'CPP' || req.language === 'JAVA';
     const ceiling = isCompiled ? COMPILED_EXECUTION_TIMEOUT_MS : EXECUTION_TIMEOUT_MS;
@@ -240,47 +339,69 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
 
     let workerResult: Record<string, unknown>;
     try {
-      const response = await fetch(EXECUTOR_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Origin: EXECUTOR_ORIGIN_HEADER,
-        },
-        body: JSON.stringify({
-          compiler: compiler.compiler,
-          code: wrappedCode,
-          stdin,
-          options: compiler.options || '',
-          ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
-        }),
-        signal: controller.signal,
-      });
+      if (provider === 'codebox') {
+        workerResult = await runJudgeViaCodeBox(req.language, wrappedCode, stdin, controller.signal);
+      } else {
+        const response = await fetch(EXECUTOR_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: EXECUTOR_ORIGIN_HEADER,
+            ...(EXECUTOR_SECRET ? { 'X-Executor-Secret': EXECUTOR_SECRET } : {}),
+          },
+          body: JSON.stringify({
+            compiler: compiler.compiler,
+            code: wrappedCode,
+            stdin,
+            options: compiler.options || '',
+            provider,
+            ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        logger.warn('Judge worker returned non-OK response', { status: response.status });
+        if (!response.ok) {
+          logger.warn('Judge worker returned non-OK response', { status: response.status });
+          // 5xx from the worker = every reachable upstream failed for this request.
+          if (response.status >= 500) executionRouter.reportInfraFailure(provider);
+          return {
+            verdict: 'JUDGE_ERROR',
+            perTestVerdicts: [],
+            totalRuntimeMs: Date.now() - totalStartedAt,
+            compilerOutput: truncate(await response.text(), COMPILER_OUTPUT_LIMIT),
+          };
+        }
+
+        workerResult = await response.json() as Record<string, unknown>;
+      }
+    } catch (error) {
+      logger.error('Judge worker request failed', { error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof Error && error.name === 'AbortError') {
+        // A ceiling abort on the local engine means CodeBox is wedged/slow —
+        // cool it so the next attempt spills to the worker chain.
+        if (provider === 'codebox') executionRouter.reportInfraFailure(provider);
+        // F-4: this is OUR client-side ceiling on the whole batch, not the
+        // student's per-test limit (each harness enforces that itself and frames
+        // TIMEOUT per test). Reporting TIME_LIMIT_EXCEEDED blamed correct code
+        // for a batch that was merely slow in aggregate. JUDGE_ERROR is the
+        // honest classification: it refunds the cap + daily quota and files the
+        // submission for review.
+        logger.warn('Judge upstream call aborted at the client ceiling', {
+          language: req.language,
+          tests: req.testCases.length,
+        });
         return {
           verdict: 'JUDGE_ERROR',
           perTestVerdicts: [],
           totalRuntimeMs: Date.now() - totalStartedAt,
-          compilerOutput: truncate(await response.text(), COMPILER_OUTPUT_LIMIT),
-        };
-      }
-
-      workerResult = await response.json() as Record<string, unknown>;
-    } catch (error) {
-      logger.error('Judge worker request failed', { error: error instanceof Error ? error.message : String(error) });
-      if (error instanceof Error && error.name === 'AbortError') {
-        return {
-          verdict: 'TIME_LIMIT_EXCEEDED',
-          perTestVerdicts: [],
-          totalRuntimeMs: Date.now() - totalStartedAt,
-          compilerOutput: 'Execution timed out',
+          compilerOutput: 'The judge took too long to respond and the attempt was not counted. Please try again.',
         };
       }
       return {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: provider,
         compilerOutput: truncate(error instanceof Error ? error.message : String(error), COMPILER_OUTPUT_LIMIT),
       };
     } finally {
@@ -292,8 +413,21 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: provider,
         compilerOutput: truncate(String(workerResult.error), COMPILER_OUTPUT_LIMIT),
       };
+    }
+
+    // Health accounting for the router. A redeployed worker reports which
+    // provider actually served (`judge_provider`) and whether the requested one
+    // infra-failed en route (`judge_fallback`); with an older deployed worker
+    // those fields are absent and accounting degrades to requested-provider-only.
+    const servedProvider: ExecutionProvider | null =
+      workerResult.judge_provider === 'wandbox' || workerResult.judge_provider === 'godbolt' || workerResult.judge_provider === 'codebox'
+        ? workerResult.judge_provider
+        : null;
+    if (workerResult.judge_fallback === true) {
+      executionRouter.reportInfraFailure(provider);
     }
 
     const stdout = cleanWorkerText(workerResult.program_output);
@@ -304,11 +438,33 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     const signal = cleanWorkerText(workerResult.signal);
     const combinedCompilerOutput = truncate([compilerOutput, compilerError, stderr].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT);
 
-    if (compilerError && !stdout.includes('__JUDGE:')) {
+    // Upstream container/host capacity failure (no program ran) — classify as a
+    // retryable judge outage, not a code-compilation failure.
+    if (!stdout.includes(marker) && (isInfraFailure(compilerError) || isInfraFailure(stderr))) {
+      logger.warn('Judge upstream resource failure', { snippet: (compilerError || stderr).slice(0, 200) });
+      // An infra result surviving the worker's chain means every provider that
+      // could run this language failed — cool down both we know about.
+      executionRouter.reportInfraFailure(provider);
+      if (servedProvider && servedProvider !== provider) executionRouter.reportInfraFailure(servedProvider);
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
+        compilerOutput: 'Execution service is temporarily unavailable. Please try again in a moment.',
+      };
+    }
+
+    // Any non-infra result (accepted / wrong answer / compile error / TLE) came
+    // from a healthy host.
+    executionRouter.reportSuccess(servedProvider ?? provider);
+
+    if (compilerError && !stdout.includes(marker)) {
       return {
         verdict: 'COMPILATION_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: humanizeCompilerError(req.language, combinedCompilerOutput),
       };
     }
@@ -322,16 +478,65 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'TIME_LIMIT_EXCEEDED',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: combinedCompilerOutput,
       };
     }
 
-    const frames = parseFrames(stdout);
+    const { frames, tampered, complete } = parseFrames(stdout, nonce);
+
+    // Forgery attempt: a duplicate frame for one test id. The genuine frame is
+    // always emitted by the harness, so a submission that writes its own frames
+    // necessarily collides. Never trust this run, and never refund it.
+    if (tampered) {
+      logger.error('Judge output tampering detected', {
+        language: req.language,
+        tests: req.testCases.length,
+      });
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
+        compilerOutput: 'The judge could not verify this run. Your submission has been flagged for manual review.',
+        tampered: true,
+      };
+    }
+
+    // Frames for tests we never sent — only a forger produces these.
+    const requestedIds = new Set(req.testCases.map((test) => test.id));
+    for (const id of frames.keys()) {
+      if (!requestedIds.has(id)) {
+        logger.error('Judge frame for an unknown test id', { language: req.language, id });
+        return {
+          verdict: 'JUDGE_ERROR',
+          perTestVerdicts: [],
+          totalRuntimeMs: Date.now() - totalStartedAt,
+          compilerOutput: 'The judge could not verify this run. Your submission has been flagged for manual review.',
+          tampered: true,
+        };
+      }
+    }
+
+    // The harness did not reach its end sentinel — it was killed mid-run (e.g. a
+    // submission calling System.exit / os._exit). Frames collected so far may be
+    // a partial view, so don't score it.
+    if (frames.size > 0 && !complete) {
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
+        compilerOutput: 'The program exited before the judge finished running every test. Avoid terminating the process (e.g. System.exit / sys.exit / os._exit) in your solution.',
+      };
+    }
+
     if (frames.size === 0) {
       return {
         verdict: status !== 0 ? 'RUNTIME_ERROR' : 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
+        provider: servedProvider ?? provider,
         compilerOutput: humanizeCompilerError(req.language, truncate([combinedCompilerOutput, stdout].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT)),
       };
     }
@@ -358,12 +563,13 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         };
       }
       if (frame.status === 'FAIL') {
+        const scrubbed = scrubHarnessInternals(decoded);
         return {
           testId: testCase.id,
           passed: false,
-          actualOutput: truncate(decoded, ACTUAL_OUTPUT_LIMIT),
+          actualOutput: truncate(scrubbed, ACTUAL_OUTPUT_LIMIT),
           runtimeMs: frame.runtimeMs,
-          error: truncate(decoded, ACTUAL_OUTPUT_LIMIT),
+          error: truncate(scrubbed, ACTUAL_OUTPUT_LIMIT),
         };
       }
 
@@ -388,6 +594,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       perTestVerdicts,
       totalRuntimeMs: Date.now() - totalStartedAt,
       compilerOutput: combinedCompilerOutput,
+      provider: servedProvider ?? provider,
     };
   } finally {
     release();
