@@ -1,11 +1,13 @@
 // Dashboard v2 — Admin · Hiring Applications.
-// Kanban (PENDING → INTERVIEW_SCHEDULED → SELECTED → REJECTED) with click-to-move + detail dialog.
+// Kanban (PENDING → INTERVIEW_SCHEDULED → SLOT_BOOKED → INTERVIEWED → SELECTED →
+// REJECTED) with click-to-move + detail dialog, plus the Phase 4 interview
+// pipeline views: Interview slots, Awaiting slot pick, Bookings overview.
 // Pixel-port of screen-stubs.jsx:241 + brief §7.14.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Loader2, Download, Mail, Phone, GraduationCap, Eye, AlertCircle, Briefcase, Trash2 } from 'lucide-react';
+import { Search, Loader2, Download, Mail, Phone, GraduationCap, Eye, AlertCircle, Briefcase, Trash2, Send } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs } from '@/components/dash';
+import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs, type PillTone } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -13,6 +15,17 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dateUtils';
+import { InterviewSlotsSection } from './InterviewSlotsSection';
+import { AwaitingPickSection, BookingsOverviewSection } from './InterviewPipelineSections';
+import {
+  SlotAdminError,
+  deriveAwaitingPick,
+  formatSlotRangeIst,
+  listInterviewSlots,
+  scheduleInterviews,
+  type AdminInterviewSlot,
+  type AdminSlotBooking,
+} from '@/lib/interviewSlotsAdmin';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -31,19 +44,25 @@ interface HiringApplication {
   createdAt: string;
 }
 
-const STATUSES = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
+const STATUSES = ['PENDING', 'INTERVIEW_SCHEDULED', 'SLOT_BOOKED', 'INTERVIEWED', 'SELECTED', 'REJECTED'] as const;
 type Status = typeof STATUSES[number];
+
+type View = 'applications' | 'slots' | 'awaiting' | 'bookings';
 
 const COL_LABEL: Record<Status, string> = {
   PENDING: 'Pending',
   INTERVIEW_SCHEDULED: 'Interview scheduled',
+  SLOT_BOOKED: 'Slot booked',
+  INTERVIEWED: 'Interviewed',
   SELECTED: 'Selected',
   REJECTED: 'Rejected',
 };
 
-const COL_TONE: Record<Status, 'warning' | 'info' | 'success' | 'danger'> = {
+const COL_TONE: Record<Status, PillTone> = {
   PENDING: 'warning',
   INTERVIEW_SCHEDULED: 'info',
+  SLOT_BOOKED: 'accent',
+  INTERVIEWED: 'neutral',
   SELECTED: 'success',
   REJECTED: 'danger',
 };
@@ -56,6 +75,23 @@ const ROLE_LABEL: Record<string, string> = {
   MANAGEMENT: 'Management',
 };
 
+function moveButtonClass(tone: PillTone): string {
+  switch (tone) {
+    case 'warning':
+      return 'text-[var(--warning)] border-[var(--warning-border)] hover:bg-[var(--warning-bg)]';
+    case 'info':
+      return 'text-[var(--info)] border-[var(--info-border)] hover:bg-[var(--info-bg)]';
+    case 'success':
+      return 'text-[var(--success)] border-[var(--success-border)] hover:bg-[var(--success-bg)]';
+    case 'danger':
+      return 'text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]';
+    case 'accent':
+      return 'text-[var(--accent)] border-[var(--accent)] hover:bg-[var(--accent-subtle)]';
+    default:
+      return 'text-[var(--ds-text-2)] border-[var(--border-default)] hover:bg-[var(--surface-soft)]';
+  }
+}
+
 export default function AdminHiring() {
   const { token } = useAuth();
   const [apps, setApps] = useState<HiringApplication[]>([]);
@@ -65,6 +101,7 @@ export default function AdminHiring() {
   const [statusFilter, setStatusFilter] = useState<'' | Status>('');
   const [cycleFilter, setCycleFilter] = useState<string>('');
   const [cycles, setCycles] = useState<Array<{ cycle: string; count: number }>>([]);
+  const [currentCycle, setCurrentCycle] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<HiringApplication | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
@@ -75,6 +112,16 @@ export default function AdminHiring() {
   const [total, setTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
+  // Phase 4 — pipeline views.
+  const [view, setView] = useState<View>('applications');
+  const [slots, setSlots] = useState<AdminInterviewSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [slotCycle, setSlotCycle] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [scheduling, setScheduling] = useState(false);
+
+  const effectiveSlotCycle = slotCycle || currentCycle || '';
 
   const fetchPage = useCallback(async (page: number): Promise<{ rows: HiringApplication[]; total: number }> => {
     if (!token) return { rows: [], total: 0 };
@@ -106,6 +153,22 @@ export default function AdminHiring() {
   }, [token, fetchPage]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const reloadSlots = useCallback(async () => {
+    if (!token) return;
+    setSlotsLoading(true);
+    setSlotsError(null);
+    try {
+      const rows = await listInterviewSlots(token, effectiveSlotCycle || undefined);
+      setSlots(rows);
+    } catch (e) {
+      setSlotsError(e instanceof Error ? e.message : 'Failed to load slots');
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [token, effectiveSlotCycle]);
+
+  useEffect(() => { void reloadSlots(); }, [reloadSlots]);
 
   const hasMore = total != null && apps.length < total;
 
@@ -150,14 +213,82 @@ export default function AdminHiring() {
     }
   };
 
-  // Load the distinct-cycles list once for the filter dropdown.
+  // Load the distinct-cycles list once for the filter dropdowns.
   useEffect(() => {
     if (!token) return;
     void fetch(`${API_URL}/hiring/cycles`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data?.data?.cycles) setCycles(data.data.cycles); })
+      .then((data) => {
+        if (data?.data?.cycles) setCycles(data.data.cycles);
+        if (typeof data?.data?.current === 'string') setCurrentCycle(data.data.current);
+      })
       .catch(() => { /* dropdown just stays empty on failure */ });
   }, [token]);
+
+  // applicationId -> booking + slot join, derived client-side from GET /slots
+  // (which embeds bookings). Powers the per-row booked-slot chips.
+  const bookingsByApp = useMemo(() => {
+    const map = new Map<string, { booking: AdminSlotBooking; slot: AdminInterviewSlot }>();
+    for (const slot of slots) {
+      for (const booking of slot.bookings ?? []) {
+        if (!map.has(booking.applicationId)) map.set(booking.applicationId, { booking, slot });
+      }
+    }
+    return map;
+  }, [slots]);
+
+  const bookedAppIds = useMemo(() => new Set(bookingsByApp.keys()), [bookingsByApp]);
+  const awaitingCount = useMemo(() => deriveAwaitingPick(apps, bookedAppIds).length, [apps, bookedAppIds]);
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const pendingSelectedIds = useMemo(
+    () => [...selected].filter((id) => apps.find((a) => a.id === id)?.status === 'PENDING'),
+    [selected, apps],
+  );
+
+  const scheduleSelected = async () => {
+    if (!token || scheduling || pendingSelectedIds.length === 0) return;
+    setScheduling(true);
+    try {
+      const results = await scheduleInterviews(token, pendingSelectedIds);
+      const okIds = new Set(results.filter((r) => r.ok).map((r) => r.id));
+      const failed = results.filter((r) => !r.ok);
+      if (okIds.size > 0) {
+        setApps((prev) => prev.map((a) => (okIds.has(a.id) ? { ...a, status: 'INTERVIEW_SCHEDULED' } : a)));
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of okIds) next.delete(id);
+          return next;
+        });
+      }
+      if (failed.length === 0) {
+        toast.success(`Scheduled ${okIds.size} interview${okIds.size === 1 ? '' : 's'} — invites sent`);
+      } else {
+        const sample = failed
+          .slice(0, 3)
+          .map((f) => `${f.id.slice(0, 8)} (${f.error ?? 'failed'})`)
+          .join(', ');
+        toast.error(`Scheduled ${okIds.size}, failed ${failed.length}: ${sample}${failed.length > 3 ? '…' : ''}`);
+      }
+    } catch (e) {
+      // Global 409 no_open_slots: no future open slot exists for the cycle.
+      if (e instanceof SlotAdminError && e.errorType === 'no_open_slots') {
+        toast.error('Create interview slots for this cycle first');
+      } else {
+        toast.error(e instanceof Error ? e.message : 'Schedule failed');
+      }
+    } finally {
+      setScheduling(false);
+    }
+  };
 
   const moveTo = async (id: string, status: Status) => {
     if (!token) return;
@@ -231,7 +362,14 @@ export default function AdminHiring() {
   }, [apps, search]);
 
   const grouped = useMemo(() => {
-    const g: Record<Status, HiringApplication[]> = { PENDING: [], INTERVIEW_SCHEDULED: [], SELECTED: [], REJECTED: [] };
+    const g: Record<Status, HiringApplication[]> = {
+      PENDING: [],
+      INTERVIEW_SCHEDULED: [],
+      SLOT_BOOKED: [],
+      INTERVIEWED: [],
+      SELECTED: [],
+      REJECTED: [],
+    };
     for (const a of filtered) {
       const s = (STATUSES as readonly string[]).includes(a.status) ? (a.status as Status) : 'PENDING';
       g[s].push(a);
@@ -260,142 +398,221 @@ export default function AdminHiring() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative max-w-[280px] flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search applicants…" className="pl-8 h-8 text-[13px]" />
-        </div>
-        <SegmentedTabs
-          items={[
-            { value: 'all', label: 'All' },
-            { value: 'TECHNICAL', label: 'Technical' },
-            { value: 'DSA_CHAMPS', label: 'DSA' },
-            { value: 'DESIGNING', label: 'Design' },
-          ]}
-          value={roleFilter === 'SOCIAL_MEDIA' || roleFilter === 'MANAGEMENT' ? 'all' : roleFilter}
-          onChange={(v) => setRoleFilter(v)}
+      <SegmentedTabs<View>
+        items={[
+          { value: 'applications', label: 'Applications' },
+          { value: 'slots', label: 'Interview slots', count: slots.length },
+          { value: 'awaiting', label: 'Awaiting slot pick', count: awaitingCount },
+          { value: 'bookings', label: 'Bookings', count: bookingsByApp.size },
+        ]}
+        value={view}
+        onChange={setView}
+      />
+
+      {view === 'slots' && token && (
+        <InterviewSlotsSection
+          token={token}
+          slots={slots}
+          loading={slotsLoading}
+          error={slotsError}
+          cycles={cycles}
+          currentCycle={currentCycle}
+          activeCycle={effectiveSlotCycle}
+          onCycleChange={setSlotCycle}
+          onRefresh={() => void reloadSlots()}
         />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as '' | Status)}
-          className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
-          aria-label="Filter by status"
-          title="Filter by status"
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>{COL_LABEL[s]}</option>
-          ))}
-        </select>
-        {cycles.length > 0 && (
-          <select
-            value={cycleFilter}
-            onChange={(e) => setCycleFilter(e.target.value)}
-            className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
-            aria-label="Filter by hiring cycle"
-            title="Filter by hiring cycle"
-          >
-            <option value="">All cycles</option>
-            {cycles.map(({ cycle, count }) => (
-              <option key={cycle} value={cycle}>{cycle} ({count})</option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {error && (
-        <div className="flex items-start gap-2 px-4 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[13px]">
-          <AlertCircle size={14} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-        </div>
       )}
 
-      {loading ? (
-        <div className="grid lg:grid-cols-4 gap-3">
-          {[0, 1, 2, 3].map((i) => <div key={i} className="h-64 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />)}
-        </div>
-      ) : (
-        <div className="grid lg:grid-cols-4 gap-3">
-          {STATUSES.map((s) => (
-            <DSCard key={s} padded className="flex flex-col gap-3 min-h-[200px]">
-              <div className="flex items-center justify-between">
-                <Pill tone={COL_TONE[s]} size="sm">{COL_LABEL[s]}</Pill>
-                <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{grouped[s].length}</span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {grouped[s].length === 0 ? (
-                  <div className="text-[11.5px] text-[var(--ds-text-3)] italic py-2">Nothing here.</div>
-                ) : (
-                  grouped[s].map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={() => setPicked(a)}
-                      className={cn(
-                        'text-left p-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] hover:border-[var(--border-default)] hover:bg-[var(--surface-soft)] transition-colors',
-                        moving === a.id && 'opacity-50 pointer-events-none',
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Avatar name={a.name} size={24} />
-                        <span className="text-[13px] font-medium truncate flex-1">{a.name}</span>
-                      </div>
-                      <div className="mt-1.5 text-[11px] text-[var(--ds-text-3)]">
-                        {ROLE_LABEL[a.applyingRole] ?? a.applyingRole} · {a.year} · {a.department}
-                      </div>
-                      {STATUSES.filter((st) => st !== s).length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1 pt-2 border-t border-[var(--border-subtle)]">
-                          {STATUSES.filter((st) => st !== s).map((st) => (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={(ev) => { ev.stopPropagation(); moveTo(a.id, st); }}
-                              className={cn(
-                                'text-[10px] font-medium px-1.5 h-5 rounded-[5px] border transition-colors',
-                                COL_TONE[st] === 'warning' && 'text-[var(--warning)] border-[var(--warning-border)] hover:bg-[var(--warning-bg)]',
-                                COL_TONE[st] === 'info' && 'text-[var(--info)] border-[var(--info-border)] hover:bg-[var(--info-bg)]',
-                                COL_TONE[st] === 'success' && 'text-[var(--success)] border-[var(--success-border)] hover:bg-[var(--success-bg)]',
-                                COL_TONE[st] === 'danger' && 'text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]',
-                              )}
-                            >
-                              → {COL_LABEL[st]}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
+      {view === 'awaiting' && token && (
+        <AwaitingPickSection
+          token={token}
+          applications={apps}
+          bookedAppIds={bookedAppIds}
+          onChanged={() => void reloadSlots()}
+        />
+      )}
+
+      {view === 'bookings' && <BookingsOverviewSection slots={slots} />}
+
+      {view === 'applications' && (
+        <>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative max-w-[280px] flex-1 min-w-[200px]">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search applicants…" className="pl-8 h-8 text-[13px]" />
+            </div>
+            <SegmentedTabs
+              items={[
+                { value: 'all', label: 'All' },
+                { value: 'TECHNICAL', label: 'Technical' },
+                { value: 'DSA_CHAMPS', label: 'DSA' },
+                { value: 'DESIGNING', label: 'Design' },
+              ]}
+              value={roleFilter === 'SOCIAL_MEDIA' || roleFilter === 'MANAGEMENT' ? 'all' : roleFilter}
+              onChange={(v) => setRoleFilter(v)}
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as '' | Status)}
+              className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+              aria-label="Filter by status"
+              title="Filter by status"
+            >
+              <option value="">All statuses</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>{COL_LABEL[s]}</option>
+              ))}
+            </select>
+            {cycles.length > 0 && (
+              <select
+                value={cycleFilter}
+                onChange={(e) => setCycleFilter(e.target.value)}
+                className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+                aria-label="Filter by hiring cycle"
+                title="Filter by hiring cycle"
+              >
+                <option value="">All cycles</option>
+                {cycles.map(({ cycle, count }) => (
+                  <option key={cycle} value={cycle}>{cycle} ({count})</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] flex-wrap">
+              <span className="text-[12.5px] text-[var(--ds-text-2)] tabular-nums">
+                {selected.size} selected · {pendingSelectedIds.length} pending
+              </span>
+              <span className="flex-1" />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={scheduleSelected}
+                disabled={scheduling || pendingSelectedIds.length === 0}
+                title={pendingSelectedIds.length === 0 ? 'Select PENDING applications to schedule interviews' : `Schedule interviews for ${pendingSelectedIds.length} pending applications`}
+              >
+                {scheduling ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Send size={13} className="mr-1.5" />}
+                Schedule interviews
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="text-[var(--ds-text-3)]">
+                Clear
+              </Button>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 px-4 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[13px]">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              <span className="flex-1">{error}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3">
+              {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-64 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />)}
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3">
+              {STATUSES.map((s) => (
+                <DSCard key={s} padded className="flex flex-col gap-3 min-h-[200px]">
+                  <div className="flex items-center justify-between">
+                    <Pill tone={COL_TONE[s]} size="sm">{COL_LABEL[s]}</Pill>
+                    <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{grouped[s].length}</span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {grouped[s].length === 0 ? (
+                      <div className="text-[11.5px] text-[var(--ds-text-3)] italic py-2">Nothing here.</div>
+                    ) : (
+                      grouped[s].map((a) => {
+                        const booked = bookingsByApp.get(a.id);
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => setPicked(a)}
+                            className={cn(
+                              'text-left p-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] hover:border-[var(--border-default)] hover:bg-[var(--surface-soft)] transition-colors',
+                              moving === a.id && 'opacity-50 pointer-events-none',
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span onClick={(ev) => ev.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected.has(a.id)}
+                                  onChange={() => toggleSelect(a.id)}
+                                  onClick={(ev) => ev.stopPropagation()}
+                                  aria-label={`Select ${a.name}`}
+                                  title={`Select ${a.name}`}
+                                />
+                              </span>
+                              <Avatar name={a.name} size={24} />
+                              <span className="text-[13px] font-medium truncate flex-1">{a.name}</span>
+                            </div>
+                            <div className="mt-1.5 text-[11px] text-[var(--ds-text-3)]">
+                              {ROLE_LABEL[a.applyingRole] ?? a.applyingRole} · {a.year} · {a.department}
+                            </div>
+                            {booked && (
+                              <div className="mt-1.5">
+                                <Pill tone="accent" size="xs" title={`Booked: ${booked.slot.venue ?? 'venue TBD'}`}>
+                                  Booked {formatSlotRangeIst(booked.slot.startsAt, booked.slot.endsAt)}
+                                </Pill>
+                              </div>
+                            )}
+                            {STATUSES.filter((st) => st !== s).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1 pt-2 border-t border-[var(--border-subtle)]">
+                                {STATUSES.filter((st) => st !== s).map((st) => (
+                                  <button
+                                    key={st}
+                                    type="button"
+                                    onClick={(ev) => { ev.stopPropagation(); moveTo(a.id, st); }}
+                                    className={cn(
+                                      'text-[10px] font-medium px-1.5 h-5 rounded-[5px] border transition-colors',
+                                      moveButtonClass(COL_TONE[st]),
+                                    )}
+                                  >
+                                    → {COL_LABEL[st]}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </DSCard>
+              ))}
+            </div>
+          )}
+
+          {filtered.length === 0 && !loading && (
+            <DSCard padded>
+              <EmptyState icon={<Briefcase size={18} />} title="No applications match" body="Try clearing filters or check back later." />
             </DSCard>
-          ))}
-        </div>
-      )}
+          )}
 
-      {filtered.length === 0 && !loading && (
-        <DSCard padded>
-          <EmptyState icon={<Briefcase size={18} />} title="No applications match" body="Try clearing filters or check back later." />
-        </DSCard>
-      )}
-
-      {/* Fetch-all controls — incremental "Load more" + a "Load all" option */}
-      {apps.length > 0 && (hasMore || loadingAll) && (
-        <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
-          <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={!hasMore || loadingMore || loadingAll}>
-            {loadingMore ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
-            Load more
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void loadAll()}
-            disabled={!hasMore || loadingAll || loadingMore}
-            className="text-[var(--ds-text-3)]"
-          >
-            {loadingAll ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
-            {loadingAll ? `Loading all… (${apps.length}${total != null ? `/${total}` : ''})` : 'Load all applications'}
-          </Button>
-        </div>
+          {/* Fetch-all controls — incremental "Load more" + a "Load all" option */}
+          {apps.length > 0 && (hasMore || loadingAll) && (
+            <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
+              <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={!hasMore || loadingMore || loadingAll}>
+                {loadingMore ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+                Load more
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadAll()}
+                disabled={!hasMore || loadingAll || loadingMore}
+                className="text-[var(--ds-text-3)]"
+              >
+                {loadingAll ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+                {loadingAll ? `Loading all… (${apps.length}${total != null ? `/${total}` : ''})` : 'Load all applications'}
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       <AlertDialog open={Boolean(applicationToDelete)} onOpenChange={(o) => !o && setApplicationToDelete(null)}>
@@ -428,7 +645,18 @@ export default function AdminHiring() {
           </DialogHeader>
           {picked && (
             <div className="flex flex-col gap-3 text-[13px]">
-              <div className="flex items-center gap-2"><Pill tone={COL_TONE[picked.status as Status] ?? 'neutral'} size="sm">{COL_LABEL[picked.status as Status] ?? picked.status}</Pill><Pill tone="accent" size="sm">{ROLE_LABEL[picked.applyingRole] ?? picked.applyingRole}</Pill></div>
+              <div className="flex items-center gap-2 flex-wrap"><Pill tone={COL_TONE[picked.status as Status] ?? 'neutral'} size="sm">{COL_LABEL[picked.status as Status] ?? picked.status}</Pill><Pill tone="accent" size="sm">{ROLE_LABEL[picked.applyingRole] ?? picked.applyingRole}</Pill></div>
+              {(() => {
+                const booked = bookingsByApp.get(picked.id);
+                if (!booked) return null;
+                return (
+                  <div className="text-[12.5px] text-[var(--ds-text-2)]">
+                    Booked slot:{' '}
+                    <span className="font-mono tabular-nums">{formatSlotRangeIst(booked.slot.startsAt, booked.slot.endsAt)}</span>
+                    {booked.slot.venue ? ` · ${booked.slot.venue}` : ''}
+                  </div>
+                );
+              })()}
               <a href={`mailto:${picked.email}`} className="flex items-center gap-2 text-[var(--ds-text-2)] hover:text-[var(--accent)] hover:underline"><Mail size={13} className="text-[var(--ds-text-3)]" />{picked.email}</a>
               {picked.phone && <a href={`tel:${picked.phone}`} className="flex items-center gap-2 text-[var(--ds-text-2)] hover:text-[var(--accent)] hover:underline"><Phone size={13} className="text-[var(--ds-text-3)]" />{picked.phone}</a>}
               <div className="flex items-center gap-2 text-[var(--ds-text-2)]"><GraduationCap size={13} className="text-[var(--ds-text-3)]" />{picked.department} · {picked.year}</div>
