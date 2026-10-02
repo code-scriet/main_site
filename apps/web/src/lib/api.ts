@@ -1334,9 +1334,7 @@ export interface CertificateBulkGenerateInput {
   sendEmail?: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
-<<<<<<< HEAD
   emailCustomBody?: string | null;
-=======
   /**
    * Backdate the whole batch (PRESIDENT / super admin only). ISO date string. Becomes
    * the certificates' effective date everywhere: the public verify page, the
@@ -1346,7 +1344,6 @@ export interface CertificateBulkGenerateInput {
    */
   issuedAt?: string | null;
   backdateReason?: string | null;
->>>>>>> origin/main
 }
 
 export type CertificateEmailTemplate = 'default' | 'faculty_distribution' | 'custom';
