@@ -10,6 +10,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
 import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCache.js';
+import { socketEvents } from '../utils/socket.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
@@ -30,7 +31,20 @@ const reminderTriggerLimiter = rateLimit({
 
 export const settingsRouter = Router();
 
-const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
+// Accepts empty/whitespace (→ null) and a bare domain like "instagram.com/x"
+// (auto-prefixed with https://) so an admin isn't blocked by a strict URL check.
+const normalizeOptionalUrl = (v: unknown): unknown => {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (!t) return null;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(t)) return `https://${t}`;
+  return t;
+};
+const optionalUrl = z.preprocess(
+  normalizeOptionalUrl,
+  z.union([z.string().url('Must be a valid URL'), z.null()]).optional(),
+);
 
 // Admin-managed extra contact emails shown on the public /contact page.
 // Bounded at 20 so a misconfigured admin can never bloat the singleton row.
@@ -57,6 +71,7 @@ const updateSettingsSchema = z.object({
   hiringSocialMedia: z.boolean().optional(),
   hiringManagement: z.boolean().optional(),
   hiringCycle: z.string().trim().min(1).max(40).optional(),
+  interviewWhatToExpect: z.string().trim().max(2000).optional(),
   showNetwork: z.boolean().optional(),
   mailingEnabled: z.boolean().optional(),
   certificatesEnabled: z.boolean().optional(),
@@ -96,7 +111,7 @@ const updateSettingsSchema = z.object({
   discordUrl: optionalUrl,
   whatsappUrl: optionalUrl,
   contactPhone: z.union([z.string().trim().max(40), z.literal(''), z.null()]).optional(),
-  contactEmails: z.array(contactEmailSchema).max(20, 'At most 20 contact emails').optional(),
+  contactEmails: z.array(contactEmailSchema).max(20, 'At most 20 contact emails').optional().nullable().transform((v) => v ?? []),
 });
 
 const updateEmailTemplatesSchema = z.object({
@@ -236,6 +251,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       hiringDesigning: full.hiringDesigning,
       hiringSocialMedia: full.hiringSocialMedia,
       hiringManagement: full.hiringManagement,
+      interviewWhatToExpect: full.interviewWhatToExpect,
       showNetwork: full.showNetwork,
       mailingEnabled: full.mailingEnabled,
       certificatesEnabled: full.certificatesEnabled,
@@ -286,6 +302,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           hiringDesigning: true,
           hiringSocialMedia: true,
           hiringManagement: true,
+          interviewWhatToExpect: 'A short conversation about your application, interests and availability. Bring your college ID and be ready to talk through one thing you have built or learned recently.',
           showNetwork: true,
           mailingEnabled: true,
           certificatesEnabled: true,
@@ -381,6 +398,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       hiringSocialMedia,
       hiringManagement,
       hiringCycle,
+      interviewWhatToExpect,
       showNetwork,
       mailingEnabled,
       certificatesEnabled,
@@ -439,6 +457,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       ...(hiringSocialMedia !== undefined && { hiringSocialMedia }),
       ...(hiringManagement !== undefined && { hiringManagement }),
       ...(hiringCycle !== undefined && { hiringCycle }),
+      ...(interviewWhatToExpect !== undefined && { interviewWhatToExpect }),
       ...(showNetwork !== undefined && { showNetwork }),
       ...(mailingEnabled !== undefined && { mailingEnabled }),
       ...(certificatesEnabled !== undefined && { certificatesEnabled }),
@@ -490,6 +509,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
+    socketEvents.liveInvalidate('settings');
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
     // Same instant playground flush as PATCH /:key (bulk save touches everything).
     try {
@@ -954,6 +974,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
 
     invalidateNotificationSettingsCache();
     invalidateSettingsCache();
+    socketEvents.liveInvalidate('settings');
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
     // Push the flip to the playground instantly (it caches settings 60s).
     // Fire-and-forget: a failed poke only costs the TTL wait, never the save.

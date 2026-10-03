@@ -437,6 +437,10 @@ test('PATCH /applications/:id/status enforces the transition matrix', async (t) 
     ['SLOT_BOOKED', 'REJECTED'],
     ['INTERVIEWED', 'SELECTED'],
     ['INTERVIEWED', 'REJECTED'],
+    // Reversals — undo a decision made in error.
+    ['REJECTED', 'PENDING'],
+    ['REJECTED', 'SELECTED'],
+    ['SELECTED', 'REJECTED'],
   ];
   const forbidden: Array<[string, string]> = [
     ['PENDING', 'SELECTED'],
@@ -447,8 +451,6 @@ test('PATCH /applications/:id/status enforces the transition matrix', async (t) 
     ['SLOT_BOOKED', 'PENDING'],
     ['SLOT_BOOKED', 'SELECTED'],
     ['INTERVIEWED', 'PENDING'],
-    ['SELECTED', 'REJECTED'],
-    ['REJECTED', 'PENDING'],
   ];
 
   for (const [from, to] of [...allowed, ...forbidden]) {

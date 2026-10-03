@@ -358,4 +358,17 @@ export const socketEvents = {
       logger.error('Failed to emit quiz:starting', { error: error instanceof Error ? error.message : String(error) });
     }
   },
+  /**
+   * Live cache-invalidation push. Emitted on data mutations so connected clients
+   * refresh the affected React Query caches immediately instead of waiting for a
+   * poll or a manual reload. `scope` lets clients invalidate only what changed.
+   * Broadcast to the whole /notifications namespace (all authenticated dashboards).
+   */
+  liveInvalidate: (scope: 'hiring' | 'slots' | 'announcements' | 'settings') => {
+    try {
+      io?.of('/notifications').emit('live:invalidate', { scope });
+    } catch (error) {
+      logger.error('Failed to emit live:invalidate', { scope, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
 };

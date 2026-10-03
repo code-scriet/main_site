@@ -190,6 +190,15 @@ test('isValidTransition allows exactly the §3 table', () => {
     ['SLOT_BOOKED', 'REJECTED'],
     ['INTERVIEWED', 'SELECTED'],
     ['INTERVIEWED', 'REJECTED'],
+    // Reversals — admins can undo a decision made in error.
+    ['REJECTED', 'PENDING'],
+    ['REJECTED', 'INTERVIEW_SCHEDULED'],
+    ['REJECTED', 'INTERVIEWED'],
+    ['REJECTED', 'SELECTED'],
+    ['SELECTED', 'PENDING'],
+    ['SELECTED', 'INTERVIEW_SCHEDULED'],
+    ['SELECTED', 'INTERVIEWED'],
+    ['SELECTED', 'REJECTED'],
   ];
   for (const [from, to] of allowed) {
     assert.equal(isValidTransition(from, to), true, `${from}->${to} allowed`);
@@ -205,8 +214,6 @@ test('isValidTransition allows exactly the §3 table', () => {
     ['SLOT_BOOKED', 'SELECTED'],
     ['INTERVIEWED', 'PENDING'],
     ['INTERVIEWED', 'INTERVIEW_SCHEDULED'],
-    ['SELECTED', 'REJECTED'],
-    ['REJECTED', 'PENDING'],
   ];
   for (const [from, to] of forbidden) {
     assert.equal(isValidTransition(from, to), false, `${from}->${to} forbidden`);

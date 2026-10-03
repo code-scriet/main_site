@@ -221,7 +221,7 @@ test('notifyInterviewScheduledBell writes a CUSTOM hiring bell; skips when no li
   assert.equal(row.category, 'hiring');
   assert.equal(row.title, 'Interview scheduled');
   assert.ok(String(row.body).includes(DEADLINE), 'body carries the deadline');
-  assert.equal(row.link, '/dashboard/hiring');
+  assert.equal(row.link, '/dashboard/hiring/slots');
 
   notifyInterviewScheduledBell({ userId: null, deadlineIST: DEADLINE, applicationId: 'app-2' });
   await new Promise((resolve) => setImmediate(resolve));

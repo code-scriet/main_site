@@ -134,7 +134,9 @@ export function buildSlotSeries(input: BuildSlotSeriesInput): GeneratedSlot[] {
   return out;
 }
 
-// §3 transition table (server-side allowlist).
+// §3 transition table (server-side allowlist). REJECTED / SELECTED are not
+// terminal — admins can reverse a decision they made in error (the status route
+// re-issues a pick token + email when moving back into INTERVIEW_SCHEDULED).
 const ALLOWED_TRANSITIONS = new Set([
   'PENDING->INTERVIEW_SCHEDULED',
   'INTERVIEW_SCHEDULED->SLOT_BOOKED',
@@ -144,6 +146,15 @@ const ALLOWED_TRANSITIONS = new Set([
   'SLOT_BOOKED->REJECTED',
   'INTERVIEWED->SELECTED',
   'INTERVIEWED->REJECTED',
+  // Reversals (undo a decision)
+  'REJECTED->PENDING',
+  'REJECTED->INTERVIEW_SCHEDULED',
+  'REJECTED->INTERVIEWED',
+  'REJECTED->SELECTED',
+  'SELECTED->PENDING',
+  'SELECTED->INTERVIEW_SCHEDULED',
+  'SELECTED->INTERVIEWED',
+  'SELECTED->REJECTED',
 ]);
 
 export function isValidTransition(from: string, to: string): boolean {

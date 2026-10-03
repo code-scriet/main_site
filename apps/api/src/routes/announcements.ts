@@ -9,6 +9,7 @@ import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { broadcastNotification } from '../utils/notifications.js';
+import { socketEvents } from '../utils/socket.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { setSharedPublicCache } from '../utils/response.js';
@@ -378,8 +379,27 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     // Notify search engines about the new announcement page
     if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
+    socketEvents.liveInvalidate('announcements');
 
     if (audience === 'HIRING_COHORT') {
+      // In-app bell for the cohort (independent of the email path): every
+      // candidate still live in the interview pipeline for this cycle, who has a
+      // linked account, gets the update in their notification tray. Fire-and-
+      // forget — never blocks or fails the create request.
+      void notifyCohortBell({
+        cycle: audienceCycle as string,
+        title: announcement.title,
+        body: announcement.shortDescription || announcement.body?.slice(0, 200) || undefined,
+        link: '/dashboard/application',
+        announcementId: announcement.id,
+        createdById: authUser.id,
+      }).catch((err) =>
+        logger.error('Cohort bell notification failed', {
+          id: announcement.id,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+
       // Cohort mail is default-ON (notifyCohort !== false). The post is already
       // published at this point — email failures only shrink the counts, never
       // the 201 ("notified 40/42" semantics).
@@ -490,6 +510,44 @@ async function sendAnnouncementEmailsAsync(announcement: {
 // are never mailed. Per-address try/catch with failure logging; a partial
 // failure still resolves with real counts ("notified 40/42" semantics) and the
 // post itself is unaffected (it was created before this runs).
+// Push a hiring-cohort announcement into the notification bell for every
+// live-pipeline candidate in the cycle that has a linked account.
+async function notifyCohortBell(params: {
+  cycle: string;
+  title: string;
+  body?: string;
+  link: string;
+  announcementId: string;
+  createdById: string;
+}): Promise<void> {
+  if (!params.cycle) return;
+  const rows = (await prisma.hiringApplication.findMany({
+    where: {
+      cycle: params.cycle,
+      status: { in: [...COHORT_VISIBLE_STATUSES] as never },
+      userId: { not: null },
+    },
+    select: { userId: true },
+  })) as unknown as Array<{ userId: string | null }>;
+
+  const userIds = [...new Set(rows.map((r) => r.userId).filter((id): id is string => Boolean(id)))];
+  if (userIds.length === 0) return;
+
+  await broadcastNotification({
+    source: 'AUTO_ANNOUNCEMENT',
+    audience: 'CUSTOM',
+    audienceUserIds: userIds,
+    category: 'hiring',
+    icon: 'megaphone',
+    title: params.title,
+    body: params.body,
+    link: params.link,
+    refEntity: 'announcement',
+    refEntityId: params.announcementId,
+    createdById: params.createdById,
+  });
+}
+
 async function sendCohortAnnouncementEmails(announcement: {
   id: string;
   title: string;

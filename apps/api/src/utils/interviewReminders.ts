@@ -19,7 +19,7 @@
 
 import { prisma } from '../lib/prisma.js';
 import { logger } from './logger.js';
-import { getNotificationSettings, shouldNotify } from './emailPolicy.js';
+import { getNotificationSettings, shouldNotify, type NotificationSettings } from './emailPolicy.js';
 import {
   buildSlotMagicLink,
   formatDeadlineIST,
@@ -201,22 +201,19 @@ export async function sendInterviewSlotReminders(now: Date = new Date()): Promis
   // Gate on the recruitment toggle + testing mode BEFORE claiming anything, so
   // a disabled category or a test redirect can't burn the exactly-once rows
   // (same reason the event-reminder tick skips while testing mode is on).
-  let recruitmentOn = true;
-  let testingMode = false;
+  let ns: NotificationSettings;
   try {
-    const ns = await getNotificationSettings();
-    recruitmentOn = shouldNotify('recruitment', ns);
-    testingMode = ns.emailTestingMode;
+    ns = await getNotificationSettings();
   } catch {
     // Fail open on the toggle (a transient read miss shouldn't stop reminders),
     // fail closed on testing mode (never burn markers we can't honor).
     return zero;
   }
-  if (!recruitmentOn) {
+  if (!shouldNotify('recruitment', ns)) {
     logger.info('Interview slot reminders disabled in settings — skipping reminder processing');
     return zero;
   }
-  if (testingMode) {
+  if (ns.emailTestingMode) {
     logger.info('Email testing mode active — skipping interview slot reminders to avoid burning reminder claims');
     return zero;
   }

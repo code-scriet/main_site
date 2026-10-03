@@ -16,6 +16,7 @@ import { requireUuid } from '../utils/idParams.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { parseISTDateTime, slotsOverlap, buildSlotSeries } from '../utils/interviewSlots.js';
+import { socketEvents } from '../utils/socket.js';
 import {
   issueSlotToken,
   resolveSlotToken,
@@ -156,6 +157,16 @@ function handleSlotTokenError(res: Response, error: unknown) {
   throw error;
 }
 
+// Only candidates the admin has moved into the interview pipeline may browse or
+// book slots. PENDING / INTERVIEWED / SELECTED / REJECTED see an empty, locked
+// surface — never a raw 404 — so the dashboard "My Application" tab can render a
+// clear "not scheduled yet" state. Magic links are always issued on scheduling,
+// so token-mode applications already satisfy this gate.
+const PICK_ELIGIBLE_STATUSES = new Set(['INTERVIEW_SCHEDULED', 'SLOT_BOOKED']);
+function isPickEligible(status: string): boolean {
+  return PICK_ELIGIBLE_STATUSES.has(status);
+}
+
 async function getPickDeadline(applicationId: string): Promise<string | null> {
   const row = (await prisma.interviewSlotToken.findUnique({
     where: { applicationId },
@@ -244,6 +255,7 @@ hiringSlotsRouter.post('/slots', authMiddleware, requireRole('ADMIN'), async (re
       capacity: capacity ?? 1,
     });
 
+    socketEvents.liveInvalidate('slots');
     return ApiResponse.created(res, slot);
   } catch (error) {
     logger.error('Create interview slot error:', { error: error instanceof Error ? error.message : String(error) });
@@ -261,6 +273,7 @@ const seriesSchema = z
     count: z.number().int().min(1).max(200).optional(),
     endTime: z.string().regex(timeRe, 'endTime must be HH:mm').optional(),
     breakMinutes: z.number().int().min(0).max(480).optional().default(0),
+    venue: z.string().trim().max(500).optional().nullable(),
   })
   .refine((d) => (d.count !== undefined) !== (d.endTime !== undefined), {
     message: 'Exactly one of count or endTime must be provided',
@@ -331,7 +344,8 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
     if (!validation.success) {
       return ApiResponse.validationError(res, zodFieldErrors(validation.error));
     }
-    const { cycle, date, startTime, slotMinutes, count, endTime, breakMinutes } = validation.data;
+    const { cycle, date, startTime, slotMinutes, count, endTime, breakMinutes, venue } = validation.data;
+    const slotVenue = venue?.trim() ? venue.trim() : undefined;
     const existing = (await prisma.interviewSlot.findMany({
       where: { cycle },
       select: { startsAt: true, endsAt: true },
@@ -369,6 +383,7 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
           startsAt: s.startsAt,
           endsAt: s.endsAt,
           capacity: 1,
+          ...(slotVenue ? { venue: slotVenue } : {}),
           createdById: authUser.id,
         },
       });
@@ -381,6 +396,7 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
       skipped: skipped.length,
     });
 
+    socketEvents.liveInvalidate('slots');
     return ApiResponse.created(res, { created, skipped });
   } catch (error) {
     logger.error('Bulk create interview slots error:', {
@@ -517,6 +533,7 @@ hiringSlotsRouter.patch('/slots/:id', authMiddleware, requireRole('ADMIN'), asyn
     });
 
     await auditLog(authUser.id, 'UPDATE_SLOT', 'InterviewSlot', id, validation.data);
+    socketEvents.liveInvalidate('slots');
     return ApiResponse.success(res, updated);
   } catch (error) {
     logger.error('Update interview slot error:', { error: error instanceof Error ? error.message : String(error) });
@@ -544,6 +561,7 @@ hiringSlotsRouter.delete('/slots/:id', authMiddleware, requireRole('ADMIN'), asy
 
     await prisma.interviewSlot.delete({ where: { id } });
     await auditLog(authUser.id, 'DELETE_SLOT', 'InterviewSlot', id);
+    socketEvents.liveInvalidate('slots');
     return ApiResponse.success(res, { message: 'Slot deleted successfully' });
   } catch (error) {
     logger.error('Delete interview slot error:', { error: error instanceof Error ? error.message : String(error) });
@@ -654,6 +672,8 @@ hiringSlotsRouter.post(
         }
       }
 
+      socketEvents.liveInvalidate('slots');
+      socketEvents.liveInvalidate('hiring');
       return ApiResponse.success(res, { results });
     } catch (error) {
       logger.error('Schedule applications error:', {
@@ -730,6 +750,8 @@ hiringSlotsRouter.delete(
         reason: validation.data.reason,
       });
 
+      socketEvents.liveInvalidate('slots');
+      socketEvents.liveInvalidate('hiring');
       return ApiResponse.success(res, { message: 'Booking cancelled and candidate re-invited' });
     } catch (error) {
       logger.error('Cancel booking error:', { error: error instanceof Error ? error.message : String(error) });
@@ -807,7 +829,15 @@ hiringSlotsRouter.get(
       try {
         ctx = await resolveCandidateApplication(req);
       } catch (error) {
+        // A logged-in user with no application is not an error state for the
+        // browse surface — return an empty locked list the tab can explain.
+        if (error instanceof SlotTokenError && error.status === 404) {
+          return ApiResponse.success(res, { slots: [], pickDeadline: null, locked: true, reason: 'no_application' });
+        }
         return handleSlotTokenError(res, error);
+      }
+      if (!isPickEligible(ctx.application.status)) {
+        return ApiResponse.success(res, { slots: [], pickDeadline: null, locked: true, reason: 'not_scheduled' });
       }
       const now = new Date();
       const slots = (await prisma.interviewSlot.findMany({
@@ -864,15 +894,23 @@ hiringSlotsRouter.get(
       try {
         ctx = await resolveCandidateApplication(req);
       } catch (error) {
+        if (error instanceof SlotTokenError && error.status === 404) {
+          return ApiResponse.success(res, { hasBooking: false, pickDeadline: null, locked: true, reason: 'no_application' });
+        }
         return handleSlotTokenError(res, error);
       }
+      const pickDeadline = await getPickDeadline(ctx.application.id);
       const booking = (await prisma.interviewSlotBooking.findUnique({
         where: { applicationId: ctx.application.id },
         include: { slot: true },
       })) as unknown as { id: string; bookedAt: Date; slot: unknown } | null;
-      const pickDeadline = await getPickDeadline(ctx.application.id);
       if (!booking) {
-        return ApiResponse.success(res, { hasBooking: false, pickDeadline });
+        return ApiResponse.success(res, {
+          hasBooking: false,
+          pickDeadline,
+          locked: !isPickEligible(ctx.application.status),
+          reason: isPickEligible(ctx.application.status) ? undefined : 'not_scheduled',
+        });
       }
       return ApiResponse.success(res, { hasBooking: true, booking, pickDeadline });
     } catch (error) {
@@ -896,6 +934,13 @@ hiringSlotsRouter.post(
         ctx = await resolveCandidateApplication(req);
       } catch (error) {
         return handleSlotTokenError(res, error);
+      }
+      if (!isPickEligible(ctx.application.status)) {
+        return res.status(403).json({
+          success: false,
+          error: { message: 'Your interview is not scheduled yet', code: 'NOT_SCHEDULED' },
+          error_type: 'not_scheduled',
+        });
       }
 
       try {
@@ -972,6 +1017,8 @@ hiringSlotsRouter.post(
           });
         }
 
+        socketEvents.liveInvalidate('slots');
+        socketEvents.liveInvalidate('hiring');
         return ApiResponse.created(res, result);
       } catch (txError) {
         if (txError instanceof BookingHttpError) {
@@ -1069,6 +1116,8 @@ hiringSlotsRouter.post(
         });
       }
 
+      socketEvents.liveInvalidate('slots');
+      socketEvents.liveInvalidate('hiring');
       return ApiResponse.success(res, { message: 'Booking cancelled' });
     } catch (error) {
       logger.error('Cancel my booking error:', { error: error instanceof Error ? error.message : String(error) });

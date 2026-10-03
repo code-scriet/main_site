@@ -318,7 +318,7 @@ export function notifyInterviewScheduledBell(params: {
     icon: 'calendar',
     title: 'Interview scheduled',
     body: `Pick your interview slot by ${deadline}`,
-    link: '/dashboard/hiring',
+    link: '/dashboard/hiring/slots',
     refEntity: 'hiring-application',
     refEntityId: params.applicationId,
   }).catch((err) => {
