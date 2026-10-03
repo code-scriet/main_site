@@ -1643,10 +1643,16 @@ const BATCH_SIZE = 1000;
       .replace(/{{downloadUrl}}/g, params.downloadUrl)
       .replace(/{{verifyUrl}}/g, verifyUrl);
 
-    let bodyHtml = substitutedBody;
+    // customBody is admin-authored HTML. Run the composed body through the same
+    // allowlist the rich-content paths use (strips script/style, on* handlers and
+    // javascript:/data: URLs) BEFORE embedding, so arbitrary markup can never
+    // reach the email — regardless of whether the tag-detection regex below fires.
+    const safeBody = sanitizeHtml(substitutedBody);
 
-    if (!/<[a-z][\s\S]*>/i.test(bodyHtml)) {
-      bodyHtml = bodyHtml
+    let bodyHtml = safeBody;
+
+    if (!/<[a-z][\s\S]*>/i.test(safeBody)) {
+      bodyHtml = safeBody
         .split('\n\n')
         .map((p) => `<p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${p.replace(/\n/g, '<br/>')}</p>`)
         .join('');
