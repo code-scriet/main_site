@@ -42,6 +42,7 @@ export type EmailCategory =
   | 'invitation'
   | 'admin_mail'
   | 'password_reset'
+  | 'recruitment'
   | 'other';
 
 export interface NotificationSettings {
@@ -53,6 +54,7 @@ export interface NotificationSettings {
   emailReminderEnabled: boolean;
   emailInvitationEnabled: boolean;
   emailPasswordResetEnabled: boolean;
+  emailRecruitmentEnabled: boolean;
   mailingEnabled: boolean;
   emailTestingMode: boolean;
   emailTestRecipients: string | null;
@@ -66,6 +68,7 @@ export interface NotificationSettings {
   emailProviderInvitation: 'oci' | 'brevo';
   emailProviderAdminMail: 'oci' | 'brevo';
   emailProviderPasswordReset: 'oci' | 'brevo';
+  emailProviderRecruitment: 'oci' | 'brevo';
   emailProviderOther: 'oci' | 'brevo';
 }
 
@@ -79,6 +82,7 @@ export const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettin
   invitation: 'emailInvitationEnabled',
   admin_mail: 'mailingEnabled',
   password_reset: 'emailPasswordResetEnabled',
+  recruitment: 'emailRecruitmentEnabled',
   other: null,
 };
 
@@ -91,6 +95,7 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailReminderEnabled: true,
   emailInvitationEnabled: true,
   emailPasswordResetEnabled: true,
+  emailRecruitmentEnabled: true,
   mailingEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
@@ -104,6 +109,7 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailProviderInvitation: 'brevo',
   emailProviderAdminMail: 'brevo',
   emailProviderPasswordReset: 'brevo',
+  emailProviderRecruitment: 'brevo',
   emailProviderOther: 'brevo',
 };
 
@@ -129,6 +135,7 @@ type NotificationSettingsColumns = Pick<
   | 'emailReminderEnabled'
   | 'emailInvitationEnabled'
   | 'emailPasswordResetEnabled'
+  | 'emailRecruitmentEnabled'
   | 'mailingEnabled'
   | 'emailTestingMode'
   | 'emailTestRecipients'
@@ -141,6 +148,7 @@ type NotificationSettingsColumns = Pick<
   | 'emailProviderInvitation'
   | 'emailProviderAdminMail'
   | 'emailProviderPasswordReset'
+  | 'emailProviderRecruitment'
   | 'emailProviderOther'
 >;
 
@@ -163,6 +171,7 @@ export function projectNotificationSettings(
     emailReminderEnabled: settings.emailReminderEnabled ?? true,
     emailInvitationEnabled: settings.emailInvitationEnabled ?? true,
     emailPasswordResetEnabled: settings.emailPasswordResetEnabled ?? true,
+    emailRecruitmentEnabled: settings.emailRecruitmentEnabled ?? true,
     mailingEnabled: settings.mailingEnabled ?? true,
     emailTestingMode: settings.emailTestingMode ?? false,
     emailTestRecipients: settings.emailTestRecipients ?? null,
@@ -176,6 +185,7 @@ export function projectNotificationSettings(
     emailProviderInvitation: (settings.emailProviderInvitation as 'oci' | 'brevo') ?? 'brevo',
     emailProviderAdminMail: (settings.emailProviderAdminMail as 'oci' | 'brevo') ?? 'brevo',
     emailProviderPasswordReset: (settings.emailProviderPasswordReset as 'oci' | 'brevo') ?? 'brevo',
+    emailProviderRecruitment: (settings.emailProviderRecruitment as 'oci' | 'brevo') ?? 'brevo',
     emailProviderOther: (settings.emailProviderOther as 'oci' | 'brevo') ?? 'brevo',
   };
 }
@@ -214,6 +224,7 @@ async function readNotificationColumns(): Promise<NotificationSettings | null> {
         emailReminderEnabled: true,
         emailInvitationEnabled: true,
         emailPasswordResetEnabled: true,
+        emailRecruitmentEnabled: true,
         mailingEnabled: true,
         emailTestingMode: true,
         emailTestRecipients: true,
@@ -226,6 +237,7 @@ async function readNotificationColumns(): Promise<NotificationSettings | null> {
         emailProviderInvitation: true,
         emailProviderAdminMail: true,
         emailProviderPasswordReset: true,
+        emailProviderRecruitment: true,
         emailProviderOther: true,
       },
     });
@@ -283,6 +295,7 @@ const CATEGORY_PROVIDER_MAP: Record<EmailCategory, keyof NotificationSettings> =
   invitation: 'emailProviderInvitation',
   admin_mail: 'emailProviderAdminMail',
   password_reset: 'emailProviderPasswordReset',
+  recruitment: 'emailProviderRecruitment',
   other: 'emailProviderOther',
 };
 

@@ -113,6 +113,8 @@ model User {
   blocks                  UserBlock[]
   uploadedImages          UploadedImage[]
   notificationsAuthored   NotificationFeed[]            @relation("NotificationAuthor")
+  createdInterviewSlots    InterviewSlot[]                @relation("InterviewSlotCreator")
+  hiringMessagesSent       HiringMessage[]                @relation("HiringMessageAuthor")
 
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
   @@index([lastLoginAt(sort: Desc)], map: "users_last_login_at_desc_idx")
@@ -172,6 +174,10 @@ model Settings {
   // it to re-open hiring (e.g. "2026-autumn"); previous applicants can apply again.
   hiringCycle       String  @default("2026") @map("hiring_cycle")
 
+  // Shown on the interview booking card everywhere a candidate sees their slot
+  // (dashboard tab, slot picker). Edit once here → updates every surface.
+  interviewWhatToExpect String @default("A short conversation about your application, interests and availability. Bring your college ID and be ready to talk through one thing you have built or learned recently.") @map("interview_what_to_expect")
+
   // Mailing system toggle
   mailingEnabled Boolean @default(true) @map("mailing_enabled")
 
@@ -202,6 +208,7 @@ model Settings {
   emailProviderAdminMail     String @default("brevo") @map("email_provider_admin_mail")
   emailProviderPasswordReset String @default("brevo") @map("email_provider_password_reset")
   emailProviderOther         String @default("brevo") @map("email_provider_other")
+  emailProviderRecruitment   String @default("brevo") @map("email_provider_recruitment")
 
   // Email testing mode
   emailTestingMode    Boolean @default(false) @map("email_testing_mode")
@@ -210,6 +217,9 @@ model Settings {
   // Privileged security env references (super admin / president only)
   attendanceJwtSecret String? @map("attendance_jwt_secret")
   indexNowKey         String? @map("indexnow_key")
+
+  // Recruitment email category toggle
+  emailRecruitmentEnabled Boolean @default(true) @map("email_recruitment_enabled")
 
   // Competition feature toggle
   competitionEnabled Boolean @default(false) @map("competition_enabled")
@@ -636,12 +646,15 @@ model Announcement {
   shortDescription String?              @map("short_description") @db.VarChar(300)
   slug             String               @unique
   tags             String[]             @default([])
+  audience         AnnouncementAudience @default(ALL)
+  audienceCycle    String?              @map("audience_cycle")
   creator          User                 @relation(fields: [createdBy], references: [id], onDelete: Restrict)
 
   @@index([createdAt])
   @@index([featured])
   @@index([pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_pinned_created_at_desc_idx")
   @@index([expiresAt, pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_expires_pinned_created_idx")
+  @@index([audience, audienceCycle])
   @@map("announcements")
 }
 
@@ -886,7 +899,20 @@ model HiringApplication {
   userId       String?           @map("user_id")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
-  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Hard-deleting a user must purge their application (and its bookings, pick
+  // token, reminders and messages, which cascade from the application). Soft
+  // delete leaves the row, so restore stays intact.
+  user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings     InterviewSlotBooking[]
+  slotToken    InterviewSlotToken?
+  reminderLogs InterviewReminderLog[]
+  messages     HiringMessage[]
+
+  // New fields for enhanced hiring application
+  cvLink       String?           @map("cv_link")         // Google Drive / cloud link to CV/Resume
+  whyJoin      String?           @map("why_join")        // Why do you want to join this club?
+  teamQuestion1 String?          @map("team_question_1") // Team-specific question 1
+  teamQuestion2 String?          @map("team_question_2") // Team-specific question 2
 
   @@unique([email, cycle])
   @@index([status, createdAt])
@@ -894,6 +920,24 @@ model HiringApplication {
   @@index([cycle, createdAt])
   @@index([userId])
   @@map("hiring_applications")
+}
+
+// Out-of-band message the hiring team sent to one applicant (email and/or an
+// in-app bell). One row per recipient so each applicant keeps a visible thread.
+model HiringMessage {
+  id            String            @id @default(uuid())
+  applicationId String            @map("application_id")
+  subject       String            @db.VarChar(200)
+  body          String            @db.Text
+  emailSent     Boolean           @default(false) @map("email_sent")
+  bellSent      Boolean           @default(false) @map("bell_sent")
+  createdById   String?           @map("created_by")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  application   HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdBy     User?             @relation("HiringMessageAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([applicationId, createdAt(sort: Desc)])
+  @@map("hiring_messages")
 }
 
 enum Role {
@@ -953,6 +997,67 @@ enum AnnouncementPriority {
   URGENT
 }
 
+enum AnnouncementAudience {
+  ALL
+  HIRING_COHORT
+}
+
+model InterviewSlot {
+  id            String         @id @default(uuid())
+  cycle         String                              // hiring cycle, e.g. "2026" — slots never leak across cycles
+  startsAt      DateTime       @map("starts_at")    // UTC
+  endsAt        DateTime       @map("ends_at")      // UTC
+  capacity      Int            @default(1)
+  bookedCount   Int            @default(0) @map("booked_count")
+  isOpen        Boolean        @default(true) @map("is_open")
+  applyingRole  ApplyingRole?  @map("applying_role") // optional track tag; null = any role
+  venue         String?
+  notes         String?
+  createdById   String?        @map("created_by")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  bookings      InterviewSlotBooking[]
+  createdBy     User?          @relation("InterviewSlotCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([cycle, startsAt])
+  @@map("interview_slots")
+}
+
+model InterviewSlotBooking {
+  id            String            @id @default(uuid())
+  slotId        String            @map("slot_id")
+  applicationId String            @unique @map("application_id")  // ONE booking per application — the race backstop
+  bookedAt      DateTime          @default(now()) @map("booked_at")
+  slot          InterviewSlot     @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  application   HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([slotId])
+  @@map("interview_slot_bookings")
+}
+
+// Magic-link tokens for slot picking (applicants without site accounts)
+model InterviewSlotToken {
+  id            String            @id @default(uuid())
+  applicationId String            @unique @map("application_id")
+  tokenHash     String            @unique @map("token_hash")      // SHA-256 of the opaque token; never store raw
+  expiresAt     DateTime          @map("expires_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  application   HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("interview_slot_tokens")
+}
+
+model InterviewReminderLog {
+  id            String            @id @default(uuid())
+  applicationId String            @map("application_id")
+  threshold     String            // "48h" | "24h"
+  sentAt        DateTime          @default(now()) @map("sent_at")
+  application   HiringApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, threshold])
+  @@map("interview_reminder_logs")
+}
+
 enum ApplyingRole {
   TECHNICAL
   DSA_CHAMPS
@@ -964,6 +1069,8 @@ enum ApplyingRole {
 enum ApplicationStatus {
   PENDING
   INTERVIEW_SCHEDULED
+  SLOT_BOOKED
+  INTERVIEWED
   SELECTED
   REJECTED
 }

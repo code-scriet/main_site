@@ -55,11 +55,35 @@ export function useNotificationsSocket() {
     socket.on('certificate:issued', refresh);
     socket.on('quiz:starting', refresh);
 
+    // Live cache invalidation: the server emits `live:invalidate` with a scope on
+    // mutations, so affected views refresh immediately — no manual reload. We
+    // invalidate only the matching React Query keys (cheap) and also dispatch a
+    // window 'cs-live' event for surfaces that don't use React Query (the admin
+    // hiring board).
+    const SCOPE_KEYS: Record<string, string[][]> = {
+      hiring: [['my-hiring'], ['my-hiring-messages'], ['notifications'], ['notifications', 'preview']],
+      slots: [['interview-my-booking'], ['interview-slots-available'], ['interview-updates']],
+      announcements: [['announcements'], ['interview-updates'], ['notifications'], ['notifications', 'preview']],
+      settings: [['settings']],
+    };
+    const onLive = (payload: { scope?: string }) => {
+      const scope = payload?.scope;
+      const keys = scope ? SCOPE_KEYS[scope] : undefined;
+      if (keys) for (const qk of keys) qc.invalidateQueries({ queryKey: qk });
+      try {
+        window.dispatchEvent(new CustomEvent('cs-live', { detail: scope }));
+      } catch {
+        /* CustomEvent unsupported — the poll/fallback still keeps things fresh */
+      }
+    };
+    socket.on('live:invalidate', onLive);
+
     return () => {
       socket.off('notification:broadcast');
       socket.off('invitation:received');
       socket.off('certificate:issued');
       socket.off('quiz:starting');
+      socket.off('live:invalidate');
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;

@@ -2,10 +2,16 @@
 // Two-pane: editor (left) + live preview (right).
 // Design source: screen-admin2.jsx:689 (CreateAnnouncementScreen).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Send, Loader2, AlertCircle, Plus, Trash2, Link as LinkIcon } from 'lucide-react';
 import { api } from '@/lib/api';
+import {
+  COHORT_PIPELINE_STATUSES,
+  fetchApplicationStatusPage,
+  listHiringCycles,
+  type HiringCycleInfo,
+} from '@/lib/interviewSlotsAdmin';
 import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { DSCard, Field, Pill } from '@/components/dash';
@@ -62,6 +68,20 @@ export default function CreateAnnouncement() {
   const [expiresAt, setExpiresAt] = useState('');
   const [pinned, setPinned] = useState(false);
   const [featured, setFeatured] = useState(false);
+  // Interview-cohort audience (Phase 4): "Everyone" posts stay ALL; the cohort
+  // option targets one hiring cycle and, unless unchecked, emails that cohort.
+  const [audience, setAudience] = useState<'ALL' | 'HIRING_COHORT'>('ALL');
+  const [audienceCycle, setAudienceCycle] = useState('');
+  const [cohortCycles, setCohortCycles] = useState<HiringCycleInfo[]>([]);
+  const [currentHiringCycle, setCurrentHiringCycle] = useState<string | null>(null);
+  const [notifyCohort, setNotifyCohort] = useState(true);
+  const [reach, setReach] = useState<{ state: 'idle' | 'loading' | 'ready'; count: number; total: number; truncated: boolean }>({
+    state: 'idle',
+    count: 0,
+    total: 0,
+    truncated: false,
+  });
+  const reachTimer = useRef<number | null>(null);
 
   const slug = useMemo(() => slugify(title), [title]);
   const markDirty = () => setIsDirty(true);
@@ -87,6 +107,11 @@ export default function CreateAnnouncement() {
         setExpiresAt(data.expiresAt ? new Date(data.expiresAt).toISOString().slice(0, 16) : '');
         setPinned(Boolean(data.pinned));
         setFeatured(Boolean(data.featured));
+        const existing = data as typeof data & { audience?: string; audienceCycle?: string | null };
+        if (existing.audience === 'HIRING_COHORT') {
+          setAudience('HIRING_COHORT');
+          setAudienceCycle(existing.audienceCycle ?? '');
+        }
         setIsDirty(false);
       } catch (err) {
         if (!cancelled) {
@@ -100,6 +125,46 @@ export default function CreateAnnouncement() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, isEditing]);
+
+  // Hiring cycles for the cohort picker — defaults the cycle select to the
+  // current hiring cycle. Degrades to a free-text cycle input on failure.
+  useEffect(() => {
+    if (!token) return;
+    void listHiringCycles(token)
+      .then(({ cycles: rows, current }) => {
+        setCohortCycles(rows);
+        setCurrentHiringCycle(current);
+        if (current) setAudienceCycle((prev) => prev || current);
+        else if (rows.length > 0 && rows[0]) setAudienceCycle((prev) => prev || (rows[0] as HiringCycleInfo).cycle);
+      })
+      .catch(() => { /* picker falls back to a manual cycle entry */ });
+  }, [token]);
+
+  // Live reach estimate for the cohort audience, debounced. Counts
+  // live-pipeline applications (INTERVIEW_SCHEDULED / SLOT_BOOKED /
+  // INTERVIEWED) client-side from the existing list endpoint.
+  useEffect(() => {
+    if (reachTimer.current) window.clearTimeout(reachTimer.current);
+    if (audience !== 'HIRING_COHORT' || !audienceCycle.trim() || !token) {
+      setReach({ state: 'idle', count: 0, total: 0, truncated: false });
+      return;
+    }
+    const cycle = audienceCycle.trim();
+    setReach((prev) => ({ ...prev, state: 'loading' }));
+    reachTimer.current = window.setTimeout(() => {
+      void fetchApplicationStatusPage(token, { cycle, limit: 100, page: 1 })
+        .then(({ rows, total }) => {
+          const count = rows.filter((r) =>
+            (COHORT_PIPELINE_STATUSES as readonly string[]).includes(r.status),
+          ).length;
+          setReach({ state: 'ready', count, total, truncated: total > rows.length });
+        })
+        .catch(() => setReach({ state: 'idle', count: 0, total: 0, truncated: false }));
+    }, 400);
+    return () => {
+      if (reachTimer.current) window.clearTimeout(reachTimer.current);
+    };
+  }, [audience, audienceCycle, token]);
 
   const submit = async (publish: boolean) => {
     if (!title.trim() || !body.trim()) {
@@ -123,13 +188,24 @@ export default function CreateAnnouncement() {
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
         pinned,
         featured,
+        ...(audience === 'HIRING_COHORT'
+          ? { audience, audienceCycle: audienceCycle.trim(), notifyCohort }
+          : { audience: 'ALL' as const }),
       };
       if (isEditing && editingId) {
         await api.updateAnnouncement(editingId, payload, token);
         toast.success('Announcement updated');
       } else {
         await api.createAnnouncement(payload, token);
-        toast.success(publish ? 'Announcement published' : 'Saved as draft');
+        if (audience === 'HIRING_COHORT') {
+          toast.success(
+            notifyCohort
+              ? 'Announcement published — cohort email queued'
+              : 'Announcement published (cohort email skipped)',
+          );
+        } else {
+          toast.success(publish ? 'Announcement published' : 'Saved as draft');
+        }
       }
       setIsDirty(false);
       navigate('/dashboard/announcements');
@@ -200,6 +276,93 @@ export default function CreateAnnouncement() {
                 </button>
               ))}
             </div>
+          </Field>
+          <Field label="Audience" hint="who can see this">
+            <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Announcement audience">
+              <label
+                className={cn(
+                  'inline-flex items-center gap-2 px-3 h-8 rounded-[7px] text-[12px] font-medium border transition-colors cursor-pointer',
+                  audience === 'ALL'
+                    ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-transparent'
+                    : 'bg-transparent text-[var(--ds-text-3)] border-[var(--border-default)] hover:text-[var(--ds-text-1)]',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="announcement-audience"
+                  checked={audience === 'ALL'}
+                  onChange={() => { setAudience('ALL'); markDirty(); }}
+                  className="accent-[var(--accent)]"
+                />
+                Everyone
+              </label>
+              <label
+                className={cn(
+                  'inline-flex items-center gap-2 px-3 h-8 rounded-[7px] text-[12px] font-medium border transition-colors cursor-pointer',
+                  audience === 'HIRING_COHORT'
+                    ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-transparent'
+                    : 'bg-transparent text-[var(--ds-text-3)] border-[var(--border-default)] hover:text-[var(--ds-text-1)]',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="announcement-audience"
+                  checked={audience === 'HIRING_COHORT'}
+                  onChange={() => {
+                    setAudience('HIRING_COHORT');
+                    if (!audienceCycle && currentHiringCycle) setAudienceCycle(currentHiringCycle);
+                    markDirty();
+                  }}
+                  className="accent-[var(--accent)]"
+                />
+                Interview candidates only
+              </label>
+            </div>
+            {audience === 'HIRING_COHORT' && (
+              <div className="flex flex-col gap-2 mt-2 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[12px] text-[var(--ds-text-2)]">Hiring cycle</span>
+                  {cohortCycles.length > 0 ? (
+                    <select
+                      value={audienceCycle}
+                      onChange={(e) => { setAudienceCycle(e.target.value); markDirty(); }}
+                      className="h-8 px-2 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+                      aria-label="Cohort hiring cycle"
+                    >
+                      {cohortCycles.map(({ cycle, count }) => (
+                        <option key={cycle} value={cycle}>
+                          {cycle} ({count})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={audienceCycle}
+                      onChange={(e) => { setAudienceCycle(e.target.value); markDirty(); }}
+                      placeholder="e.g. 2026"
+                      className="h-8 text-[13px] w-[140px]"
+                      aria-label="Cohort hiring cycle"
+                    />
+                  )}
+                  <label className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ds-text-2)] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifyCohort}
+                      onChange={(e) => { setNotifyCohort(e.target.checked); markDirty(); }}
+                    />
+                    Also email this to the cohort
+                  </label>
+                </div>
+                {reach.state === 'loading' ? (
+                  <span className="text-[12px] text-[var(--ds-text-3)]">Estimating reach…</span>
+                ) : reach.state === 'ready' ? (
+                  <span className="text-[12px] text-[var(--ds-text-2)]">
+                    Will reach ~{reach.count} candidate{reach.count === 1 ? '' : 's'}
+                    {reach.truncated ? ` (first 100 of ${reach.total} applications scanned)` : ''}
+                  </span>
+                ) : null}
+              </div>
+            )}
           </Field>
           <Field label="Short description" hint="One line shown on cards">
             <Input value={shortDescription} onChange={(e) => { setShortDescription(e.target.value); markDirty(); }} maxLength={300} placeholder="Round 3 closes at 11:59 PM IST on Saturday." />

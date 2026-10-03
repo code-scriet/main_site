@@ -23,6 +23,45 @@ import type {
   UserListResponse,
 } from '../api';
 
+// A candidate's own hiring application, as returned by GET/PATCH /hiring/my-application.
+export interface HiringApplicationDetail {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  department: string;
+  year: string;
+  skills?: string | null;
+  applyingRole: string;
+  status: string;
+  cycle?: string;
+  cvLink?: string | null;
+  whyJoin?: string | null;
+  teamQuestion1?: string | null;
+  teamQuestion2?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// A message the hiring team sent to an applicant (AdminHiring history view).
+export interface HiringMessage {
+  id: string;
+  subject: string;
+  body: string;
+  emailSent: boolean;
+  bellSent: boolean;
+  createdAt: string;
+  createdBy?: { id: string; name: string; email: string } | null;
+}
+
+export interface SendHiringMessageResult {
+  message: string;
+  total: number;
+  emailed: number;
+  belled: number;
+  bellSkipped: number;
+}
+
 // Full Cloudinary metadata returned by POST /upload/image. Consumed by the
 // image-library tool to build its localStorage gallery entries (no server history).
 export interface UploadImageResult {
@@ -202,13 +241,29 @@ export const usersApi = {
   getMyHiringApplication: (token: string) =>
     request<{
       hasApplied: boolean;
-      application?: {
-        id: string;
-        applyingRole: string;
-        status: string;
-        createdAt: string;
-      };
+      editable?: boolean;
+      application?: HiringApplicationDetail;
     } | null>('/hiring/my-application', { token }),
+
+  updateMyHiringApplication: (
+    data: {
+      phone?: string | null;
+      department?: string;
+      year?: string;
+      skills?: string | null;
+      cvLink?: string | null;
+      whyJoin?: string | null;
+      teamQuestion1?: string | null;
+      teamQuestion2?: string | null;
+    },
+    token: string,
+  ) =>
+    request<{ message?: string; application: HiringApplicationDetail }>('/hiring/my-application', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      token,
+    }),
+
   submitHiringApplication: (
     data: {
       name: string;
@@ -218,6 +273,10 @@ export const usersApi = {
       year: string;
       skills?: string;
       applyingRole: string;
+      cvLink?: string | null;
+      whyJoin?: string | null;
+      teamQuestion1?: string | null;
+      teamQuestion2?: string | null;
     },
     token?: string,
   ) =>
@@ -226,6 +285,41 @@ export const usersApi = {
       body: JSON.stringify(data),
       token,
     }),
+
+  sendHiringMessage: (
+    data: { applicationIds: string[]; subject: string; body: string; email: boolean; bell: boolean },
+    token: string,
+  ) =>
+    request<{ message?: string; total: number; emailed: number; belled: number; bellSkipped: number }>(
+      '/hiring/message',
+      { method: 'POST', body: JSON.stringify(data), token },
+    ),
+
+  getHiringMessages: (applicationId: string, token: string) =>
+    request<{
+      messages: Array<{
+        id: string;
+        subject: string;
+        body: string;
+        emailSent: boolean;
+        bellSent: boolean;
+        createdAt: string;
+        createdBy?: { id: string; name: string; email: string } | null;
+      }>;
+    }>(`/hiring/applications/${applicationId}/messages`, { token }),
+
+  // Messages the hiring team sent to the signed-in candidate (My Club Application tab).
+  getMyHiringMessages: (token: string) =>
+    request<{
+      messages: Array<{
+        id: string;
+        subject: string;
+        body: string;
+        emailSent: boolean;
+        bellSent: boolean;
+        createdAt: string;
+      }>;
+    }>('/hiring/my-application/messages', { token }),
 
   // Network (public)
   getNetworkProfiles: (filters?: { industry?: string; connectionType?: string; search?: string }) => {

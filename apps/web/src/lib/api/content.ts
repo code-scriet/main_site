@@ -27,7 +27,10 @@ export const contentApi = {
   },
   // Same list plus the server total — use for any screen that shows
   // "{total} total" or needs to know when to fetch more (fetch-all).
-  getAnnouncementsWithTotal: (options?: { priority?: string; featured?: boolean; limit?: number; offset?: number }) => {
+  // Pass the session token on authenticated surfaces (e.g. the dashboard
+  // announcements tab) so interview-pipeline candidates also see their
+  // hiring-cohort posts; anonymous callers get ALL-audience posts only.
+  getAnnouncementsWithTotal: (options?: { priority?: string; featured?: boolean; limit?: number; offset?: number }, token?: string) => {
     const params = new URLSearchParams();
     if (options?.priority) params.set('priority', options.priority);
     if (options?.featured) params.set('featured', 'true');
@@ -35,7 +38,7 @@ export const contentApi = {
     if (options?.offset) params.set('offset', String(options.offset));
     const queryString = params.toString();
     return (async () => {
-      const res = await requestEnvelope<Announcement[]>(`/announcements${queryString ? `?${queryString}` : ''}`);
+      const res = await requestEnvelope<Announcement[]>(`/announcements${queryString ? `?${queryString}` : ''}`, token ? { token } : {});
       const list = res.data ?? [];
       const paging = res.pagination as { total?: unknown } | undefined;
       const total = typeof paging?.total === 'number' ? paging.total : list.length;

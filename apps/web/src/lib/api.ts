@@ -12,6 +12,7 @@ import { adminOpsApi } from './api/admin-ops';
 import { eventOpsApi } from './api/event-ops';
 
 export { UnauthorizedError, ApiError };
+export type { HiringApplicationDetail, HiringMessage, SendHiringMessageResult } from './api/users';
 
 
 
@@ -533,6 +534,7 @@ export interface Settings {
   hiringSocialMedia?: boolean;
   hiringManagement?: boolean;
   hiringCycle?: string;
+  interviewWhatToExpect?: string;
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
   plagiarismCheckEnabled?: boolean;
@@ -568,6 +570,7 @@ export interface Settings {
   emailReminderEnabled?: boolean;
   emailInvitationEnabled?: boolean;
   emailPasswordResetEnabled?: boolean;
+  emailRecruitmentEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
   // Email provider per category (oci | brevo)
@@ -580,6 +583,7 @@ export interface Settings {
   emailProviderInvitation?: 'oci' | 'brevo';
   emailProviderAdminMail?: 'oci' | 'brevo';
   emailProviderPasswordReset?: 'oci' | 'brevo';
+  emailProviderRecruitment?: 'oci' | 'brevo';
   emailProviderOther?: 'oci' | 'brevo';
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
@@ -1819,6 +1823,16 @@ export interface HomePageData {
 }
 
 import { dashboardApi } from './api/dashboard';
+import { hiringSlotsApi } from './api/hiring-slots';
+export type {
+  CandidateSlot,
+  CandidateBooking,
+  CandidateBookingSlot,
+  MyInterviewBookingResult,
+  BookInterviewSlotResult,
+  SlotAuth,
+} from './api/hiring-slots';
+export { SlotApiError } from './api/hiring-slots';
 export type {
   NotifItem,
   NotificationsPayload,
@@ -1859,4 +1873,7 @@ export const api = {
 
   // Dashboard v2 — notifications, global search, admin insights, recent subs, leaderboard slice, teams, upload history.
   ...dashboardApi,
+
+  // Candidate interview slots — token-or-session aware (magic link + logged-in).
+  ...hiringSlotsApi,
 };

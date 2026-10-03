@@ -8,6 +8,7 @@ import { broadcastQotdLive, broadcastNotification } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
 import { invalidateQotdTodayCache } from './qotdTodayCache.js';
 import { updateEventStatuses } from './eventStatus.js';
+import { sendInterviewSlotReminders } from './interviewReminders.js';
 import { isContestPriorityActive } from '../competition/contestMode.js';
 
 let reminderColumnAvailable = true;
@@ -920,6 +921,10 @@ function runReminderTick(): void {
   sendEventReminders();
   void sendEventFeedbackRequests();
   void pruneOldRecordsIfDue();
+  // Interview pick reminders ride the same 6h tick (a superset of daily). The
+  // per-threshold InterviewReminderLog claims make the higher frequency safe —
+  // each (application, 48h/24h) pair sends exactly once however often we tick.
+  void sendInterviewSlotReminders();
 }
 
 export function startReminderScheduler(): void {

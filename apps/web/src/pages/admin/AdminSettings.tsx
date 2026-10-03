@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, FileText, Eye, Code, Search, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -68,6 +69,7 @@ export default function AdminSettings() {
     emailCertificateEnabled: true,
     emailReminderEnabled: true,
     emailInvitationEnabled: true,
+    emailRecruitmentEnabled: true,
     emailTestingMode: false,
     emailTestRecipients: null,
     // Email provider per category
@@ -80,6 +82,7 @@ export default function AdminSettings() {
     emailProviderInvitation: 'brevo',
     emailProviderAdminMail: 'brevo',
     emailProviderPasswordReset: 'brevo',
+    emailProviderRecruitment: 'brevo',
     emailProviderOther: 'brevo',
     playgroundDailyLimit: 100,
     githubUrl: '',
@@ -413,6 +416,7 @@ export default function AdminSettings() {
               { key: 'emailInvitationEnabled' as const, providerKey: 'emailProviderInvitation' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
               { key: 'mailingEnabled' as const, providerKey: 'emailProviderAdminMail' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
               { key: 'emailPasswordResetEnabled' as const, providerKey: 'emailProviderPasswordReset' as const, label: 'Password reset', desc: 'Password reset emails' },
+              { key: 'emailRecruitmentEnabled' as const, providerKey: 'emailProviderRecruitment' as const, label: 'Recruitment', desc: 'Interview slot emails' },
               { key: null, providerKey: 'emailProviderOther' as const, label: 'Other', desc: 'Uncategorized system emails' },
             ].map(({ key, providerKey, label, desc }) => (
               <div key={providerKey} className="flex items-center gap-2">
@@ -598,6 +602,23 @@ export default function AdminSettings() {
               <span className="text-[11px] text-[var(--ds-text-3)]">
                 Bump to re-open hiring — past applicants can apply again. Save to apply.
               </span>
+            </div>
+            <div className="mt-3 flex flex-col gap-1.5">
+              <Label htmlFor="interview-what-to-expect" className="text-[12.5px] font-medium text-[var(--ds-text-1)]">
+                Interview “What to expect” note
+              </Label>
+              <p className="text-[11px] text-[var(--ds-text-3)] -mt-0.5">
+                Shown on every candidate’s interview booking card. Edit here once — it updates everywhere.
+              </p>
+              <Textarea
+                id="interview-what-to-expect"
+                value={settings.interviewWhatToExpect ?? ''}
+                onChange={(e) => setSettings({ ...settings, interviewWhatToExpect: e.target.value })}
+                rows={3}
+                maxLength={2000}
+                placeholder="A short conversation about your application…"
+                className="text-[13px]"
+              />
             </div>
           </div>
         )}
