@@ -8,7 +8,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
 import { zodFieldErrors } from '../utils/zodErrors.js';
-import { emailService, markdownToEmailHtml, htmlToPlainText } from '../utils/email.js';
+import { emailService, markdownToEmailHtml, htmlToPlainText, generateEmailTemplate } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { parsePaginationNumber, getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
@@ -964,12 +964,19 @@ hiringRouter.post('/message', authMiddleware, requireRole('ADMIN'), async (req: 
 
       if (email && app.email) {
         try {
-          const emailHtml = markdownToEmailHtml(body);
+          const bodyHtml = markdownToEmailHtml(body);
+          const emailHtml = generateEmailTemplate({
+            preheader: subject,
+            title: subject,
+            badge: { text: 'Message from the team', icon: '✉️' },
+            accentColor: '#fbbf24',
+            body: bodyHtml,
+          });
           emailSent = await emailService.send({
             to: app.email,
             subject,
             html: emailHtml,
-            text: htmlToPlainText(emailHtml),
+            text: htmlToPlainText(bodyHtml),
             category: 'recruitment',
           });
         } catch (err) {
