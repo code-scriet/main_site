@@ -73,6 +73,10 @@ export default function DashboardOverview() {
 
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isNetwork = user?.role === 'NETWORK';
+  // Only regular users/members are "not yet the team" — they are the ones who
+  // should see the join-the-team invite. Core members, admins and network
+  // profiles already belong to the club.
+  const isCoreTeamMember = user?.role === 'CORE_MEMBER' || isAdmin || isNetwork;
 
   const regsQ = useQuery({
     queryKey: ['my-registrations'],
@@ -277,6 +281,14 @@ export default function DashboardOverview() {
       {hiringQ.data?.hasApplied && hiringQ.data.application && (
         <HiringStatusSection application={hiringQ.data.application} />
       )}
+
+      {/* Non-team-member invite: one line + a "Join our team" button. Regular
+          users/members who have not applied yet — core members, admins and
+          network profiles are already the team. */}
+      {settings?.hiringEnabled !== false &&
+        !isCoreTeamMember && !hiringQ.data?.hasApplied && !hiringQ.isLoading && (
+          <JoinTeamCta onJoin={() => navigate('/join-us')} />
+        )}
 
       {settings?.playgroundEnabled !== false && <PlaygroundPromoSection />}
     </div>
@@ -1123,7 +1135,7 @@ function HiringStatusSection({
   const pickSlotCTA = (
     <Button
       size="sm"
-      onClick={() => navigate('/dashboard/hiring/slots')}
+      onClick={() => navigate('/dashboard/application')}
       className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25"
     >
       Pick your slot <ArrowRight size={13} className="ml-1" />
@@ -1160,7 +1172,7 @@ function HiringStatusSection({
         <InterviewBookingCard
           booking={booking}
           cancelling={cancelMut.isPending}
-          onChangeSlot={() => navigate('/dashboard/hiring/slots')}
+          onChangeSlot={() => navigate('/dashboard/application')}
           onConfirmCancel={() => cancelMut.mutate()}
           onDownloadICS={handleDownloadICS}
         />
@@ -1215,9 +1227,33 @@ function HiringStatusSection({
             applied {new Date(application.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
           </div>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => navigate('/dashboard/profile')}>View details</Button>
+        <Button size="sm" variant="ghost" onClick={() => navigate('/dashboard/application')}>View application</Button>
       </div>
     </Section>
+  );
+}
+
+// ─── Non-team-member invite (one line + a Join our team button)
+function JoinTeamCta({ onJoin }: { onJoin: () => void }) {
+  return (
+    <DSCard padded className="flex items-center gap-4 flex-wrap">
+      <div className="size-10 rounded-[10px] bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shrink-0">
+        <Briefcase size={16} />
+      </div>
+      <div className="flex-1 min-w-[200px]">
+        <div className="text-[14px] font-semibold">Want to build, design or lead with code.scriet?</div>
+        <div className="text-[12.5px] text-[var(--ds-text-3)] mt-0.5">
+          Join the core team — apply in two minutes and we will schedule an interview.
+        </div>
+      </div>
+      <Button
+        size="sm"
+        onClick={onJoin}
+        className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg shadow-amber-500/25"
+      >
+        Join our team <ArrowRight size={13} className="ml-1" />
+      </Button>
+    </DSCard>
   );
 }
 

@@ -89,6 +89,7 @@ const DashboardCertificates = lazy(() => import('@/pages/dashboard/DashboardCert
 const DashboardInvitations = lazy(() => import('@/pages/dashboard/DashboardInvitations'));
 const AttendancePage = lazy(() => import('@/pages/dashboard/AttendancePage'));
 const InterviewSlotsPage = lazy(() => import('@/pages/hiring/InterviewSlotsPage'));
+const MyApplicationPage = lazy(() => import('@/pages/dashboard/MyApplicationPage'));
 const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage'));
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
@@ -217,6 +218,7 @@ function App() {
                       <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
                       <Route path="invitations" element={withRouteBoundary(<DashboardInvitations />)} />
                       <Route path="invitations/:invitationId" element={withRouteBoundary(<DashboardInvitations />)} />
+                      <Route path="application" element={withRouteBoundary(<MyApplicationPage />)} />
                       <Route path="hiring/slots" element={withRouteBoundary(<InterviewSlotsPage />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
                         <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />

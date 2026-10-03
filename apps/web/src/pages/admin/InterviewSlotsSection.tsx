@@ -9,15 +9,18 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CalendarPlus,
+  Check,
   ChevronDown,
   Clock,
   Loader2,
   MapPin,
   Minus,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import { DSCard, EmptyState, Field, Pill, ProgressBar } from '@/components/dash';
 import { Input } from '@/components/ui/input';
@@ -159,6 +162,8 @@ export function InterviewSlotsSection({
   const [cancelTarget, setCancelTarget] = useState<{ bookingId: string; name: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [mutatingSlotId, setMutatingSlotId] = useState<string | null>(null);
+  const [editingVenueId, setEditingVenueId] = useState<string | null>(null);
+  const [venueDraft, setVenueDraft] = useState('');
 
   const groups = useMemo(() => groupSlotsByIstDate(slots), [slots]);
   const drawerSlot = drawerSlotId ? (slots.find((s) => s.id === drawerSlotId) ?? null) : null;
@@ -230,7 +235,10 @@ export function InterviewSlotsSection({
   // Bulk endpoint always creates capacity-1 role-less slots, so any non-default
   // More-options value falls back to sequential single creates with identical
   // conflict-skip semantics (per-row 409 slot_overlap counts as skipped).
-  const customized = capacity !== 1 || role !== '' || venue.trim() !== '';
+  // Capacity/role still require per-slot creates (the bulk endpoint fixes
+  // capacity 1 / any role). Venue is handled by the bulk endpoint itself, so a
+  // venue-only change stays on the fast single-request path.
+  const customized = capacity !== 1 || role !== '';
   const okCount = preview?.okCount ?? 0;
 
   const confirmCreate = async () => {
@@ -269,6 +277,7 @@ export function InterviewSlotsSection({
           startTime,
           slotMinutes,
           breakMinutes,
+          venue: venue.trim() || null,
           ...(durationMode === 'count' ? { count } : { endTime }),
         };
         const result = await bulkCreateSlots(token, series);
@@ -306,6 +315,20 @@ export function InterviewSlotsSection({
     } catch (e) {
       // 409s surface here: capacity_below_booked / capacity_locked.
       toast.error(e instanceof Error ? e.message : 'Capacity update failed');
+    } finally {
+      setMutatingSlotId(null);
+    }
+  };
+
+  const saveVenue = async (slot: AdminInterviewSlot) => {
+    setMutatingSlotId(slot.id);
+    try {
+      await updateInterviewSlot(token, slot.id, { venue: venueDraft.trim() || null });
+      toast.success(venueDraft.trim() ? 'Venue updated' : 'Venue cleared');
+      setEditingVenueId(null);
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Venue update failed');
     } finally {
       setMutatingSlotId(null);
     }
@@ -519,6 +542,19 @@ export function InterviewSlotsSection({
           </Field>
         </div>
 
+        {/* Single venue for the whole series — every slot created here gets it. */}
+        <Field label="Venue (applies to every slot in this series)" hint="optional — you can still edit a slot's venue later">
+          <div className="relative">
+            <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ds-text-3)]" />
+            <Input
+              value={venue}
+              onChange={(e) => setVenue(e.target.value)}
+              placeholder="Seminar Hall 2"
+              className="h-8 text-[13px] pl-8"
+            />
+          </div>
+        </Field>
+
         <div>
           <button
             type="button"
@@ -562,14 +598,6 @@ export function InterviewSlotsSection({
                     </option>
                   ))}
                 </select>
-              </Field>
-              <Field label="Venue" hint="blank default">
-                <Input
-                  value={venue}
-                  onChange={(e) => setVenue(e.target.value)}
-                  placeholder="Seminar Hall 2"
-                  className="h-8 text-[13px]"
-                />
               </Field>
             </div>
           )}
@@ -669,7 +697,7 @@ export function InterviewSlotsSection({
           </Button>
           {customized && (
             <span className="text-[11.5px] text-[var(--ds-text-3)]">
-              Capacity / role / venue set — creates slots one by one so those stick.
+              Capacity / role set — creates slots one by one so those stick.
             </span>
           )}
         </div>
@@ -725,10 +753,71 @@ export function InterviewSlotsSection({
                           Any role
                         </Pill>
                       )}
-                      {s.venue && (
-                        <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ds-text-3)]">
-                          <MapPin size={11} />
-                          {s.venue}
+                      {editingVenueId === s.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Input
+                            value={venueDraft}
+                            onChange={(e) => setVenueDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void saveVenue(s);
+                              } else if (e.key === 'Escape') {
+                                setEditingVenueId(null);
+                              }
+                            }}
+                            placeholder="Seminar Hall 2"
+                            autoFocus
+                            aria-label="Venue"
+                            className="h-7 w-[140px] text-[12px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void saveVenue(s)}
+                            disabled={busy}
+                            className="size-6 rounded-[5px] border border-[var(--border-default)] flex items-center justify-center text-[var(--success)] hover:bg-[var(--surface-soft)] disabled:opacity-40"
+                            aria-label="Save venue"
+                            title="Save venue"
+                          >
+                            <Check size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingVenueId(null)}
+                            disabled={busy}
+                            className="size-6 rounded-[5px] border border-[var(--border-default)] flex items-center justify-center text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)] disabled:opacity-40"
+                            aria-label="Cancel venue edit"
+                            title="Cancel"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {s.venue ? (
+                            <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ds-text-3)] max-w-[160px]">
+                              <MapPin size={11} className="shrink-0" />
+                              <span className="truncate">{s.venue}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--ds-text-3)] italic">
+                              <MapPin size={11} />
+                              No venue
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingVenueId(s.id);
+                              setVenueDraft(s.venue ?? '');
+                            }}
+                            disabled={busy}
+                            className="size-6 rounded-[5px] border border-[var(--border-default)] flex items-center justify-center text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)] disabled:opacity-40"
+                            aria-label="Edit venue"
+                            title="Edit venue"
+                          >
+                            <Pencil size={11} />
+                          </button>
                         </span>
                       )}
                       <div className="flex items-center gap-1 min-w-[120px] flex-1">

@@ -13,6 +13,10 @@ interface HiringIntent {
   department?: string;
   year?: string;
   skills?: string;
+  cvLink?: string;
+  whyJoin?: string;
+  teamQuestion1?: string;
+  teamQuestion2?: string;
 }
 
 interface NetworkIntent {
@@ -108,6 +112,10 @@ export default function AuthCallbackPage() {
                     year: hiringIntent.year || 'Not specified',
                     skills: hiringIntent.skills,
                     applyingRole: hiringIntent.role,
+                    cvLink: hiringIntent.cvLink?.trim() || null,
+                    whyJoin: hiringIntent.whyJoin?.trim() || null,
+                    teamQuestion1: hiringIntent.teamQuestion1?.trim() || null,
+                    teamQuestion2: hiringIntent.teamQuestion2?.trim() || null,
                   },
                   token,
                 );

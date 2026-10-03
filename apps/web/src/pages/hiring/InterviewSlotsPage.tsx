@@ -21,6 +21,7 @@ import { InterviewUpdates } from '@/components/hiring/InterviewUpdates';
 import { api, SlotApiError, type CandidateBooking, type SlotAuth } from '@/lib/api';
 import { slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
 import { downloadICS } from '@/lib/calendar';
+import { cn } from '@/lib/utils';
 
 function useSlotAuth(slotToken: string | null): { auth: SlotAuth; canFetch: boolean } {
   const { token: sessionToken, isLoading: authLoading } = useAuth();
@@ -31,7 +32,7 @@ function useSlotAuth(slotToken: string | null): { auth: SlotAuth; canFetch: bool
   }, [slotToken, sessionToken, authLoading]);
 }
 
-function Content() {
+export function InterviewSlotsContent({ embedded = false }: { embedded?: boolean } = {}) {
   const [searchParams] = useSearchParams();
   const slotToken = searchParams.get('token');
   const isTokenMode = Boolean(slotToken);
@@ -50,7 +51,12 @@ function Content() {
   const bookingData = bookingQ.data;
   const hasBooking = Boolean(bookingData && bookingData.hasBooking);
   const booking: CandidateBooking | null = bookingData && bookingData.hasBooking ? bookingData.booking : null;
-  const showPicker = !hasBooking || pickerOpen;
+  // Set when the candidate is logged in but not yet in the interview pipeline
+  // (no application, or PENDING / SELECTED / REJECTED). The picker is hidden and
+  // an explanatory card is shown instead of a raw error.
+  const lockReason =
+    bookingData && !bookingData.hasBooking ? (bookingData as { reason?: string }).reason ?? null : null;
+  const showPicker = (!hasBooking || pickerOpen) && !lockReason;
 
   const slotsQ = useQuery({
     queryKey: ['interview-slots-available', slotToken ? `token:${slotToken.slice(0, 12)}` : 'session'],
@@ -125,16 +131,18 @@ function Content() {
     bookingError instanceof SlotApiError && (bookingError.status === 410 || bookingError.status === 401);
 
   return (
-    <div className="flex flex-col gap-6 max-w-[880px] mx-auto w-full">
-      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-        <div className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">
-          Hiring · Interview
-        </div>
-        <h1 className="text-[24px] font-semibold tracking-tight mt-1">Pick your interview slot</h1>
-        <p className="text-[13px] text-[var(--ds-text-3)] mt-1 tabular-nums">
-          Slots fill on a first-come-first-served basis. All times are IST.
-        </p>
-      </motion.div>
+    <div className={cn('flex flex-col gap-6 w-full', !embedded && 'max-w-[880px] mx-auto')}>
+      {!embedded && (
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+          <div className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">
+            Hiring · Interview
+          </div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Pick your interview slot</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1 tabular-nums">
+            Slots fill on a first-come-first-served basis. All times are IST.
+          </p>
+        </motion.div>
+      )}
 
       {!canFetch && !isTokenMode && (
         <DSCard padded>
@@ -179,6 +187,27 @@ function Content() {
               <Button size="sm" variant="outline" onClick={() => void bookingQ.refetch()}>
                 Retry
               </Button>
+            }
+          />
+        </DSCard>
+      )}
+
+      {canFetch && bookingQ.isSuccess && !hasBooking && lockReason && (
+        <DSCard padded>
+          <EmptyState
+            icon={<CalendarDays size={18} />}
+            title={lockReason === 'no_application' ? 'No application found' : 'Interview not scheduled yet'}
+            body={
+              lockReason === 'no_application'
+                ? 'We could not find a hiring application on this account. Apply to join the team and the hiring panel will review it.'
+                : 'Slot picking opens once the hiring team moves your application to “Interview scheduled”. You will get an email and a bell notification when it does.'
+            }
+            action={
+              lockReason === 'no_application' ? (
+                <Button asChild className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
+                  <Link to="/join-us">Join our team</Link>
+                </Button>
+              ) : undefined
             }
           />
         </DSCard>
@@ -250,7 +279,9 @@ function Content() {
   );
 }
 
-export default function InterviewSlotsPage() {
+// Reused verbatim by the dashboard "My Application" tab so candidates find and
+// book their open slots inline (not only on the dedicated slots route).
+export function InterviewSlotsPage() {
   const [searchParams] = useSearchParams();
   const isTokenMode = Boolean(searchParams.get('token'));
 
@@ -259,7 +290,7 @@ export default function InterviewSlotsPage() {
       <Layout>
         <SEO title="Pick your interview slot" noIndex={true} />
         <div className="mx-auto max-w-[1000px] px-4 sm:px-6 py-10">
-          <Content />
+          <InterviewSlotsContent />
         </div>
       </Layout>
     );
@@ -267,7 +298,9 @@ export default function InterviewSlotsPage() {
   return (
     <>
       <SEO title="Pick your interview slot" noIndex={true} />
-      <Content />
+      <InterviewSlotsContent />
     </>
   );
 }
+
+export default InterviewSlotsPage;

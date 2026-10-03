@@ -978,7 +978,7 @@ function DangerTab({ userId }: { userId: string }) {
         <DangerRow
           icon={<Trash2 className="h-4 w-4 text-red-600" />}
           title="Hard delete"
-          description="Permanently removes the user row. Refuses if the user owns events, announcements, polls, problems, invitations, or led teams (Restrict FKs)."
+          description="Permanently removes the user AND all data that belongs only to them — including their hiring application, interview bookings, pick token, reminders and messages. Refuses if the user owns shared records (events, announcements, polls, problems, invitations, or led teams), which must be reassigned first."
           disabled={!perms.canHardDelete}
           onClick={() => setConfirm('hard-delete')}
           variant="destructive"
@@ -1000,7 +1000,7 @@ function DangerTab({ userId }: { userId: string }) {
               {confirm === 'password-reset' && `An email will be sent to ${user.email} with a 30-minute reset link.`}
               {confirm === 'soft-delete' && 'The user will be marked deleted, logged out, and blocked from every feature. A super admin can restore them.'}
               {confirm === 'restore' && 'The account will be re-enabled. Auto-blocks created on soft-delete will be removed.'}
-              {confirm === 'hard-delete' && 'This action cannot be undone. The user row will be deleted from the database.'}
+              {confirm === 'hard-delete' && 'This cannot be undone. The user and everything that belongs only to them — including their hiring application, interview bookings, pick token, reminders and messages — will be permanently deleted.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {needsTyped && (

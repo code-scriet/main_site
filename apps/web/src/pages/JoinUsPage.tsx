@@ -6,11 +6,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  Chrome, 
-  Github, 
-  AlertCircle, 
-  Loader2, 
+import { Textarea } from '@/components/ui/textarea';
+import { teamQuestionsFor } from '@/lib/hiringTeams';
+import {
+  Chrome,
+  Github,
+  AlertCircle,
+  Loader2,
   CheckCircle2,
   Users,
   Palette,
@@ -20,8 +22,9 @@ import {
   ArrowRight,
   Mail,
   Calendar,
-  MessageSquare,
-  ChevronDown
+  ChevronDown,
+  Link2,
+  FileText,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
@@ -81,19 +84,19 @@ const teamRoles = [
 
 const processSteps = [
   {
-    icon: Mail,
-    title: 'Submit Application',
-    description: 'Fill out the form with your details and select the team you want to join.',
+    icon: Briefcase,
+    title: 'Apply',
+    description: 'Pick a team, add your details, and optionally share a Google Drive CV link and why you want to join.',
   },
   {
     icon: Calendar,
-    title: 'Login & Select Slot',
-    description: 'You\'ll receive login credentials via email. Login to select your interview slot.',
+    title: 'We review & schedule',
+    description: 'Your application stays editable while under review. If shortlisted we move it to Interview scheduled and notify you by email and dashboard alert.',
   },
   {
-    icon: MessageSquare,
-    title: 'Attend Your Interview',
-    description: 'You\'ll receive Google Meet link for your interview via email and recruitment portal announcements.',
+    icon: CheckCircle2,
+    title: 'Pick your slot',
+    description: 'Open interview slots appear on your dashboard under My Club Application (or via the link in your email). Choose a time — first-come, first-served, all IST.',
   },
 ];
 
@@ -129,6 +132,10 @@ export default function JoinUsPage() {
   const [department, setDepartment] = useState('');
   const [year, setYear] = useState('');
   const [skills, setSkills] = useState('');
+  const [cvLink, setCvLink] = useState('');
+  const [whyJoin, setWhyJoin] = useState('');
+  const [teamQuestion1, setTeamQuestion1] = useState('');
+  const [teamQuestion2, setTeamQuestion2] = useState('');
 
   // Check if hiring is enabled
   useEffect(() => {
@@ -221,6 +228,10 @@ export default function JoinUsPage() {
         year: year.trim(),
         skills: skills.trim() || undefined,
         applyingRole: selectedRole,
+        cvLink: cvLink.trim() || null,
+        whyJoin: whyJoin.trim() || null,
+        teamQuestion1: teamQuestion1.trim() || null,
+        teamQuestion2: teamQuestion2.trim() || null,
       }, token ?? undefined);
 
       setFormStep('success');
@@ -247,6 +258,10 @@ export default function JoinUsPage() {
       department,
       year,
       skills,
+      cvLink,
+      whyJoin,
+      teamQuestion1,
+      teamQuestion2,
     }));
     
     window.location.href = `${API_URL}/auth/${provider}`;
@@ -555,15 +570,76 @@ export default function JoinUsPage() {
                           </div>
                         </div>
 
+                        {/* Optional — CV link */}
+                        <div>
+                          <label htmlFor="join-us-cv" className="block text-sm font-medium text-gray-700 mb-2">
+                            <span className="inline-flex items-center gap-1.5">
+                              <FileText className="h-4 w-4 text-gray-400" /> CV / Resume link
+                            </span>
+                            <span className="ml-1.5 text-xs font-normal text-gray-400">(optional)</span>
+                          </label>
+                          <div className="relative">
+                            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                            <Input
+                              id="join-us-cv"
+                              type="url"
+                              value={cvLink}
+                              onChange={(e) => { setCvLink(e.target.value); clearFieldError('cvLink'); }}
+                              placeholder="https://drive.google.com/file/d/…/view"
+                              className="h-12 pl-10"
+                            />
+                          </div>
+                          {fieldErrors.cvLink && <p className="mt-1 text-sm text-red-600">{fieldErrors.cvLink}</p>}
+                          <p className="mt-1.5 text-xs text-gray-500">
+                            Paste a Google Drive link and set sharing to <strong>“Anyone with the link”</strong> so the hiring team can open it.
+                          </p>
+                        </div>
+
+                        {/* Optional — why join */}
+                        <div>
+                          <label htmlFor="join-us-why" className="block text-sm font-medium text-gray-700 mb-2">
+                            Why do you want to join code.scriet?
+                            <span className="ml-1.5 text-xs font-normal text-gray-400">(optional)</span>
+                          </label>
+                          <Textarea
+                            id="join-us-why"
+                            value={whyJoin}
+                            onChange={(e) => setWhyJoin(e.target.value)}
+                            placeholder="Tell us what draws you to the club and what you hope to build or learn."
+                            rows={3}
+                            maxLength={4000}
+                          />
+                        </div>
+
+                        {/* Optional — team-specific questions */}
+                        {teamQuestionsFor(selectedRole).map((q) => (
+                          <div key={q.key}>
+                            <label htmlFor={`join-us-${q.key}`} className="block text-sm font-medium text-gray-700 mb-2">
+                              {q.label}
+                              <span className="ml-1.5 text-xs font-normal text-gray-400">(optional)</span>
+                            </label>
+                            <Textarea
+                              id={`join-us-${q.key}`}
+                              value={q.key === 'teamQuestion1' ? teamQuestion1 : teamQuestion2}
+                              onChange={(e) =>
+                                q.key === 'teamQuestion1' ? setTeamQuestion1(e.target.value) : setTeamQuestion2(e.target.value)
+                              }
+                              placeholder={q.placeholder}
+                              rows={2}
+                              maxLength={4000}
+                            />
+                          </div>
+                        ))}
+
                         {/* Info Box */}
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                           <h4 className="font-semibold text-amber-900 mb-2 flex items-center gap-2">
                             <Mail className="h-4 w-4" /> What happens next?
                           </h4>
                           <ul className="text-sm text-amber-800 space-y-1">
-                            <li>• Login credentials will be sent in batches (may take some time)</li>
-                            <li>• Check the <strong>Updates</strong> section in the recruitment portal for credentials</li>
-                            <li>• You'll receive G Meet link for interview via email & portal announcements</li>
+                            <li>• You can edit your application any time until we schedule your interview.</li>
+                            <li>• When it's scheduled you'll get an email and a bell alert — open slots appear in your dashboard's <strong>My Club Application</strong> tab.</li>
+                            <li>• Pick a time, add it to Google Calendar, and watch that tab and the bell for updates like venue changes.</li>
                           </ul>
                         </div>
 
@@ -663,10 +739,10 @@ export default function JoinUsPage() {
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left mb-6">
                         <h4 className="font-semibold text-amber-900 mb-3">Next Steps:</h4>
                         <ol className="text-sm text-amber-800 space-y-2 list-decimal list-inside">
-                          <li>Login credentials will be sent in batches (check <strong>Updates</strong> section)</li>
-                          <li>Login to the recruitment portal using those credentials</li>
-                          <li>Select your preferred interview slot</li>
-                          <li>Receive G Meet link for interview via email & portal announcements</li>
+                          <li>Watch your email and the bell on your dashboard — we review applications first.</li>
+                          <li>If shortlisted, open interview slots appear in your <strong>My Club Application</strong> tab.</li>
+                          <li>Pick a time and add it to your Google Calendar.</li>
+                          <li>Venue details and any updates land in the same tab and by email.</li>
                         </ol>
                       </div>
 

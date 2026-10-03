@@ -128,6 +128,30 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshSettings]);
 
+  // Live refresh: the socket hook dispatches a `cs-live` window event scoped to
+  // 'settings' whenever an admin writes settings (provider toggles, "what to
+  // expect", feature flags). SettingsContext is plain useState (not React Query),
+  // so it must subscribe here — otherwise a settings change in one tab wouldn't
+  // reach already-mounted consumers until the next focus/poll. Debounced so a
+  // single save that fires several emits triggers one refetch.
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const onCsLive = (e: Event) => {
+      if ((e as CustomEvent).detail !== 'settings') return;
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+      liveTimerRef.current = setTimeout(() => {
+        liveTimerRef.current = null;
+        lastFetchedRef.current = Date.now();
+        void refreshSettings();
+      }, 400);
+    };
+    window.addEventListener('cs-live', onCsLive);
+    return () => {
+      window.removeEventListener('cs-live', onCsLive);
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    };
+  }, [refreshSettings]);
+
   const state = useMemo<SettingsState>(
     () => ({ settings, loading, error }),
     [settings, loading, error],

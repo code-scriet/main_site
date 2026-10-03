@@ -38,8 +38,16 @@ export interface CandidateBooking {
   slot: CandidateBookingSlot;
 }
 
+export interface AvailableInterviewSlots {
+  slots: CandidateSlot[];
+  pickDeadline: string | null;
+  /** True when the candidate is not in the interview pipeline (PENDING etc.). */
+  locked?: boolean;
+  reason?: 'not_scheduled' | 'no_application';
+}
+
 export type MyInterviewBookingResult =
-  | { hasBooking: false; pickDeadline: string | null }
+  | { hasBooking: false; pickDeadline: string | null; locked?: boolean; reason?: 'not_scheduled' | 'no_application' }
   | { hasBooking: true; booking: CandidateBooking; pickDeadline: string | null };
 
 export interface BookInterviewSlotResult {
@@ -125,7 +133,7 @@ export const hiringSlotsApi = {
    * (null when the application holds no token).
    */
   getAvailableInterviewSlots: (auth: SlotAuth) =>
-    slotRequest<{ slots: CandidateSlot[]; pickDeadline: string | null }>(
+    slotRequest<AvailableInterviewSlots>(
       withTokenQuery('/hiring/slots/available', pickAuth(auth).queryToken),
       auth,
     ),

@@ -32,7 +32,8 @@ export type SlotBookErrorType =
   | 'conflict'
   | 'slot_not_found'
   | 'slot_overlap'
-  | 'slot_booked';
+  | 'slot_booked'
+  | 'not_scheduled';
 
 const IST = 'Asia/Kolkata';
 const LOCALE = 'en-IN';
@@ -145,6 +146,8 @@ export function slotBookErrorCopy(errorType: string | null | undefined): string 
       return 'That slot just changed. Try again.';
     case 'slot_not_found':
       return 'That slot no longer exists. Pick another one.';
+    case 'not_scheduled':
+      return 'Your interview is not scheduled yet — the hiring team will open slot picking soon.';
     default:
       return 'Something went wrong. Try again.';
   }

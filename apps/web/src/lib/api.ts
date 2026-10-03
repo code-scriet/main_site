@@ -12,6 +12,7 @@ import { adminOpsApi } from './api/admin-ops';
 import { eventOpsApi } from './api/event-ops';
 
 export { UnauthorizedError, ApiError };
+export type { HiringApplicationDetail, HiringMessage, SendHiringMessageResult } from './api/users';
 
 
 
@@ -533,6 +534,7 @@ export interface Settings {
   hiringSocialMedia?: boolean;
   hiringManagement?: boolean;
   hiringCycle?: string;
+  interviewWhatToExpect?: string;
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
   plagiarismCheckEnabled?: boolean;

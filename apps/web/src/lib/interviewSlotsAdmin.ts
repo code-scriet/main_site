@@ -69,6 +69,8 @@ export interface SeriesInput {
   count?: number;
   endTime?: string;
   breakMinutes?: number;
+  /** Applied to every slot created in this series. */
+  venue?: string | null;
 }
 
 export interface SingleSlotInput {

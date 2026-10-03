@@ -58,6 +58,7 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/profile': 'My Profile',
   '/dashboard/certificates': 'My Certificates',
   '/dashboard/invitations': 'My Invitations',
+  '/dashboard/application': 'My Club Application',
   '/dashboard/leaderboard': 'Leaderboard',
   '/dashboard/attendance': 'Take Attendance',
   '/dashboard/events/new': 'Create Event',
@@ -117,9 +118,10 @@ function getNav(opts: {
     competition: boolean;
   };
   pendingInvitationCount: number;
+  hasHiringApplication: boolean;
   isSuperAdminOrPresident: boolean;
 }): NavSection[] {
-  const { role, flags, pendingInvitationCount, isSuperAdminOrPresident } = opts;
+  const { role, flags, pendingInvitationCount, hasHiringApplication, isSuperAdminOrPresident } = opts;
 
   const everyone: NavItem[] = [
     { route: 'overview', href: '/dashboard', label: 'Overview', icon: Home },
@@ -149,6 +151,9 @@ function getNav(opts: {
     { route: 'profile', href: '/dashboard/profile', label: 'My Profile', icon: User },
     ...(flags.certificates ? [{ route: 'certificates', href: '/dashboard/certificates', label: 'My Certificates', icon: Award }] : []),
     { route: 'invitations', href: '/dashboard/invitations', label: 'My Invitations', icon: Inbox, badge: pendingInvitationCount },
+    ...(hasHiringApplication
+      ? [{ route: 'application', href: '/dashboard/application', label: 'My Club Application', icon: Briefcase }]
+      : []),
   ];
 
   const create: NavItem[] = [
@@ -371,6 +376,16 @@ export default function DashboardLayout() {
   // Live socket — refreshes both preview + menu queries on any server-pushed event.
   useNotificationsSocket();
 
+  // "My Application" tab shows only to candidates who actually filled the hiring
+  // form. Cheap, stable-per-session read shared with the overview via the cache.
+  const hiringBanner = useQuery({
+    queryKey: ['my-hiring'],
+    queryFn: () => api.getMyHiringApplication(token!),
+    enabled: Boolean(token),
+    staleTime: 60_000,
+  });
+  const hasHiringApplication = Boolean(hiringBanner.data?.hasApplied);
+
   const sections = useMemo(
     () =>
       getNav({
@@ -384,9 +399,10 @@ export default function DashboardLayout() {
           competition: settings?.competitionEnabled === true,
         },
         pendingInvitationCount,
+        hasHiringApplication,
         isSuperAdminOrPresident,
       }),
-    [user?.role, settings?.showLeaderboard, settings?.certificatesEnabled, settings?.hiringEnabled, settings?.showNetwork, settings?.problemsEnabled, settings?.competitionEnabled, pendingInvitationCount, isSuperAdminOrPresident],
+    [user?.role, settings?.showLeaderboard, settings?.certificatesEnabled, settings?.hiringEnabled, settings?.showNetwork, settings?.problemsEnabled, settings?.competitionEnabled, pendingInvitationCount, hasHiringApplication, isSuperAdminOrPresident],
   );
 
   const accent = (settings?.accentColor as string) || 'rust';

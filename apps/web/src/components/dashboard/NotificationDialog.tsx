@@ -6,12 +6,19 @@
 // data-dashboard/data-accent on DialogContent to make the --ds-*/--accent tokens
 // resolve inside it.
 
+import { lazy, Suspense } from 'react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
 import { relativeTime } from '@/lib/dateUtils';
 import type { NotifItem } from '@/lib/api';
 import { MarkdownMessage, isExternal } from './MarkdownMessage';
+
+// HTML-capable renderer, code-split so DOMPurify + rehype-raw load only when a
+// notification with a body is actually opened (keeps the base dashboard lean).
+const MessageBody = lazy(() =>
+  import('@/components/hiring/MessageBody').then((m) => ({ default: m.MessageBody })),
+);
 
 function linkLabel(link: string): string {
   if (isExternal(link)) return 'Open link';
@@ -47,7 +54,9 @@ export function NotificationDialog({ item, accent = 'rust', onClose, onOpenLink 
 
         <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1">
           {body.trim() ? (
-            <MarkdownMessage>{body}</MarkdownMessage>
+            <Suspense fallback={<MarkdownMessage>{body}</MarkdownMessage>}>
+              <MessageBody children={body} />
+            </Suspense>
           ) : (
             <p className="text-[13.5px] text-[var(--ds-text-3)]">No additional details.</p>
           )}

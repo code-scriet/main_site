@@ -39,9 +39,9 @@ export function InterviewUpdates({ auth }: Props) {
   if (updatesQ.isLoading) {
     return (
       <Section eyebrow="Interview" title="Interview updates">
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {[0, 1].map((i) => (
-            <div key={i} className="h-16 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
+            <div key={i} className="h-12 bg-[var(--surface-soft)] rounded-[var(--radius-lg)] animate-pulse" />
           ))}
         </div>
       </Section>
@@ -55,10 +55,10 @@ export function InterviewUpdates({ auth }: Props) {
         {cohort.map((a) => {
           const priority = a.priority ?? 'LOW';
           return (
-            <div key={a.id} className="px-4 py-3.5 flex items-start gap-3">
+            <div key={a.id} className="p-4 flex items-start gap-3">
               <span
                 className={cn(
-                  'w-[3px] self-stretch rounded-full shrink-0 mt-0.5',
+                  'w-[2px] self-stretch rounded-full shrink-0 mt-1',
                   priority === 'URGENT' && 'bg-[var(--danger)]',
                   priority === 'HIGH' && 'bg-[var(--warning)]',
                   priority === 'MEDIUM' && 'bg-[var(--info)]',
@@ -66,21 +66,21 @@ export function InterviewUpdates({ auth }: Props) {
                 )}
               />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Pill tone={PRIORITY_TONE[priority] ?? 'neutral'} size="xs">
                     {priority}
                   </Pill>
                   {a.createdAt && (
-                    <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+                    <span className="text-xs text-[var(--ds-text-3)] font-mono tabular-nums">
                       {new Date(a.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </span>
                   )}
                 </div>
-                <div className="text-[13.5px] font-medium leading-snug flex items-center gap-1.5">
+                <div className="text-sm font-medium leading-snug flex items-center gap-2">
                   <Megaphone size={12} className="text-[var(--ds-text-3)] shrink-0" />
                   {a.title}
                 </div>
-                {a.body && <p className="text-[12px] text-[var(--ds-text-3)] mt-1 line-clamp-2">{a.body}</p>}
+                {a.body && <p className="text-xs text-[var(--ds-text-3)] mt-1.5 line-clamp-2">{a.body}</p>}
               </div>
             </div>
           );
