@@ -10,6 +10,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
+import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailPreview';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
 import type { BulkEntry } from '@/lib/certificatesCsv';
@@ -54,6 +55,8 @@ interface BulkGenerateDialogProps {
   onEmailTemplateChange: (value: CertificateEmailTemplate) => void;
   emailSignerName: string;
   onEmailSignerNameChange: (value: string) => void;
+  emailCustomBody: string;
+  onEmailCustomBodyChange: (value: string) => void;
   generating: boolean;
   onPreview: () => void;
   onGenerate: () => void;
@@ -95,6 +98,8 @@ export function BulkGenerateDialog({
   onEmailTemplateChange,
   emailSignerName,
   onEmailSignerNameChange,
+  emailCustomBody,
+  onEmailCustomBodyChange,
   generating,
   onPreview,
   onGenerate,
@@ -265,6 +270,7 @@ export function BulkGenerateDialog({
                 >
                   <option value="default">Default (code.scriet)</option>
                   <option value="faculty_distribution">Faculty Certificate Distribution</option>
+                  <option value="custom">Custom Email Body / Description</option>
                 </select>
               </div>
               {emailTemplate === 'faculty_distribution' && (
@@ -282,6 +288,24 @@ export function BulkGenerateDialog({
                   <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
                     Signs the appreciation email as “President, Code.SCRIET”. Independent of the certificate signatory.
                   </p>
+                </div>
+              )}
+              {emailTemplate === 'custom' && (
+                <div>
+                  <label htmlFor="bulkEmailCustomBody" className="text-sm font-medium text-[var(--ds-text-2)]">
+                    Custom Email Body / Description
+                  </label>
+                  <Textarea
+                    id="bulkEmailCustomBody"
+                    className="mt-1 min-h-[96px]"
+                    value={emailCustomBody}
+                    onChange={(e) => onEmailCustomBodyChange(e.target.value)}
+                    placeholder="Write your custom email message here..."
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
+                    Supported placeholders: <code>{'{{name}}'}</code>, <code>{'{{eventName}}'}</code>, <code>{'{{certId}}'}</code>, <code>{'{{downloadUrl}}'}</code>, <code>{'{{verifyUrl}}'}</code>.
+                  </p>
+                  <CustomEmailPreview customBody={emailCustomBody} eventName={eventName} />
                 </div>
               )}
             </div>

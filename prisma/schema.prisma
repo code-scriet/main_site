@@ -1537,6 +1537,7 @@ enum CertTemplate {
 enum CertEmailTemplate {
   default
   faculty_distribution
+  custom
 }
 
 model Certificate {
@@ -1598,6 +1599,7 @@ model Certificate {
   // Email delivery template chosen at generation time, so resend replays the same one.
   emailTemplate   CertEmailTemplate @default(default) @map("email_template")
   emailSignerName String? @map("email_signer_name") // signer name for the faculty_distribution email
+  emailCustomBody String? @map("email_custom_body") // custom body text when email_template is 'custom'
 
   isRevoked     Boolean   @default(false) @map("is_revoked")
   revokedAt     DateTime? @map("revoked_at")

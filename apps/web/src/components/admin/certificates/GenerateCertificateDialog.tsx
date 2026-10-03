@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { CustomEmailPreview } from '@/components/admin/certificates/CustomEmailPreview';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
@@ -38,6 +39,7 @@ export interface GenerateFormData {
   sendEmail: boolean;
   emailTemplate: CertificateEmailTemplate;
   emailSignerName: string;
+  emailCustomBody: string;
   /** Backdate the issue date (PRES/SA only). Empty = issue with today's date. */
   backdate: CertificateBackdateValue;
 }
@@ -264,6 +266,7 @@ export function GenerateCertificateDialog({
                   >
                     <option value="default">Default (code.scriet)</option>
                     <option value="faculty_distribution">Faculty Certificate Distribution</option>
+                    <option value="custom">Custom Email Body / Description</option>
                   </select>
                 </div>
                 {form.emailTemplate === 'faculty_distribution' && (
@@ -281,6 +284,28 @@ export function GenerateCertificateDialog({
                     <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
                       Signs the appreciation email as “President, Code.SCRIET”. Independent of the certificate signatory.
                     </p>
+                  </div>
+                )}
+                {form.emailTemplate === 'custom' && (
+                  <div>
+                    <label htmlFor="admin-certificates-email-custom-body" className="text-sm font-medium text-[var(--ds-text-2)]">
+                      Custom Email Body / Description
+                    </label>
+                    <Textarea
+                      id="admin-certificates-email-custom-body"
+                      className="mt-1 min-h-[96px]"
+                      value={form.emailCustomBody}
+                      onChange={e => onFormChange(f => ({ ...f, emailCustomBody: e.target.value }))}
+                      placeholder="Write your custom email message here..."
+                    />
+                    <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
+                      Supported placeholders: <code>{'{{name}}'}</code>, <code>{'{{eventName}}'}</code>, <code>{'{{certId}}'}</code>, <code>{'{{downloadUrl}}'}</code>, <code>{'{{verifyUrl}}'}</code>.
+                    </p>
+                    <CustomEmailPreview
+                      customBody={form.emailCustomBody}
+                      recipientName={form.recipientName}
+                      eventName={form.eventName}
+                    />
                   </div>
                 )}
               </div>

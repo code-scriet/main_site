@@ -215,6 +215,7 @@ export interface IssueCertificateParams {
   issuedBy: string;
   emailTemplate?: CertEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
   /**
    * The certificate's effective date. Defaults to now; PRES/SA may pass a past date
    * so a certificate issued today for a long-finished event carries that event's
@@ -302,6 +303,7 @@ export async function issueOneCertificate(params: IssueCertificateParams): Promi
           facultySignatoryImageUrl: params.facultySig?.rawImageUrl || null,
           emailTemplate: params.emailTemplate ?? 'default',
           emailSignerName: params.emailSignerName ?? null,
+          emailCustomBody: params.emailCustomBody ?? null,
           // Backdate provenance lives only in the full payload; the legacy fallback
           // omits it so an un-migrated DB still creates the row (issuedAt itself is
           // an original column, so the backdated DATE survives either way — only the

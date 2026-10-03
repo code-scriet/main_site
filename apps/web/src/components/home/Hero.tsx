@@ -63,12 +63,12 @@ const TypingAnimation = memo(function TypingAnimation() {
   }, []);
 
   return (
-    <span className="text-amber-300">
+    <span className="text-amber-600 dark:text-amber-300">
       <span ref={spanRef} />
       <motion.span
         animate={{ opacity: [1, 0] }}
         transition={{ duration: 0.5, repeat: Infinity }}
-        className="inline-block w-[3px] h-[1em] bg-amber-300 ml-1"
+        className="inline-block w-[3px] h-[1em] bg-amber-600 dark:bg-amber-300 ml-1"
       />
     </span>
   );
@@ -110,7 +110,7 @@ const Particles = memo(function Particles({ isMobile, disableAnimation }: { isMo
       {particles.map((particle) => (
         <motion.div
           key={particle.id}
-          className="absolute rounded-full bg-amber-400/30"
+          className="absolute rounded-full bg-amber-500/20 dark:bg-amber-400/30"
           style={{
             left: `${particle.x}%`,
             top: `${particle.y}%`,
@@ -277,22 +277,25 @@ export function Hero() {
 
   return (
     <section className="relative min-h-[calc(100vh-var(--site-header-height))] flex items-start md:items-center justify-center overflow-x-hidden pt-6 sm:pt-8 md:pt-0 pb-14 sm:pb-20">
-      {/* Gradient Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-amber-950 to-orange-950" />
+      {/* Gradient Background — light: warm cream-to-amber; dark: rich dark amber */}
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 dark:from-slate-950 dark:via-amber-950 dark:to-orange-950" />
       
       {/* Mesh Gradient Overlay */}
       <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(251,191,36,0.3),rgba(255,255,255,0))]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_0%_100%,rgba(234,88,12,0.2),rgba(255,255,255,0))]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_50%_at_100%_50%,rgba(251,146,60,0.15),rgba(255,255,255,0))]" />
+        {/* Light mode overlays */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(251,191,36,0.18),rgba(255,255,255,0))] dark:bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(251,191,36,0.3),rgba(255,255,255,0))]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_0%_100%,rgba(234,88,12,0.12),rgba(255,255,255,0))] dark:bg-[radial-gradient(ellipse_60%_60%_at_0%_100%,rgba(234,88,12,0.2),rgba(255,255,255,0))]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_50%_at_100%_50%,rgba(251,146,60,0.1),rgba(255,255,255,0))] dark:bg-[radial-gradient(ellipse_50%_50%_at_100%_50%,rgba(251,146,60,0.15),rgba(255,255,255,0))]" />
       </div>
 
-      {/* Grid Pattern */}
+      {/* Adaptive dot grid — pub-line-2 shifts automatically: dark on light bg, light on dark bg */}
       <div 
-        className="absolute inset-0 opacity-[0.02]"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-          backgroundSize: '60px 60px',
+          backgroundImage: `radial-gradient(circle, var(--pub-line-2) 1px, transparent 1px)`,
+          backgroundSize: '28px 28px',
+          backgroundPosition: '-1px -1px',
+          opacity: 0.55,
         }}
       />
 
@@ -302,24 +305,24 @@ export function Hero() {
       {/* Code Background - hidden on mobile via CSS */}
       <CodeBackground />
 
-      {/* Glowing Orbs - keep motion on mobile, but with lighter drift */}
+      {/* Glowing Orbs — light: amber glow on cream; dark: deeper amber/orange */}
       {!prefersReducedMotion && (
         <>
           <motion.div 
-            className="absolute left-10 top-16 h-44 w-44 rounded-full bg-amber-500/20 blur-[64px] sm:left-20 sm:top-20 sm:h-72 sm:w-72 sm:blur-[100px]"
+            className="absolute left-10 top-16 h-44 w-44 rounded-full bg-amber-400/40 blur-[64px] dark:bg-amber-500/20 sm:left-20 sm:top-20 sm:h-72 sm:w-72 sm:blur-[100px]"
             animate={
               isMobile
-                ? { x: [0, 10, 0], y: [0, -8, 0], opacity: [0.16, 0.24, 0.16] }
-                : { scale: [1, 1.2, 1], opacity: [0.2, 0.3, 0.2] }
+                ? { x: [0, 10, 0], y: [0, -8, 0], opacity: [0.3, 0.5, 0.3] }
+                : { scale: [1, 1.2, 1], opacity: [0.4, 0.55, 0.4] }
             }
             transition={{ duration: isMobile ? 14 : 8, repeat: Infinity, ease: 'easeInOut' }}
           />
           <motion.div 
-            className="absolute bottom-16 right-8 h-52 w-52 rounded-full bg-orange-600/20 blur-[72px] sm:bottom-20 sm:right-20 sm:h-96 sm:w-96 sm:blur-[120px]"
+            className="absolute bottom-16 right-8 h-52 w-52 rounded-full bg-orange-400/30 blur-[72px] dark:bg-orange-600/20 sm:bottom-20 sm:right-20 sm:h-96 sm:w-96 sm:blur-[120px]"
             animate={
               isMobile
-                ? { x: [0, -9, 0], y: [0, 7, 0], opacity: [0.14, 0.22, 0.14] }
-                : { scale: [1, 1.1, 1], opacity: [0.15, 0.25, 0.15] }
+                ? { x: [0, -9, 0], y: [0, 7, 0], opacity: [0.25, 0.4, 0.25] }
+                : { scale: [1, 1.1, 1], opacity: [0.3, 0.45, 0.3] }
             }
             transition={{ duration: isMobile ? 16 : 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
           />
@@ -329,8 +332,8 @@ export function Hero() {
       {/* Static orbs for explicit reduced motion */}
       {prefersReducedMotion && (
         <>
-          <div className="absolute left-10 top-16 h-44 w-44 rounded-full bg-amber-500/20 blur-[64px] sm:left-20 sm:top-20 sm:h-72 sm:w-72 sm:blur-[100px]" />
-          <div className="absolute bottom-16 right-8 h-52 w-52 rounded-full bg-orange-600/20 blur-[72px] sm:bottom-20 sm:right-20 sm:h-96 sm:w-96 sm:blur-[120px]" />
+          <div className="absolute left-10 top-16 h-44 w-44 rounded-full bg-amber-400/40 blur-[64px] dark:bg-amber-500/20 sm:left-20 sm:top-20 sm:h-72 sm:w-72 sm:blur-[100px]" />
+          <div className="absolute bottom-16 right-8 h-52 w-52 rounded-full bg-orange-400/30 blur-[72px] dark:bg-orange-600/20 sm:bottom-20 sm:right-20 sm:h-96 sm:w-96 sm:blur-[120px]" />
         </>
       )}
 
@@ -353,7 +356,7 @@ export function Hero() {
               transition={{ type: 'spring', stiffness: 300 }}
             >
               <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-amber-500/30 rounded-3xl blur-2xl" />
-              <div className="relative h-28 w-28 md:h-32 md:w-32 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-2xl overflow-hidden">
+              <div className="relative h-28 w-28 md:h-32 md:w-32 rounded-2xl bg-white/60 dark:bg-white/10 backdrop-blur-md border border-amber-200/60 dark:border-white/20 flex items-center justify-center shadow-2xl overflow-hidden">
                 <img
                   src="/logo.jpeg"
                   alt="code.scriet"
@@ -371,16 +374,16 @@ export function Hero() {
                   animate={{ rotate: 360 }}
                   transition={{ duration: isMobile ? 18 : 10, repeat: Infinity, ease: 'linear' }}
                 >
-                  <div className="p-2 bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/30">
-                    <Zap className="h-4 w-4 text-amber-400" />
+                  <div className="p-2 bg-amber-500/30 dark:bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/50 dark:border-amber-500/30">
+                    <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                   </div>
                 </motion.div>
               )}
               {/* Static Zap for mobile */}
               {prefersReducedMotion && (
                 <div className="absolute -top-3 -right-3">
-                  <div className="p-2 bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/30">
-                    <Zap className="h-4 w-4 text-amber-400" />
+                  <div className="p-2 bg-amber-500/30 dark:bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/50 dark:border-amber-500/30">
+                    <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                   </div>
                 </div>
               )}
@@ -392,11 +395,11 @@ export function Hero() {
             <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight font-display">
               <span className="sr-only">codescriet — Official Coding Club of SCRIET, CCSU Meerut</span>
               <span aria-hidden="true">
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-orange-400">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 via-amber-700 to-orange-600 dark:from-amber-200 dark:via-amber-400 dark:to-orange-400">
                   code
                 </span>
-                <span className="text-white/40">.</span>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-300 to-amber-300">
+                <span className="text-amber-800/40 dark:text-white/40">.</span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-600 via-orange-700 to-amber-700 dark:from-orange-400 dark:via-orange-300 dark:to-amber-300">
                   scriet
                 </span>
               </span>
@@ -404,8 +407,8 @@ export function Hero() {
             
             {/* Typing Effect Subtitle */}
             <div className="flex items-center justify-center gap-2 sm:gap-3 text-base sm:text-lg md:text-xl">
-              <Terminal className="h-4 w-4 sm:h-5 sm:w-5 text-amber-400" />
-              <span className="text-white/60 font-mono">Learning</span>
+              <Terminal className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600 dark:text-amber-400" />
+              <span className="text-amber-900/60 dark:text-white/60 font-mono">Learning</span>
               <TypingAnimation />
             </div>
           </motion.div>
@@ -413,7 +416,7 @@ export function Hero() {
           {/* Description */}
           <motion.p
             variants={itemVariants}
-            className="text-base sm:text-lg md:text-xl lg:text-2xl text-white/70 max-w-3xl mx-auto leading-relaxed px-2"
+            className="text-base sm:text-lg md:text-xl lg:text-2xl text-amber-950/65 dark:text-white/70 max-w-3xl mx-auto leading-relaxed px-2"
           >
             {resolvedDescription}
           </motion.p>
@@ -458,7 +461,7 @@ export function Hero() {
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/5 w-full sm:w-auto"
+                  className="border-2 border-amber-800/25 text-amber-950 hover:bg-amber-100/60 hover:border-amber-800/40 dark:border-white/20 dark:text-white dark:hover:bg-white/10 dark:hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/40 dark:bg-white/5 w-full sm:w-auto"
                 >
                   <LayoutDashboard className="h-5 w-5 mr-2" />
                   Dashboard
@@ -469,7 +472,7 @@ export function Hero() {
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/5 w-full sm:w-auto"
+                  className="border-2 border-amber-800/25 text-amber-950 hover:bg-amber-100/60 hover:border-amber-800/40 dark:border-white/20 dark:text-white dark:hover:bg-white/10 dark:hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/40 dark:bg-white/5 w-full sm:w-auto"
                 >
                   <Users className="h-5 w-5 mr-2" />
                   Sign In / Register
@@ -491,29 +494,29 @@ export function Hero() {
                 className="group relative"
               >
                 {stat.valueKey === 'events' ? (
-                  <Link to="/events" className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 rounded-2xl sm:rounded-3xl">
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-                    <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20 cursor-pointer">
+                  <Link to="/events" className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded-2xl sm:rounded-3xl">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-200/40 to-orange-100/20 dark:from-white/10 dark:to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                    <div className="relative bg-white/50 dark:bg-white/5 backdrop-blur-md border border-amber-200/60 dark:border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/70 dark:group-hover:bg-white/10 group-hover:border-amber-300/70 dark:group-hover:border-white/20 cursor-pointer shadow-sm dark:shadow-none">
                       <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
                         <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                       </div>
-                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2 min-h-[1em]">
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-amber-950 dark:text-white mb-1 sm:mb-2 min-h-[1em]">
                         {statsLoaded ? <AnimatedCounter value={stats[stat.valueKey]} suffix="+" /> : <span aria-hidden="true">—</span>}
                       </p>
-                      <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
+                      <p className="text-amber-800/60 dark:text-white/60 text-xs sm:text-base">{stat.label}</p>
                     </div>
                   </Link>
                 ) : (
                   <>
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-                    <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-200/40 to-orange-100/20 dark:from-white/10 dark:to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                    <div className="relative bg-white/50 dark:bg-white/5 backdrop-blur-md border border-amber-200/60 dark:border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/70 dark:group-hover:bg-white/10 group-hover:border-amber-300/70 dark:group-hover:border-white/20 shadow-sm dark:shadow-none">
                       <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
                         <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                       </div>
-                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2 min-h-[1em]">
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-amber-950 dark:text-white mb-1 sm:mb-2 min-h-[1em]">
                         {statsLoaded ? <AnimatedCounter value={stats[stat.valueKey]} suffix="+" /> : <span aria-hidden="true">—</span>}
                       </p>
-                      <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
+                      <p className="text-amber-800/60 dark:text-white/60 text-xs sm:text-base">{stat.label}</p>
                     </div>
                   </>
                 )}
@@ -536,12 +539,12 @@ export function Hero() {
           className="flex flex-col items-center gap-2 cursor-pointer"
           onClick={handleScrollDown}
         >
-          <span className="text-white/40 text-xs uppercase tracking-widest font-medium">Scroll</span>
-          <div className="w-6 h-10 border-2 border-white/20 rounded-full flex items-start justify-center p-2">
+          <span className="text-amber-900/40 dark:text-white/40 text-xs uppercase tracking-widest font-medium">Scroll</span>
+          <div className="w-6 h-10 border-2 border-amber-800/20 dark:border-white/20 rounded-full flex items-start justify-center p-2">
             <motion.div
               animate={!prefersReducedMotion ? { y: isMobile ? [0, 8, 0] : [0, 12, 0] } : {}}
               transition={{ duration: isMobile ? 1.8 : 1.5, repeat: Infinity }}
-              className="w-1.5 h-1.5 bg-amber-400 rounded-full"
+              className="w-1.5 h-1.5 bg-amber-600 dark:bg-amber-400 rounded-full"
             />
           </div>
         </motion.div>
