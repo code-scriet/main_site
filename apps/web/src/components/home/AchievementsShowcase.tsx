@@ -19,13 +19,13 @@ export function AchievementsShowcase() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="py-16 sm:py-24 relative overflow-hidden">
+    <section className="py-16 sm:py-24 relative overflow-hidden dark:bg-[#0A0908]">
       {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100" />
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 dark:from-[#0A0908] dark:via-[#111110] dark:to-[#0A0908]" />
       
       {/* Decorative Elements */}
-      <div className="absolute top-20 left-10 w-64 h-64 bg-amber-200/50 rounded-full blur-3xl" />
-      <div className="absolute bottom-20 right-10 w-80 h-80 bg-orange-200/50 rounded-full blur-3xl" />
+      <div className="absolute top-20 left-10 w-64 h-64 bg-amber-200/50 rounded-full blur-3xl dark:bg-[#C4321A]/6" />
+      <div className="absolute bottom-20 right-10 w-80 h-80 bg-orange-200/50 rounded-full blur-3xl dark:bg-[#E84A2E]/5" />
       
       {/* Trophy Pattern — single CSS background instead of many DOM nodes */}
       <div
@@ -45,13 +45,13 @@ export function AchievementsShowcase() {
           viewport={{ once: true }}
           className="text-center mb-8 sm:mb-12"
         >
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-zinc-100 mb-3 sm:mb-4">
             Our{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">
               Achievements
             </span>
           </h2>
-          <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
+          <p className="text-base sm:text-lg text-gray-600 dark:text-zinc-400 max-w-2xl mx-auto px-2">
             Celebrating the success and accomplishments of our talented community members
           </p>
         </motion.div>
@@ -86,7 +86,7 @@ export function AchievementsShowcase() {
                 className="group h-full"
               >
                 <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
-                <div className="h-full bg-white rounded-3xl shadow-lg overflow-hidden border border-amber-100/50 hover:shadow-2xl hover:border-amber-200 transition-all duration-500">
+                <div className="h-full bg-white dark:bg-[#181614] rounded-3xl shadow-lg overflow-hidden border border-amber-100/50 dark:border-[rgba(244,241,234,0.07)] hover:shadow-2xl hover:border-amber-200 dark:hover:border-[rgba(244,241,234,0.14)] transition-all duration-500">
                   {/* Image with premium overlay */}
                   <div className="relative h-48 overflow-hidden">
                     {achievement.imageUrl ? (
@@ -162,7 +162,7 @@ export function AchievementsShowcase() {
                     <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent" />
                     
                     {/* Description with markdown */}
-                    <div className="text-gray-600 text-sm mb-4 line-clamp-2 leading-relaxed">
+                    <div className="text-gray-600 dark:text-zinc-400 text-sm mb-4 line-clamp-2 leading-relaxed">
                       <InlineMarkdown>{achievement.shortDescription || achievement.description}</InlineMarkdown>
                     </div>
                     
@@ -178,10 +178,10 @@ export function AchievementsShowcase() {
                           </div>
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-gray-900 line-clamp-1">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 line-clamp-1">
                             {achievement.achievedBy}
                           </p>
-                          <div className="flex items-center gap-1 text-gray-500">
+                          <div className="flex items-center gap-1 text-gray-500 dark:text-zinc-500">
                             <Calendar className="h-3 w-3" />
                             <span className="text-xs">{formatDate(achievement.date)}</span>
                           </div>
@@ -191,10 +191,10 @@ export function AchievementsShowcase() {
                     </div>
                     
                     {/* Premium CTA */}
-                    <div className="flex items-center justify-between pt-4 border-t border-amber-100/50">
-                      <span className="text-sm font-semibold text-amber-600 group-hover:text-amber-700">View Details</span>
-                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 group-hover:bg-amber-500 transition-all duration-300">
-                        <ChevronRight className="h-4 w-4 text-amber-600 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                    <div className="flex items-center justify-between pt-4 border-t border-amber-100/50 dark:border-[rgba(244,241,234,0.07)]">
+                      <span className="text-sm font-semibold text-amber-600 dark:text-[#E84A2E] group-hover:text-amber-700 dark:group-hover:text-[#F26C50]">View Details</span>
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-[rgba(232,74,46,0.1)] group-hover:bg-amber-500 dark:group-hover:bg-[#E84A2E] transition-all duration-300">
+                        <ChevronRight className="h-4 w-4 text-amber-600 dark:text-[#E84A2E] group-hover:text-white group-hover:translate-x-0.5 transition-all" />
                       </div>
                     </div>
                   </div>

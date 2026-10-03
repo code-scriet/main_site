@@ -163,8 +163,9 @@ const generateSchema = z.object({
   facultyTitle: z.string().max(100).optional().nullable(),
   facultyCustomImageUrl: z.string().url().optional().nullable(),   // Cloudinary URL for custom faculty
   sendEmail: z.boolean().default(false),
-  emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
+  emailTemplate: z.enum(['default', 'faculty_distribution', 'custom']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+  emailCustomBody: z.string().max(2000).optional().nullable(),
   ...backdateFields,
 });
 
@@ -200,8 +201,9 @@ const bulkSchema = z.object({
   generationStrategy: z.enum(competitionGenerationStrategies).optional().nullable(),
   selectedRoundIds: z.array(z.string()).max(50).optional(),
   sendEmail: z.boolean().default(false),
-  emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
+  emailTemplate: z.enum(['default', 'faculty_distribution', 'custom']).default('default'),
   emailSignerName: z.string().max(100).optional().nullable(),
+  emailCustomBody: z.string().max(2000).optional().nullable(),
   ...backdateFields,
 }).superRefine((value, ctx) => {
   if (!value.type && value.recipients.some((recipient) => !recipient.type)) {
@@ -228,8 +230,9 @@ const editCertificateSchema = z.object({
   domain: z.string().max(100).optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   type: z.enum(certTypes).optional(),
-  emailTemplate: z.enum(['default', 'faculty_distribution']).optional(),
+  emailTemplate: z.enum(['default', 'faculty_distribution', 'custom']).optional(),
   emailSignerName: z.string().max(100).optional().nullable(),
+  emailCustomBody: z.string().max(2000).optional().nullable(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'No fields provided to update',
 });
@@ -808,7 +811,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     eventId, eventName, type, position, domain, teamName, template,
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
-    description, sendEmail, emailTemplate, emailSignerName,
+    description, sendEmail, emailTemplate, emailSignerName, emailCustomBody,
     issuedAt: requestedIssuedAt, backdateReason,
   } = validation.data;
 
@@ -920,6 +923,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         issuedBy: authUser.id,
         emailTemplate,
         emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+        emailCustomBody: emailTemplate === 'custom' ? emailCustomBody : null,
         issuedAt: backdate.issuedAt,
         backdatedBy: backdate.backdatedBy,
         backdateReason: backdate.backdateReason,
@@ -941,7 +945,16 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     // Optionally send email
     if (sendEmail) {
-      const emailPromise = emailTemplate === 'faculty_distribution'
+      const emailPromise = emailTemplate === 'custom' && emailCustomBody
+        ? emailService.sendCertificateCustom({
+            email: recipientEmail,
+            name: recipientName,
+            eventName: safeEventName,
+            certId,
+            downloadUrl,
+            customBody: emailCustomBody,
+          })
+        : emailTemplate === 'faculty_distribution'
         ? emailService.sendCertificateAppreciation({
             email: recipientEmail,
             name: recipientName,
@@ -1046,7 +1059,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), certifica
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, domain, sendEmail, source, generationStrategy, selectedRoundIds,
-    emailTemplate, emailSignerName,
+    emailTemplate, emailSignerName, emailCustomBody,
     issuedAt: requestedIssuedAt, backdateReason,
   } = validation.data;
 
@@ -1249,6 +1262,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), certifica
               // template later — even when no email is sent at creation time.
               emailTemplate,
               emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
+              emailCustomBody: emailTemplate === 'custom' ? emailCustomBody : null,
               issuedAt: backdate.issuedAt,
               backdatedBy: backdate.backdatedBy,
               backdateReason: backdate.backdateReason,
@@ -1276,7 +1290,16 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), certifica
 
           if (sendEmail) {
             try {
-              const sent = emailTemplate === 'faculty_distribution'
+              const sent = emailTemplate === 'custom' && emailCustomBody
+                ? await emailService.sendCertificateCustom({
+                    email: r.email,
+                    name: r.name,
+                    eventName: safeEventName,
+                    certId,
+                    downloadUrl,
+                    customBody: emailCustomBody,
+                  })
+                : emailTemplate === 'faculty_distribution'
                 ? await emailService.sendCertificateAppreciation({
                     email: r.email,
                     name: r.name,
@@ -1611,7 +1634,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
     try {
       cert = await prisma.certificate.findUnique({
         where: { certId: upperCertId },
-        select: { ...baseEditSelect, emailTemplate: true, emailSignerName: true },
+        select: { ...baseEditSelect, emailTemplate: true, emailSignerName: true, emailCustomBody: true },
       });
     } catch (error) {
       if (!isCertificateSchemaDriftError(error)) {
@@ -1625,7 +1648,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
         where: { certId: upperCertId },
         select: baseEditSelect,
       });
-      cert = legacy ? { ...legacy, emailTemplate: null as string | null, emailSignerName: null as string | null } : null;
+      cert = legacy ? { ...legacy, emailTemplate: null as string | null, emailSignerName: null as string | null, emailCustomBody: null as string | null } : null;
     }
 
     if (!cert) {
@@ -1673,7 +1696,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
       emailChanged = true;
     }
 
-    // ── Email-template / signer (metadata-only, written via schema-drift-safe path).
+    // ── Email-template / signer / custom body (metadata-only, written via schema-drift-safe path).
     //    Diff against the stored values so an unchanged save is a true no-op.
     if (has('emailTemplate') && input.emailTemplate && input.emailTemplate !== cert.emailTemplate) {
       data.emailTemplate = input.emailTemplate;
@@ -1684,6 +1707,13 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
       if (value !== cert.emailSignerName) {
         data.emailSignerName = value;
         changed.push('emailSignerName');
+      }
+    }
+    if (has('emailCustomBody')) {
+      const value = sanitizeNullable(input.emailCustomBody);
+      if (value !== cert.emailCustomBody) {
+        data.emailCustomBody = value;
+        changed.push('emailCustomBody');
       }
     }
 
@@ -1761,6 +1791,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
     const legacyData: Prisma.CertificateUncheckedUpdateInput = { ...data };
     delete legacyData.emailTemplate;
     delete legacyData.emailSignerName;
+    delete legacyData.emailCustomBody;
     try {
       await updateCertificateWithSchemaFallback(upperCertId, data, legacyData);
     } catch (err) {
@@ -1837,6 +1868,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           description: string | null;
           emailTemplate: string;
           emailSignerName: string | null;
+          emailCustomBody: string | null;
           pdfUrl: string | null;
           isRevoked: boolean;
           issuedAt: Date;
@@ -1856,6 +1888,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           description: true,
           emailTemplate: true,
           emailSignerName: true,
+          emailCustomBody: true,
           pdfUrl: true,
           isRevoked: true,
           issuedAt: true,
@@ -1883,7 +1916,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
         },
       });
       cert = legacyCert
-        ? { ...legacyCert, emailTemplate: 'default', emailSignerName: null, lastEmailResentAt: null }
+        ? { ...legacyCert, emailTemplate: 'default', emailSignerName: null, emailCustomBody: null, lastEmailResentAt: null }
         : null;
     }
 
@@ -1901,7 +1934,16 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     }
 
     const downloadUrl = buildPublicCertificateDownloadUrl(cert.certId);
-    const sent = cert.emailTemplate === 'faculty_distribution'
+    const sent = cert.emailTemplate === 'custom' && cert.emailCustomBody
+      ? await emailService.sendCertificateCustom({
+          email: cert.recipientEmail,
+          name: cert.recipientName,
+          eventName: cert.eventName,
+          certId: cert.certId,
+          downloadUrl,
+          customBody: cert.emailCustomBody,
+        })
+      : cert.emailTemplate === 'faculty_distribution'
       ? await emailService.sendCertificateAppreciation({
           email: cert.recipientEmail,
           name: cert.recipientName,
@@ -1988,6 +2030,7 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
           facultySignatoryImageUrl: true,
           emailTemplate: true,
           emailSignerName: true,
+          emailCustomBody: true,
         },
       });
     } catch (error) {

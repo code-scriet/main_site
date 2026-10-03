@@ -1338,6 +1338,7 @@ export interface CertificateBulkGenerateInput {
   sendEmail?: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
   /**
    * Backdate the whole batch (PRESIDENT / super admin only). ISO date string. Becomes
    * the certificates' effective date everywhere: the public verify page, the
@@ -1349,7 +1350,7 @@ export interface CertificateBulkGenerateInput {
   backdateReason?: string | null;
 }
 
-export type CertificateEmailTemplate = 'default' | 'faculty_distribution';
+export type CertificateEmailTemplate = 'default' | 'faculty_distribution' | 'custom';
 
 /** Backdate payload shared by the single-issue and bulk certificate endpoints. */
 export interface CertificateBackdateInput {
@@ -1442,6 +1443,7 @@ export interface CertificateUpdateInput {
   type?: CertType;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
 }
 
 export interface CertificateDetail {
@@ -1461,6 +1463,7 @@ export interface CertificateDetail {
   isRevoked: boolean;
   emailTemplate?: CertificateEmailTemplate;
   emailSignerName?: string | null;
+  emailCustomBody?: string | null;
 }
 
 export interface CertificateBulkGenerateResponse {
