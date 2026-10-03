@@ -1675,7 +1675,7 @@ const BATCH_SIZE = 1000;
         secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
         footer: 'This certificate is permanently verifiable at codescriet.dev',
       }),
-      text: `Hi ${safeName},\n\n${sanitizeHtml(substitutedBody, { allowedTags: [], allowedAttributes: {} })}\n\nCertificate ID: ${safeCertId}\nDownload PDF: ${params.downloadUrl}\nVerify at: ${verifyUrl}`,
+      text: `Hi ${safeName},\n\n${sanitizeText(substitutedBody)}\n\nCertificate ID: ${safeCertId}\nDownload PDF: ${params.downloadUrl}\nVerify at: ${verifyUrl}`,
     };
     return this.send({ to: params.email, ...template, category: 'certificate' });
   }
