@@ -86,7 +86,7 @@ export function UpcomingEvents() {
   }
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-amber-50/50 to-white py-24 dark:from-[#0A0908] dark:to-[#111110]">
+    <section className="relative overflow-hidden bg-gradient-to-b from-amber-50/50 to-white py-24 dark:from-[#09090c] dark:to-[#111116]">
       {/* Background Decoration */}
       <div className="absolute top-1/2 left-0 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-100 opacity-50 blur-3xl dark:bg-rose-500/12" />
       
