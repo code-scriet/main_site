@@ -23,6 +23,7 @@ interface Props {
 }
 
 const TEAM_PRESETS = [
+  { label: '1–4 (solo allowed)', min: 1, max: 4 },
   { label: '2', min: 2, max: 2 },
   { label: '2–3', min: 2, max: 3 },
   { label: '2–4', min: 2, max: 4 },
@@ -61,6 +62,7 @@ export function TeamRegistrationSection({
           <div className="text-[13.5px] font-medium text-[var(--ds-text-1)]">Enable team registration</div>
           <p className="text-[12px] text-[var(--ds-text-3)] mt-0.5">
             Participants form teams with an invite code instead of registering solo.
+            {form.teamMinSize <= 1 ? ' Min size 1 also allows solo registration.' : null}
           </p>
           {locked && (
             <p className="text-[11.5px] font-medium text-[var(--danger)] mt-1.5">
@@ -154,6 +156,7 @@ export function TeamRegistrationSection({
           Teams need {form.teamMinSize === form.teamMaxSize
             ? `exactly ${form.teamMinSize}`
             : `${form.teamMinSize}–${form.teamMaxSize}`} member{form.teamMinSize === 1 && form.teamMaxSize === 1 ? '' : 's'} to be complete.
+          {form.teamMinSize <= 1 ? ' Solo registration is also offered on the event page.' : null}
         </p>
       </div>
     </DSCard>

@@ -511,7 +511,7 @@ export default function EventsPage() {
                             {event.teamRegistration && (
                               <div className="flex items-center gap-2">
                                 <Users className="h-3.5 w-3.5 text-amber-600/80 shrink-0" />
-                                <span>Team · {event.teamMinSize}–{event.teamMaxSize} members</span>
+                                <span>{(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize} members` : `Team · ${event.teamMinSize}–${event.teamMaxSize} members`}</span>
                               </div>
                             )}
                           </dl>
@@ -623,7 +623,7 @@ function renderPrimaryCTA(args: {
           Registering…
         </>
       ) : (
-        <>Register{event.teamRegistration ? ' team' : ''}</>
+        <>Register{event.teamRegistration ? ((event.teamMinSize ?? 1) <= 1 ? '' : ' team') : ''}</>
       )}
     </Button>
   );
@@ -721,7 +721,7 @@ function SpotlightCard({
             {event.teamRegistration && (
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-amber-600 shrink-0 dark:text-amber-400" />
-                <span>Team · {event.teamMinSize}–{event.teamMaxSize} members</span>
+                <span>{(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize} members` : `Team · ${event.teamMinSize}–${event.teamMaxSize} members`}</span>
               </div>
             )}
           </dl>

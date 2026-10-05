@@ -44,13 +44,17 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
     const { additionalFields } = req.body ?? {};
 
     // --- TEAM REGISTRATION GATE ---
-    // If this event requires team registration, block solo registration.
-    // Users must use POST /api/teams/create or POST /api/teams/join instead.
+    // If this event requires team registration with min team size > 1, block
+    // solo registration. Users must use POST /api/teams/create or
+    // POST /api/teams/join instead.
+    // When teamMinSize is 1, solo participation is explicitly allowed, so a
+    // solo registration (EventRegistration without an EventTeamMember row) is
+    // accepted alongside team registrations.
     const eventForGate = await prisma.event.findUnique({
       where: { id: eventId },
-      select: { teamRegistration: true },
+      select: { teamRegistration: true, teamMinSize: true },
     });
-    if (eventForGate?.teamRegistration) {
+    if (eventForGate?.teamRegistration && (eventForGate.teamMinSize ?? 1) > 1) {
       return res.status(400).json({
         success: false,
         error: { message: 'This event requires team registration. Please create or join a team instead.' },

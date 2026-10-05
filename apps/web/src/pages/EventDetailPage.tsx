@@ -434,6 +434,9 @@ export default function EventDetailPage() {
         setTeamLoading(true);
         const team = await api.getMyTeam(event.id, token);
         setMyTeam(team);
+        // Only ever promote to registered here. A null team must NOT clear a
+        // solo registration (team events with min size 1 allow solo joins,
+        // which have no EventTeam row) — isRegistered comes from loadEvent.
         if (team) setIsRegistered(true);
       } catch {
         setMyTeam(null);
@@ -559,12 +562,21 @@ export default function EventDetailPage() {
     try {
       const team = await api.getMyTeam(event.id, token);
       setMyTeam(team);
-      setIsRegistered(!!team);
+      // Preserve solo registrations (min-size-1 team events): leaving /
+      // dissolving a team must not wipe a solo isRegistered=true that came
+      // from loadEvent. Re-derive from the fresh event payload instead.
       const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
+      setIsRegistered(Boolean(team || updatedEvent.isRegistered));
     } catch {
       setMyTeam(null);
-      setIsRegistered(false);
+      try {
+        const updatedEvent = await api.getEvent(event.id, token);
+        setEvent(updatedEvent);
+        setIsRegistered(Boolean(updatedEvent.isRegistered));
+      } catch {
+        // Keep previous registration state on refresh failure.
+      }
     }
   };
 
@@ -608,29 +620,28 @@ export default function EventDetailPage() {
     setShowRegistrationFormPopup(true);
   }, [event?.registrationFields]);
 
-  const handleRegister = useCallback(async () => {
+  // Solo is allowed on team events only when min team size is 1
+  // (a 1–4 event means a solo participant counts as a complete entry).
+  const allowsSoloJoin = !event?.teamRegistration || (event.teamMinSize ?? 1) <= 1;
+
+  // Shared solo-join path used both by the pure-solo register button and the
+  // "Join solo" option on min-size-1 team events.
+  const handleSoloJoin = useCallback(async () => {
     if (!event) return;
     if (authLoading) return;
     const regStatus = getRegistrationStatus(event);
     if (!regStatus.canRegister) { toast.error(regStatus.message); return; }
     if (!user || !token) {
-      // pendingEventRegistration drives the profile-completion path; ?next=
-      // (UX#2) is the explicit return that lands back on the event with the
-      // register sheet open. AuthCallback consumes one and clears the other.
       localStorage.setItem('pendingEventRegistration', event.id);
-      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       const next = encodeURIComponent(`/events/${event.slug}?register=1`);
       navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
       return;
     }
     if (!user.phone || !user.course || !user.branch || !user.year) {
       localStorage.setItem('pendingEventRegistration', event.id);
-      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
-      return;
-    }
-    if (event.teamRegistration) {
-      toast.error('This is a team event. Please create a team or join a team to continue.');
       return;
     }
     if (event.registrationFields && event.registrationFields.length > 0) {
@@ -642,13 +653,56 @@ export default function EventDetailPage() {
     await performRegistration();
   }, [authLoading, event, navigate, openRegistrationFormPopup, performRegistration, token, user]);
 
+  const handleRegister = useCallback(async () => {
+    if (!event) return;
+    if (authLoading) return;
+    const regStatus = getRegistrationStatus(event);
+    if (!regStatus.canRegister) { toast.error(regStatus.message); return; }
+    if (!user || !token) {
+      // pendingEventRegistration drives the profile-completion path; ?next=
+      // (UX#2) is the explicit return that lands back on the event with the
+      // register sheet open. AuthCallback consumes one and clears the other.
+      localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration && !allowsSoloJoin ? 'team' : 'solo');
+      const next = encodeURIComponent(`/events/${event.slug}?register=1`);
+      navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
+      return;
+    }
+    if (!user.phone || !user.course || !user.branch || !user.year) {
+      localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration && !allowsSoloJoin ? 'team' : 'solo');
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
+      return;
+    }
+    if (event.teamRegistration && !allowsSoloJoin) {
+      toast.error('This is a team event. Please create a team or join a team to continue.');
+      return;
+    }
+    if (event.teamRegistration && allowsSoloJoin) {
+      // Team event with solo allowed — default primary action is the solo lane.
+      // The team create/join buttons call the team modals directly.
+      await handleSoloJoin();
+      return;
+    }
+    if (event.registrationFields && event.registrationFields.length > 0) {
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
+      openRegistrationFormPopup();
+      return;
+    }
+    localStorage.setItem('pendingEventRegistrationType', 'solo');
+    await performRegistration();
+  }, [allowsSoloJoin, authLoading, event, handleSoloJoin, navigate, openRegistrationFormPopup, performRegistration, token, user]);
+
   useEffect(() => {
     if (!event || isRegistered || autoRegisterTriggered || authLoading) return;
     if (searchParams.get('register') !== '1') return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('register');
     setSearchParams(nextParams, { replace: true });
-    if (event.teamRegistration) { setAutoRegisterTriggered(true); return; }
+    // Team events with min size > 1 have no solo lane — landing with
+    // ?register=1 just reveals the team options. Min-size-1 team events DO
+    // allow solo, so fall through to the solo auto-register.
+    if (event.teamRegistration && (event.teamMinSize ?? 1) > 1) { setAutoRegisterTriggered(true); return; }
     setAutoRegisterTriggered(true);
     handleRegister();
   }, [event, isRegistered, autoRegisterTriggered, searchParams, setSearchParams, authLoading, handleRegister]);
@@ -835,11 +889,14 @@ export default function EventDetailPage() {
             </Button>
           );
         }
+        const allowsSolo = (event.teamMinSize ?? 1) <= 1;
         return (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-center mb-1">
               <Pill tone="accent" size="sm" icon={<Users size={11} />}>
-                Team event · {event.teamMinSize}–{event.teamMaxSize}
+                {allowsSolo
+                  ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}`
+                  : `Team event · ${event.teamMinSize}–${event.teamMaxSize}`}
               </Pill>
             </div>
             <Button onClick={() => setShowCreateTeamModal(true)} className="w-full">
@@ -848,6 +905,30 @@ export default function EventDetailPage() {
             <Button variant="outline" onClick={() => setShowJoinTeamModal(true)} className="w-full">
               Join a team
             </Button>
+            {allowsSolo && (
+              <>
+                <div className="flex items-center gap-2 my-1" aria-hidden="true">
+                  <div className="h-px flex-1 bg-[var(--border-subtle)]" />
+                  <span className="text-[11px] text-[var(--ds-text-3)]">or participate solo</span>
+                  <div className="h-px flex-1 bg-[var(--border-subtle)]" />
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => { void handleSoloJoin(); }}
+                  disabled={registering}
+                  className="w-full"
+                >
+                  {registering ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering…</>
+                  ) : (
+                    'Join solo'
+                  )}
+                </Button>
+                <p className="text-[11.5px] text-center text-[var(--ds-text-3)]">
+                  Solo allowed — min team size is 1.
+                </p>
+              </>
+            )}
           </div>
         );
       }
@@ -894,7 +975,7 @@ export default function EventDetailPage() {
   const quickFacts: Array<[string, React.ReactNode]> = [];
   if (event.venue) quickFacts.push(['Venue', event.venue]);
   if (event.location) quickFacts.push(['Location', event.location]);
-  quickFacts.push(['Format', event.teamRegistration ? `Team · ${event.teamMinSize}–${event.teamMaxSize}` : 'Solo']);
+  quickFacts.push(['Format', event.teamRegistration ? ((event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`) : 'Solo']);
   if (event.eventType) quickFacts.push(['Type', event.eventType]);
   if (event.targetAudience) quickFacts.push(['Audience', event.targetAudience]);
   if (event.prerequisites) quickFacts.push(['Prereqs', event.prerequisites]);
@@ -1129,7 +1210,7 @@ export default function EventDetailPage() {
                 )}
                 {event.teamRegistration && (
                   <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
-                    <Users className="h-3 w-3" /> Team · {event.teamMinSize}–{event.teamMaxSize}
+                    <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
                   </span>
                 )}
                 {event.featured && (
@@ -1339,7 +1420,7 @@ export default function EventDetailPage() {
                       <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Format</div>
                         <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">
-                          {event.teamRegistration ? `Team · ${event.teamMinSize}–${event.teamMaxSize}` : 'Solo'}
+                          {event.teamRegistration ? ((event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`) : 'Solo'}
                         </div>
                       </div>
                     </div>
