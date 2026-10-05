@@ -26,8 +26,15 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // NOTE: 'react-dom/client' must be listed explicitly — the bare
+          // 'react-dom' id only matches the package index stub, so without
+          // this the whole react-dom core (~130 KB) leaks into the entry
+          // chunk instead of vendor-react.
+          'vendor-react': ['react', 'react-dom', 'react-dom/client', 'react-router-dom'],
           'vendor-ui': ['framer-motion', '@tanstack/react-query'],
+          // Toasts render from the App shell (AuthContext + App), so without
+          // this sonner ships inside the entry chunk.
+          'vendor-sonner': ['sonner'],
           'markdown': ['react-markdown', 'remark-gfm'],
           // Heavy, route-specific deps — keep them out of the route chunks so
           // they're only fetched when the screens that need them mount.

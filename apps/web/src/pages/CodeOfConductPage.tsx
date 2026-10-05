@@ -7,8 +7,8 @@ export default function CodeOfConductPage() {
   return (
     <Layout>
       <SEO
-        title="Code of Conduct — code.scriet"
-        description="The code of conduct of code.scriet, the student-run coding society of SCRIET, CCSU Meerut."
+        title="Code of Conduct — codescriet Coding Club, CCSU Meerut"
+        description="Code of conduct for codescriet, the student-run coding club of SCRIET, CCSU Meerut — member conduct, leadership roles, and how concerns are raised."
         url="/code-of-conduct"
       />
 

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { invalidateTeamCaches } from '@/lib/invalidateEventCaches';
 
 interface EditState {
   id?: string;
@@ -133,7 +134,7 @@ export default function AdminTeam() {
     onSuccess: () => {
       toast.success(edit.id ? 'Team member updated successfully' : 'Team member added successfully');
       setEditOpen(false);
-      qc.invalidateQueries({ queryKey: ['admin-team'] });
+      invalidateTeamCaches(qc);
     },
     onError: (e: unknown) => toast.error(e instanceof Error && e.message ? e.message : 'Save failed'),
   });
@@ -143,12 +144,12 @@ export default function AdminTeam() {
     onSuccess: () => {
       toast.success('Team member removed');
       setDeleting(null);
-      qc.invalidateQueries({ queryKey: ['admin-team'] });
+      invalidateTeamCaches(qc);
     },
     onError: (e: unknown) => {
       // 404 = the row was already gone server-side (stale list); refresh instead of alarming.
       if (e instanceof Error && (e as { status?: number }).status === 404) {
-        qc.invalidateQueries({ queryKey: ['admin-team'] });
+        invalidateTeamCaches(qc);
         toast.error('Team member was already removed — list refreshed');
         return;
       }
@@ -247,7 +248,7 @@ export default function AdminTeam() {
       toast.success(vars.userId ? 'Team member linked to user account' : 'Team member unlinked from user account');
       setLinkQuery('');
       setLinkResults([]);
-      qc.invalidateQueries({ queryKey: ['admin-team'] });
+      invalidateTeamCaches(qc);
     },
     onError: () => toast.error('Link failed'),
   });

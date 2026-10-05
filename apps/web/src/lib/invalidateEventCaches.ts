@@ -33,3 +33,23 @@ export function invalidateEventCaches(qc: QueryClient, eventId?: string): void {
     qc.invalidateQueries({ queryKey: ['admin-event-teams', eventId] });
   }
 }
+
+// Single choke point for "a team member changed" cache purges.
+//
+// Call it after team-member create/update/delete AND after any
+// link/unlink mutation so no surface keeps rendering stale rows — e.g.
+// editing a member's `team` in AdminTeam not showing on the public
+// /team page after refresh.
+//
+// Prefix semantics: invalidating ['admin-team'] also matches
+// ['admin-team', 'compact'] (AdminCredits); invalidating ['team'] also
+// matches ['team', 'compact'] (public TeamPage).
+export function invalidateTeamCaches(qc: QueryClient): void {
+  // Admin list surfaces.
+  qc.invalidateQueries({ queryKey: ['admin-team'] });
+  // Public team list.
+  qc.invalidateQueries({ queryKey: ['team'] });
+  // Home aggregate (embeds teamHighlights) + public stat counts.
+  qc.invalidateQueries({ queryKey: ['home-page-data'] });
+  qc.invalidateQueries({ queryKey: ['public-stats'] });
+}

@@ -5,8 +5,8 @@ export default function PrivacyPolicyPage() {
   return (
     <Layout>
       <SEO
-        title="Privacy Policy — codescriet Coding Club"
-        description="Privacy policy for codescriet.dev — how we collect, use, and protect your data."
+        title="Privacy Policy — codescriet Coding Club, CCSU Meerut"
+        description="Privacy policy for codescriet.dev — what data the SCRIET coding club collects, how event registrations and accounts use it, and how to contact us."
         url="/privacy-policy"
       />
       <section className="py-14 sm:py-20 bg-amber-50 min-h-screen">

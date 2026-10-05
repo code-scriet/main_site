@@ -629,7 +629,10 @@ function listingTask({ route, title, description, intro, jsonLdType, listHtml })
 // prerendered HTML instead of the SPA catch-all rewrite to /index.html.
 function listOfEvents(events) {
   if (!events?.length) return '';
-  const items = events.slice(0, 8).map((e) => {
+  // No slice cap: this hidden prerender block is the only static-HTML
+  // incoming link for older slugs, so capping it orphaned every
+  // /events/<slug>/ page past the cutoff for non-JS crawlers.
+  const items = events.map((e) => {
     if (!e?.slug) return '';
     const date = safeDate(e.startDate);
     const venue = e.venue || e.location || '';
@@ -651,7 +654,9 @@ function listOfTeam(team) {
 
 function listOfAchievements(achievements) {
   if (!achievements?.length) return '';
-  const items = achievements.slice(0, 8).map((a) => {
+  // No slice cap: same orphan reason as listOfEvents — every
+  // /achievements/<slug>/ page needs a static-HTML incoming link.
+  const items = achievements.map((a) => {
     if (!a?.slug) return '';
     const date = safeDate(a.date);
     return `<li><a href="/achievements/${escAttr(a.slug)}/">${escHtml(a.title)}</a>${a.achievedBy ? ` — <span>${escHtml(a.achievedBy)}</span>` : ''}${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
@@ -791,8 +796,8 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     }),
     listingTask({
       route: '/privacy-policy',
-      title: 'Privacy Policy — codescriet Coding Club',
-      description: 'Privacy policy for codescriet.dev — how we collect, use, and protect your data on our platform.',
+      title: 'Privacy Policy — codescriet Coding Club, CCSU Meerut',
+      description: 'Privacy policy for codescriet.dev — what data the SCRIET coding club collects, how event registrations and accounts use it, and how to contact us.',
       intro: 'This privacy policy explains how codescriet collects, uses, stores, and protects your personal information when you use codescriet.dev, register for events, take part in the QOTD or quiz platform, join the alumni network, or contact us. By using the platform you agree to the terms described here.',
       jsonLdType: 'WebPage',
       listHtml: '',
@@ -807,8 +812,8 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     }),
     listingTask({
       route: '/code-of-conduct',
-      title: 'Code of Conduct — code.scriet',
-      description: 'The code of conduct of code.scriet, the student-run coding society of SCRIET, CCSU Meerut.',
+      title: 'Code of Conduct — codescriet Coding Club, CCSU Meerut',
+      description: 'Code of conduct for codescriet, the student-run coding club of SCRIET, CCSU Meerut — member conduct, leadership roles, and how concerns are raised.',
       intro: 'The rules we write for ourselves. code.scriet is the student-run coding society of SCRIET, CCSU Meerut. This code explains how we lead, how we treat each other, and how we keep the society in student hands.',
       jsonLdType: 'WebPage',
       listHtml: '',
