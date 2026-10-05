@@ -79,7 +79,7 @@ export default function DashboardOverview() {
   const isCoreTeamMember = user?.role === 'CORE_MEMBER' || isAdmin || isNetwork;
 
   const regsQ = useQuery({
-    queryKey: ['my-registrations'],
+    queryKey: ['my-registrations', token],
     queryFn: () => api.getMyRegistrations(token!),
     enabled: Boolean(token),
     refetchOnWindowFocus: true,
@@ -1358,7 +1358,7 @@ function NetworkOverview() {
   const navigate = useNavigate();
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const regsQ = useQuery({
-    queryKey: ['my-registrations'],
+    queryKey: ['my-registrations', token],
     queryFn: () => api.getMyRegistrations(token!),
     enabled: Boolean(token),
   });

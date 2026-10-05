@@ -814,6 +814,7 @@ export interface Registration {
   userId: string;
   eventId: string;
   timestamp: string;
+  registrationType?: RegistrationType;
   attendanceToken?: string;
   attended?: boolean;
   scannedAt?: string;

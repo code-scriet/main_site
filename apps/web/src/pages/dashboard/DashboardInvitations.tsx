@@ -85,7 +85,11 @@ export default function DashboardInvitations() {
     onSuccess: () => {
       toast.success('Invitation accepted');
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['my-invitations'] }),
+    // Accepting mints a registration — dashboard regs caches must purge too.
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['my-invitations'] });
+      qc.invalidateQueries({ queryKey: ['my-registrations'] });
+    },
   });
 
   const declineMut = useMutation({

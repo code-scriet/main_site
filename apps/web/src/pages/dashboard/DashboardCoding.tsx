@@ -506,8 +506,10 @@ function QOTDTab() {
 // ─── Competitions tab
 function CompetitionsTab() {
   const { token } = useAuth();
+  // Token in the key: without it, switching accounts reuses the previous
+  // account's cached rows until staleTime expires.
   const regsQ = useQuery({
-    queryKey: ['my-registrations'],
+    queryKey: ['my-registrations', token],
     queryFn: () => api.getMyRegistrations(token!),
     enabled: Boolean(token),
   });

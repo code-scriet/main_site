@@ -77,8 +77,10 @@ export default function DashboardEvents() {
     }
   }, [location.state, location.pathname, navigate]);
 
+  // Token in the key: without it, logging out and back in as a different
+  // user reuses the previous account's cached rows until staleTime expires.
   const regsQ = useQuery({
-    queryKey: ['my-registrations'],
+    queryKey: ['my-registrations', token],
     queryFn: () => api.getMyRegistrations(token!),
     enabled: Boolean(token),
   });
@@ -110,14 +112,14 @@ export default function DashboardEvents() {
     past: all.filter((r) => r.event?.status === 'PAST').length,
     team: all.filter((r) => r.event?.teamRegistration).length,
     solo: all.filter((r) => !r.event?.teamRegistration).length,
-    guest: all.filter((r) => (r as Registration & { registrationType?: string }).registrationType === 'GUEST').length,
+    guest: all.filter((r) => r.registrationType === 'GUEST').length,
   }), [all]);
 
   const filtered = useMemo(() => {
     return all.filter((r) => {
-      if (!r.event) return false;
-      const e = r.event;
-      const type = (r as Registration & { registrationType?: string }).registrationType;
+    if (!r.event) return false;
+    const e = r.event;
+    const type = r.registrationType;
       switch (filter) {
         case 'all': return true;
         case 'upcoming': return e.status === 'UPCOMING';

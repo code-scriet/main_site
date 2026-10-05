@@ -21,6 +21,7 @@ import AdminEventInvitations from '@/components/events/AdminEventInvitations';
 import EventRegistrantComposer from '@/components/events/EventRegistrantComposer';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { invalidateEventCaches } from '@/lib/invalidateEventCaches';
 
 type ExportFormat = 'xlsx' | 'csv';
 interface ExportFilterState extends EventRegistrationExportFilters {
@@ -109,6 +110,9 @@ export default function AdminEventRegistrationDetail() {
     mutationFn: () => api.deleteEvent(eventId!, token!),
     onSuccess: () => {
       toast.success('Event deleted');
+      // This screen unmounts on navigate, but every other surface holding
+      // the deleted row (public list, dashboard, home, pickers) must purge.
+      invalidateEventCaches(qc, eventId);
       navigate('/admin/event-registrations');
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to delete event'),

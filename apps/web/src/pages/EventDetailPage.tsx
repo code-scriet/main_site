@@ -70,7 +70,9 @@ import {
   Pill,
   type PillTone,
 } from '@/components/dash';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { invalidateEventCaches } from '@/lib/invalidateEventCaches';
 import { useSettings } from '@/context/SettingsContext';
 import {
   api,
@@ -312,6 +314,7 @@ export default function EventDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token, isLoading: authLoading } = useAuth();
+  const qc = useQueryClient();
   const { settings } = useSettings();
   const accent = settings?.accentColor || 'rust';
 
@@ -549,13 +552,15 @@ export default function EventDetailPage() {
       const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
       setIsRegistered(true);
+      // Accepting creates a registration — purge regs caches for dashboard.
+      invalidateEventCaches(qc, event.id);
       toast.success('Invitation accepted. Your QR ticket is now available.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to accept invitation');
     } finally {
       setInvitationResponding(false);
     }
-  }, [event, navigate, token]);
+  }, [event, navigate, qc, token]);
 
   const handleTeamChange = async () => {
     if (!event?.id || !token) return;
@@ -568,6 +573,9 @@ export default function EventDetailPage() {
       const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
       setIsRegistered(Boolean(team || updatedEvent.isRegistered));
+      // Team create/join/leave changes the registration set — purge list +
+      // dashboard caches so counts update immediately elsewhere.
+      invalidateEventCaches(qc, event.id);
     } catch {
       setMyTeam(null);
       try {
@@ -587,6 +595,9 @@ export default function EventDetailPage() {
       setRegistrationFormError(null);
       await api.registerForEvent(event.id, token, additionalFields);
       setIsRegistered(true);
+      // Registration changes dashboard counts — purge before local refetch so
+      // other surfaces (dashboard upcoming, public counts) update immediately.
+      invalidateEventCaches(qc, event.id);
       setShowRegistrationFormPopup(false);
       const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
@@ -608,7 +619,7 @@ export default function EventDetailPage() {
     } finally {
       setRegistering(false);
     }
-  }, [event, openQrTicket, token]);
+  }, [event, openQrTicket, qc, token]);
 
   const openRegistrationFormPopup = useCallback(() => {
     if (!event?.registrationFields || event.registrationFields.length === 0) return;

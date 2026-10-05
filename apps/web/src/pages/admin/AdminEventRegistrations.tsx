@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { invalidateEventCaches } from '@/lib/invalidateEventCaches';
 
 type ExportFormat = 'xlsx' | 'csv';
 interface ExportFilterState extends EventRegistrationExportFilters {
@@ -84,10 +85,12 @@ export default function AdminEventRegistrations() {
 
   const deleteEventMut = useMutation({
     mutationFn: (id: string) => api.deleteEvent(id, token!),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       toast.success('Event deleted');
       setDeleteEventTarget(null);
-      qc.invalidateQueries({ queryKey: ['admin-events', 'registrations'] });
+      // Purge every cache holding the event row (public list, dashboard,
+      // home, attendance picker, admin pickers) — not just this table.
+      invalidateEventCaches(qc, id);
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to delete event'),
   });

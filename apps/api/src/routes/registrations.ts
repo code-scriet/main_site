@@ -384,6 +384,9 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
         userId: true,
         eventId: true,
         timestamp: true,
+        // Required by the dashboard guest filter/count — omitting it makes
+        // every guest registration invisible client-side.
+        registrationType: true,
         customFieldResponses: true,
         attendanceToken: true,
         attended: true,
