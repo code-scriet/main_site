@@ -16,6 +16,7 @@ import { QRTicketSheet } from '@/components/attendance/QRTicket';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { extractApiErrorMessage } from '@/lib/error';
+import { getRegistrationStatus } from '@/lib/registrationStatus';
 
 type FilterId = 'all' | 'upcoming' | 'ongoing' | 'past' | 'team' | 'solo' | 'guest';
 
@@ -86,6 +87,22 @@ export default function DashboardEvents() {
   // downstream useMemo a changed dependency, so they recompute on each render.
   const all = useMemo(() => regsQ.data ?? [], [regsQ.data]);
 
+  // Public UPCOMING events the user could still join (registration open + not
+  // already registered). Drives an honest empty state: we only nudge "register"
+  // when there is genuinely something to register for.
+  const upcomingQ = useQuery({
+    queryKey: ['dashboard', 'joinable-upcoming'],
+    queryFn: () => api.getEventsWithTotal({ status: 'UPCOMING', limit: 200 }),
+    enabled: Boolean(token),
+    staleTime: 5 * 60 * 1000,
+  });
+  const hasJoinableUpcoming = useMemo(() => {
+    const joined = new Set(all.map((r) => r.event?.id));
+    return (upcomingQ.data?.events ?? []).some(
+      (e) => !joined.has(e.id) && getRegistrationStatus(e).canRegister,
+    );
+  }, [all, upcomingQ.data]);
+
   const counts = useMemo(() => ({
     all: all.length,
     upcoming: all.filter((r) => r.event?.status === 'UPCOMING').length,
@@ -123,6 +140,12 @@ export default function DashboardEvents() {
     { id: 'solo', label: 'Solo' },
     { id: 'guest', label: 'As guest' },
   ];
+
+  // Noun used in the empty-state copy per active filter.
+  const FILTER_NOUN: Record<FilterId, string> = {
+    all: 'joined', upcoming: 'upcoming', ongoing: 'live', past: 'past',
+    team: 'team', solo: 'solo', guest: 'guest',
+  };
 
   const ticketRegistration = ticketEventId ? all.find((r) => r.event?.id === ticketEventId) : null;
 
@@ -178,9 +201,27 @@ export default function DashboardEvents() {
         <DSCard padded>
           <EmptyState
             icon={<Calendar size={18} />}
-            title={filter === 'all' ? "You haven't joined any events yet" : 'No events match this filter'}
-            body="Browse the public events list and register for your first one."
-            action={<Button size="sm" onClick={() => navigate('/events')}>Browse upcoming events</Button>}
+            title={filter === 'all' ? "You haven't joined any events yet" : `No ${FILTER_NOUN[filter]} events`}
+            body={
+              counts.all === 0
+                ? (hasJoinableUpcoming
+                    ? 'Browse the public events list and register for your first one.'
+                    : 'No open events right now — check back soon.')
+                : filter === 'upcoming'
+                  ? (hasJoinableUpcoming
+                      ? "You're not in any upcoming events — but there are some you can still join."
+                      : "You're not in any upcoming events, and none are open for registration right now.")
+                  : `You don't have any ${FILTER_NOUN[filter]} events.`
+            }
+            action={
+              <Button
+                size="sm"
+                variant={hasJoinableUpcoming ? 'default' : 'outline'}
+                onClick={() => navigate('/events')}
+              >
+                {hasJoinableUpcoming ? 'Browse upcoming events' : 'Browse all events'}
+              </Button>
+            }
           />
         </DSCard>
       ) : (
@@ -297,7 +338,7 @@ function EventCard({
           >
             {status === 'ONGOING' ? 'Live now' : status === 'UPCOMING' ? 'Upcoming' : 'Past'}
           </Pill>
-          {team && <Pill tone="neutral" size="xs">Team · {teamSize}</Pill>}
+          {team && <Pill tone="neutral" size="xs">{(e.teamMinSize ?? 1) <= 1 ? `Team or solo · ${teamSize}` : `Team · ${teamSize}`}</Pill>}
           <Pill tone="success" size="xs" icon={<Check size={9} />}>{' '}</Pill>
         </div>
         <div className="absolute bottom-2.5 left-2.5 right-2.5 text-white">
