@@ -433,6 +433,8 @@ test('PATCH /applications/:id/status enforces the transition matrix', async (t) 
     ['INTERVIEW_SCHEDULED', 'SLOT_BOOKED'],
     ['SLOT_BOOKED', 'INTERVIEW_SCHEDULED'],
     ['SLOT_BOOKED', 'INTERVIEWED'],
+    ['SLOT_BOOKED', 'SELECTED'],
+    ['INTERVIEW_SCHEDULED', 'INTERVIEWED'],
     ['INTERVIEW_SCHEDULED', 'REJECTED'],
     ['SLOT_BOOKED', 'REJECTED'],
     ['INTERVIEWED', 'SELECTED'],
@@ -449,7 +451,6 @@ test('PATCH /applications/:id/status enforces the transition matrix', async (t) 
     ['INTERVIEW_SCHEDULED', 'PENDING'],
     ['INTERVIEW_SCHEDULED', 'SELECTED'],
     ['SLOT_BOOKED', 'PENDING'],
-    ['SLOT_BOOKED', 'SELECTED'],
     ['INTERVIEWED', 'PENDING'],
   ];
 

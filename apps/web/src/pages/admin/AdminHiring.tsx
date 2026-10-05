@@ -499,7 +499,16 @@ export default function AdminHiring() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error('Failed to update');
+      if (!res.ok) {
+        let message = 'Failed to update';
+        try {
+          const data = await res.json();
+          if (typeof data?.error?.message === 'string' && data.error.message) message = data.error.message;
+        } catch {
+          /* keep default */
+        }
+        throw new Error(message);
+      }
       toast.success('Application status updated');
       // Moving someone in/out of an interview lane can change their booking,
       // so re-pull the slots that back the per-card "Booked" chips.
