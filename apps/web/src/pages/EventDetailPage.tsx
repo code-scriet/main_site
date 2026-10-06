@@ -673,15 +673,19 @@ export default function EventDetailPage() {
       // pendingEventRegistration drives the profile-completion path; ?next=
       // (UX#2) is the explicit return that lands back on the event with the
       // register sheet open. AuthCallback consumes one and clears the other.
+      // Team events must NEVER auto-register after login: store 'team' so
+      // post-login lands on the detail page with the Create/Join team
+      // (+ Join solo when min size is 1) choice. Only pure-solo events keep
+      // ?register=1 for automatic solo registration.
       localStorage.setItem('pendingEventRegistration', event.id);
-      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration && !allowsSoloJoin ? 'team' : 'solo');
-      const next = encodeURIComponent(`/events/${event.slug}?register=1`);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
+      const next = encodeURIComponent(event.teamRegistration ? `/events/${event.slug}` : `/events/${event.slug}?register=1`);
       navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
       return;
     }
     if (!user.phone || !user.course || !user.branch || !user.year) {
       localStorage.setItem('pendingEventRegistration', event.id);
-      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration && !allowsSoloJoin ? 'team' : 'solo');
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
@@ -710,10 +714,10 @@ export default function EventDetailPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('register');
     setSearchParams(nextParams, { replace: true });
-    // Team events with min size > 1 have no solo lane — landing with
-    // ?register=1 just reveals the team options. Min-size-1 team events DO
-    // allow solo, so fall through to the solo auto-register.
-    if (event.teamRegistration && (event.teamMinSize ?? 1) > 1) { setAutoRegisterTriggered(true); return; }
+    // Team events NEVER auto-register — landing with ?register=1 just
+    // reveals the Create a team / Join a team (+ Join solo when min size is
+    // 1) choice. Only pure-solo events fall through to auto-register.
+    if (event.teamRegistration) { setAutoRegisterTriggered(true); return; }
     setAutoRegisterTriggered(true);
     handleRegister();
   }, [event, isRegistered, autoRegisterTriggered, searchParams, setSearchParams, authLoading, handleRegister]);
