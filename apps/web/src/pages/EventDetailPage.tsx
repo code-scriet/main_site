@@ -344,6 +344,11 @@ export default function EventDetailPage() {
   const [showTicket, setShowTicket] = useState(false);
   const [attendanceQR, setAttendanceQR] = useState<AttendanceQR | null>(null);
   const [ticketLoading, setTicketLoading] = useState(false);
+  // Poster resilience: mobile networks fail images transiently (and some
+  // carriers block CDN domains), so retry once before giving up — and never
+  // collapse to an invisible box. posterDead renders a titled fallback.
+  const [posterAttempt, setPosterAttempt] = useState(0);
+  const [posterDead, setPosterDead] = useState(false);
   const [competitionRounds, setCompetitionRounds] = useState<
     Array<{
       id: string;
@@ -449,6 +454,12 @@ export default function EventDetailPage() {
     };
     fetchTeam();
   }, [event?.id, event?.teamRegistration, token]);
+
+  // A poster retry/dead cycle must never leak across events or poster edits.
+  useEffect(() => {
+    setPosterAttempt(0);
+    setPosterDead(false);
+  }, [event?.imageUrl]);
 
   const loadCompetitionRounds = useCallback(async () => {
     if (!event?.id) {
@@ -1151,6 +1162,11 @@ export default function EventDetailPage() {
               alt=""
               aria-hidden
               className="absolute inset-0 w-full h-full object-cover blur-3xl scale-110 opacity-60"
+              onError={(e) => {
+                // Decorative ambient only — hide quietly on failure (the ivory
+                // veil covers the hero either way).
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
             />
           )}
           {/* Ivory veil for legibility */}
@@ -1194,7 +1210,7 @@ export default function EventDetailPage() {
           {/* Poster + event info, stacked */}
           <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-10 sm:pb-14">
             <div className="max-w-[900px] mx-auto">
-              {coverImage ? (
+              {coverImage && !posterDead ? (
                 <a
                   href={event.imageUrl || undefined}
                   target="_blank"
@@ -1203,14 +1219,31 @@ export default function EventDetailPage() {
                   className="block rounded-2xl overflow-hidden ring-1 ring-[#1e2a4a]/15 shadow-[0_24px_70px_rgba(30,42,74,0.22)]"
                 >
                   <img
-                    src={coverImage}
+                    key={`${event.id}-${posterAttempt}`}
+                    src={posterAttempt === 0 ? coverImage : `${coverImage}${coverImage.includes('?') ? '&' : '?'}retry=1`}
                     alt={event.title}
                     className="block w-full h-auto"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
+                    loading="eager"
+                    decoding="async"
+                    onError={() => {
+                      // Transient mobile-network blip: retry once with a
+                      // cache-buster. Persistent failure (CDN blocked, file
+                      // gone) falls through to the titled fallback below —
+                      // never an invisible collapsed box.
+                      if (posterAttempt === 0) {
+                        setPosterAttempt(1);
+                      } else {
+                        setPosterDead(true);
+                      }
                     }}
                   />
                 </a>
+              ) : posterDead ? (
+                <div className={cn('rounded-2xl aspect-video bg-gradient-to-br', heroGradient, 'flex flex-col items-center justify-center gap-2 p-6 text-center')}>
+                  <ImageIcon className="h-8 w-8 text-white/70" />
+                  <p className="text-white/90 font-semibold">{event.title}</p>
+                  <p className="text-white/70 text-[12px]">Poster could not be loaded — check your connection and pull to refresh.</p>
+                </div>
               ) : (
                 <div className={cn('rounded-2xl aspect-video bg-gradient-to-br', heroGradient)} />
               )}
