@@ -1141,11 +1141,19 @@ export default function EventDetailPage() {
         {/* Hero */}
         <section className="relative">
           {coverImage ? (
-            <div className="relative w-full h-[260px] sm:h-[320px] lg:h-[380px] overflow-hidden">
+            <div className="relative w-full h-[260px] sm:h-[320px] lg:h-[380px] overflow-hidden bg-[#0b0b0f]">
+              {/* Blurred ambient backdrop from the same poster */}
+              <img
+                src={coverImage}
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-70"
+              />
+              {/* Full poster, never cropped */}
               <img
                 src={coverImage}
                 alt={event.title}
-                className="absolute inset-0 w-full h-full object-cover scale-[1.02]"
+                className="absolute inset-0 w-full h-full object-contain"
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none';
                 }}
