@@ -1182,9 +1182,9 @@ export default function EventDetailPage() {
             </button>
           </div>
 
-          {/* Poster + event info, side by side */}
-          <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-8 sm:pb-10">
-            <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-10">
+          {/* Poster + event info, stacked */}
+          <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-10 sm:pb-12">
+            <div className="max-w-[900px] mx-auto">
               {coverImage ? (
                 <a
                   href={event.imageUrl || undefined}
@@ -1205,45 +1205,45 @@ export default function EventDetailPage() {
               ) : (
                 <div className={cn('rounded-2xl aspect-video bg-gradient-to-br', heroGradient)} />
               )}
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                  <Pill tone={statusInfo.tone} size="sm" dot={statusInfo.dot}>{statusInfo.label}</Pill>
-                  {event.eventType && (
-                    <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
-                      {event.eventType}
-                    </span>
-                  )}
-                  {event.teamRegistration && (
-                    <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
-                      <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
-                    </span>
-                  )}
-                  {event.featured && (
-                    <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-semibold bg-[var(--accent)] text-[var(--accent-fg)] shadow-sm">
-                      <Star className="h-3 w-3" /> Featured
-                    </span>
-                  )}
-                </div>
-                <h1 className="text-[28px] sm:text-[36px] lg:text-[42px] font-semibold tracking-tight text-white leading-[1.08]">
-                  {event.title}
-                </h1>
-                {event.shortDescription && (
-                  <p className="text-white/75 mt-3 text-[14px] sm:text-[15px] leading-[1.65] line-clamp-3">
-                    {event.shortDescription}
-                  </p>
-                )}
-                <div className="mt-5 flex flex-col gap-2 text-[13px] text-white/85">
-                  <span className="inline-flex items-center gap-2">
-                    <Calendar className="h-4 w-4 shrink-0 text-white/60" />
-                    {formatDateTime(event.startDate)}
+            </div>
+            <div className="max-w-[840px] mx-auto mt-8 sm:mt-10 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-4 flex-wrap">
+                <Pill tone={statusInfo.tone} size="sm" dot={statusInfo.dot}>{statusInfo.label}</Pill>
+                {event.eventType && (
+                  <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                    {event.eventType}
                   </span>
-                  {(event.venue || event.location) && (
-                    <span className="inline-flex items-center gap-2">
-                      <MapPin className="h-4 w-4 shrink-0 text-white/60" />
-                      {event.venue || event.location}
-                    </span>
-                  )}
-                </div>
+                )}
+                {event.teamRegistration && (
+                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                    <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
+                  </span>
+                )}
+                {event.featured && (
+                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-semibold bg-[var(--accent)] text-[var(--accent-fg)] shadow-sm">
+                    <Star className="h-3 w-3" /> Featured
+                  </span>
+                )}
+              </div>
+              <h1 className="text-[30px] sm:text-[40px] lg:text-[48px] font-semibold tracking-tight text-white leading-[1.08]">
+                {event.title}
+              </h1>
+              {event.shortDescription && (
+                <p className="text-white/75 mt-4 text-[14px] sm:text-[15.5px] leading-[1.7] max-w-[680px] mx-auto">
+                  {event.shortDescription}
+                </p>
+              )}
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13.5px] text-white/85">
+                <span className="inline-flex items-center gap-2">
+                  <Calendar className="h-4 w-4 shrink-0 text-white/60" />
+                  {formatDateTime(event.startDate)}
+                </span>
+                {(event.venue || event.location) && (
+                  <span className="inline-flex items-center gap-2">
+                    <MapPin className="h-4 w-4 shrink-0 text-white/60" />
+                    {event.venue || event.location}
+                  </span>
+                )}
               </div>
             </div>
           </div>
