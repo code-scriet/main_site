@@ -1143,65 +1143,26 @@ export default function EventDetailPage() {
         className="bg-[var(--bg-canvas)] text-[var(--ds-text-1)] min-h-[60vh]"
       >
         {/* Hero */}
-        <section className="relative">
-          {coverImage ? (
-            <div className="relative w-full h-[260px] sm:h-[320px] lg:h-[380px] overflow-hidden bg-[#0b0b0f]">
-              {/* Blurred ambient backdrop from the same poster */}
-              <img
-                src={coverImage}
-                alt=""
-                aria-hidden
-                className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-70"
-              />
-              {/* Full poster, never cropped */}
-              <img
-                src={coverImage}
-                alt={event.title}
-                className="absolute inset-0 w-full h-full object-contain"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/55 to-black/85" />
-              <div
-                aria-hidden
-                className="absolute inset-0"
-                style={{
-                  backgroundImage:
-                    'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.10) 0%, transparent 35%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.08) 0%, transparent 35%)',
-                }}
-              />
-              {/* Fine dot grid for texture */}
-              <div
-                aria-hidden
-                className="absolute inset-0 opacity-[0.10] mix-blend-overlay"
-                style={{
-                  backgroundImage: 'radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)',
-                  backgroundSize: '22px 22px',
-                }}
-              />
-            </div>
-          ) : (
-            <div className={cn('relative w-full h-[260px] sm:h-[320px] lg:h-[380px] overflow-hidden bg-gradient-to-br', heroGradient)}>
-              <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/65" />
-              <div
-                aria-hidden
-                className="absolute inset-0"
-                style={{
-                  backgroundImage:
-                    'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.12) 0%, transparent 38%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.10) 0%, transparent 38%)',
-                }}
-              />
-              <div
-                aria-hidden
-                className="absolute inset-0 opacity-[0.12] mix-blend-overlay"
-                style={{
-                  backgroundImage: 'radial-gradient(rgba(255,255,255,0.7) 1px, transparent 1px)',
-                  backgroundSize: '22px 22px',
-                }}
-              />
-            </div>
-          )}
+        <section className="relative overflow-hidden bg-[#0b0b0f]">
+          {/* Ambient backdrop */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/60 to-black/85" />
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.10) 0%, transparent 35%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.08) 0%, transparent 35%)',
+            }}
+          />
+          {/* Fine dot grid for texture */}
+          <div
+            aria-hidden
+            className="absolute inset-0 opacity-[0.10] mix-blend-overlay"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)',
+              backgroundSize: '22px 22px',
+            }}
+          />
 
           {/* Top-left back + top-right share */}
           <div className="absolute top-4 left-4 sm:left-6 z-10">
@@ -1221,47 +1182,68 @@ export default function EventDetailPage() {
             </button>
           </div>
 
-          {/* Title block */}
-          <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 lg:p-8">
-            <div className="max-w-[1200px] mx-auto">
-              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                <Pill tone={statusInfo.tone} size="sm" dot={statusInfo.dot}>{statusInfo.label}</Pill>
-                {event.eventType && (
-                  <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
-                    {event.eventType}
-                  </span>
-                )}
-                {event.teamRegistration && (
-                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
-                    <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
-                  </span>
-                )}
-                {event.featured && (
-                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-semibold bg-[var(--accent)] text-[var(--accent-fg)] shadow-sm">
-                    <Star className="h-3 w-3" /> Featured
-                  </span>
-                )}
-              </div>
-              <h1 className="text-[28px] sm:text-[38px] lg:text-[46px] font-semibold tracking-tight text-white leading-[1.05] drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
-                {event.title}
-              </h1>
-              {event.shortDescription && (
-                <p className="text-white/90 mt-3 max-w-[680px] text-[14px] sm:text-[15px] leading-[1.6] line-clamp-2 drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)]">
-                  {event.shortDescription}
-                </p>
+          {/* Poster + event info, side by side */}
+          <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-8 sm:pb-10">
+            <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-10">
+              {coverImage ? (
+                <a
+                  href={event.imageUrl || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open full poster"
+                  className="block rounded-2xl overflow-hidden ring-1 ring-white/15 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
+                >
+                  <img
+                    src={coverImage}
+                    alt={event.title}
+                    className="block w-full h-auto"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </a>
+              ) : (
+                <div className={cn('rounded-2xl aspect-video bg-gradient-to-br', heroGradient)} />
               )}
-              {/* Date + venue strip in hero */}
-              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-white/85">
-                <span className="inline-flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {formatDateTime(event.startDate)}
-                </span>
-                {(event.venue || event.location) && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {event.venue || event.location}
-                  </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                  <Pill tone={statusInfo.tone} size="sm" dot={statusInfo.dot}>{statusInfo.label}</Pill>
+                  {event.eventType && (
+                    <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                      {event.eventType}
+                    </span>
+                  )}
+                  {event.teamRegistration && (
+                    <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                      <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
+                    </span>
+                  )}
+                  {event.featured && (
+                    <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-semibold bg-[var(--accent)] text-[var(--accent-fg)] shadow-sm">
+                      <Star className="h-3 w-3" /> Featured
+                    </span>
+                  )}
+                </div>
+                <h1 className="text-[28px] sm:text-[36px] lg:text-[42px] font-semibold tracking-tight text-white leading-[1.08]">
+                  {event.title}
+                </h1>
+                {event.shortDescription && (
+                  <p className="text-white/75 mt-3 text-[14px] sm:text-[15px] leading-[1.65] line-clamp-3">
+                    {event.shortDescription}
+                  </p>
                 )}
+                <div className="mt-5 flex flex-col gap-2 text-[13px] text-white/85">
+                  <span className="inline-flex items-center gap-2">
+                    <Calendar className="h-4 w-4 shrink-0 text-white/60" />
+                    {formatDateTime(event.startDate)}
+                  </span>
+                  {(event.venue || event.location) && (
+                    <span className="inline-flex items-center gap-2">
+                      <MapPin className="h-4 w-4 shrink-0 text-white/60" />
+                      {event.venue || event.location}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
