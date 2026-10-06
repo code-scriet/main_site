@@ -1150,7 +1150,7 @@ export default function EventDetailPage() {
                   (e.target as HTMLImageElement).style.display = 'none';
                 }}
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/75" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/55 to-black/85" />
               <div
                 aria-hidden
                 className="absolute inset-0"
@@ -1378,7 +1378,7 @@ export default function EventDetailPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Date</div>
-                      <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">
+                      <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] line-clamp-2 mt-0.5">
                         {new Date(event.startDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
                       </div>
                     </div>
@@ -1389,7 +1389,7 @@ export default function EventDetailPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Time</div>
-                      <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">{formatTime(event.startDate)}</div>
+                      <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] line-clamp-2 mt-0.5">{formatTime(event.startDate)}</div>
                     </div>
                   </div>
                   {event.location ? (
@@ -1399,7 +1399,7 @@ export default function EventDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Where</div>
-                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">{event.location}</div>
+                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] line-clamp-2 mt-0.5">{event.location}</div>
                       </div>
                     </div>
                   ) : (
@@ -1409,7 +1409,7 @@ export default function EventDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Where</div>
-                        <div className="text-[12.5px] font-medium text-[var(--ds-text-3)] italic truncate mt-0.5">TBA</div>
+                        <div className="text-[12.5px] font-medium text-[var(--ds-text-3)] italic line-clamp-2 mt-0.5">TBA</div>
                       </div>
                     </div>
                   )}
@@ -1420,7 +1420,7 @@ export default function EventDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Duration</div>
-                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">{event.eventDays} days</div>
+                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] line-clamp-2 mt-0.5">{event.eventDays} days</div>
                       </div>
                     </div>
                   ) : (
@@ -1430,7 +1430,7 @@ export default function EventDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Format</div>
-                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate mt-0.5">
+                        <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] line-clamp-2 mt-0.5">
                           {event.teamRegistration ? ((event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`) : 'Solo'}
                         </div>
                       </div>
