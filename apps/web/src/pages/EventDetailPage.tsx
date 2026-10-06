@@ -1006,6 +1006,114 @@ export default function EventDetailPage() {
   if (event.targetAudience) quickFacts.push(['Audience', event.targetAudience]);
   if (event.prerequisites) quickFacts.push(['Prereqs', event.prerequisites]);
 
+  // Info rail sections (quick facts, tags, registration window, calendar,
+  // share). Rendered inside the desktop right rail AND the mobile block —
+  // a single definition so phone users get the same options as web.
+  const infoRailSections = (
+    <>
+      {/* Quick facts */}
+      {quickFacts.length > 0 && (
+        <DSCard>
+          <Eyebrow>Quick facts</Eyebrow>
+          <dl className="text-[12.5px] space-y-2">
+            {quickFacts.map(([k, v]) => (
+              <div key={k} className="flex items-start justify-between gap-3">
+                <dt className="text-[var(--ds-text-3)] shrink-0">{k}</dt>
+                <dd className="text-[var(--ds-text-1)] font-medium text-right truncate max-w-[60%]">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </DSCard>
+      )}
+
+      {/* Tags */}
+      {event.tags && event.tags.length > 0 && (
+        <DSCard>
+          <Eyebrow>Tags</Eyebrow>
+          <div className="flex flex-wrap gap-1.5">
+            {event.tags.map((tag, index) => (
+              <Badge key={index} variant="outline" className="bg-[var(--surface-soft)] border-[var(--border-subtle)] text-[var(--ds-text-2)]">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </DSCard>
+      )}
+
+      {/* Registration window */}
+      {(event.registrationStartDate || event.registrationEndDate) && (
+        <DSCard>
+          <Eyebrow>Registration window</Eyebrow>
+          <dl className="text-[12.5px] space-y-1.5">
+            {event.registrationStartDate && (
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-[var(--ds-text-3)]">Opens</dt>
+                <dd className="text-[var(--ds-text-1)] font-medium text-right font-mono tabular-nums text-[11.5px]">
+                  {formatDateTime(event.registrationStartDate)}
+                </dd>
+              </div>
+            )}
+            {event.registrationEndDate && (
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-[var(--ds-text-3)]">Closes</dt>
+                <dd className="text-[var(--ds-text-1)] font-medium text-right font-mono tabular-nums text-[11.5px]">
+                  {formatDateTime(event.registrationEndDate)}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </DSCard>
+      )}
+
+      {/* S-04 — Add to calendar (hidden once the event is over) */}
+      {event.status !== 'PAST' && (
+        <div className="grid grid-cols-2 gap-2">
+          <a
+            href={googleCalendarUrl({
+              title: event.title,
+              description: event.shortDescription,
+              location: event.venue || event.location,
+              startDate: event.startDate,
+              endDate: event.endDate,
+              url: window.location.href,
+            })}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" /> Google Calendar
+          </a>
+          <button
+            onClick={() =>
+              downloadICS(
+                {
+                  title: event.title,
+                  description: event.shortDescription,
+                  location: event.venue || event.location,
+                  startDate: event.startDate,
+                  endDate: event.endDate,
+                  url: window.location.href,
+                },
+                event.slug,
+              )
+            }
+            className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+          >
+            <Download className="h-3.5 w-3.5" /> .ics file
+          </button>
+        </div>
+      )}
+
+      {/* Share helper */}
+      <button
+        onClick={handleShare}
+        className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+      >
+        <CopyIcon className="h-3.5 w-3.5" /> Copy event link
+      </button>
+    </>
+  );
+
   // ── Render
 
   return (
@@ -1361,7 +1469,7 @@ export default function EventDetailPage() {
           )}
 
           {/* Mobile registration block — sticky right rail content collapses up here */}
-          <div className="lg:hidden mb-5">
+          <div className="lg:hidden mb-5 flex flex-col gap-4">
             <DSCard>
               <Eyebrow>Registration</Eyebrow>
               {registrationActions}
@@ -1375,6 +1483,9 @@ export default function EventDetailPage() {
                 </div>
               )}
             </DSCard>
+            {/* Same info rail as desktop: quick facts, tags, registration
+                window, Google Calendar / .ics, copy link. */}
+            {infoRailSections}
           </div>
 
           <div className="grid lg:grid-cols-12 gap-5 sm:gap-6">
@@ -1855,106 +1966,9 @@ export default function EventDetailPage() {
                 )}
               </DSCard>
 
-              {/* Quick facts */}
-              {quickFacts.length > 0 && (
-                <DSCard>
-                  <Eyebrow>Quick facts</Eyebrow>
-                  <dl className="text-[12.5px] space-y-2">
-                    {quickFacts.map(([k, v]) => (
-                      <div key={k} className="flex items-start justify-between gap-3">
-                        <dt className="text-[var(--ds-text-3)] shrink-0">{k}</dt>
-                        <dd className="text-[var(--ds-text-1)] font-medium text-right truncate max-w-[60%]">{v}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </DSCard>
-              )}
-
-              {/* Tags */}
-              {event.tags && event.tags.length > 0 && (
-                <DSCard>
-                  <Eyebrow>Tags</Eyebrow>
-                  <div className="flex flex-wrap gap-1.5">
-                    {event.tags.map((tag, index) => (
-                      <Badge key={index} variant="outline" className="bg-[var(--surface-soft)] border-[var(--border-subtle)] text-[var(--ds-text-2)]">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </DSCard>
-              )}
-
-              {/* Registration window */}
-              {(event.registrationStartDate || event.registrationEndDate) && (
-                <DSCard>
-                  <Eyebrow>Registration window</Eyebrow>
-                  <dl className="text-[12.5px] space-y-1.5">
-                    {event.registrationStartDate && (
-                      <div className="flex items-start justify-between gap-3">
-                        <dt className="text-[var(--ds-text-3)]">Opens</dt>
-                        <dd className="text-[var(--ds-text-1)] font-medium text-right font-mono tabular-nums text-[11.5px]">
-                          {formatDateTime(event.registrationStartDate)}
-                        </dd>
-                      </div>
-                    )}
-                    {event.registrationEndDate && (
-                      <div className="flex items-start justify-between gap-3">
-                        <dt className="text-[var(--ds-text-3)]">Closes</dt>
-                        <dd className="text-[var(--ds-text-1)] font-medium text-right font-mono tabular-nums text-[11.5px]">
-                          {formatDateTime(event.registrationEndDate)}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </DSCard>
-              )}
-
-              {/* S-04 — Add to calendar (hidden once the event is over) */}
-              {event.status !== 'PAST' && (
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href={googleCalendarUrl({
-                      title: event.title,
-                      description: event.shortDescription,
-                      location: event.venue || event.location,
-                      startDate: event.startDate,
-                      endDate: event.endDate,
-                      url: window.location.href,
-                    })}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
-                  >
-                    <CalendarPlus className="h-3.5 w-3.5" /> Google Calendar
-                  </a>
-                  <button
-                    onClick={() =>
-                      downloadICS(
-                        {
-                          title: event.title,
-                          description: event.shortDescription,
-                          location: event.venue || event.location,
-                          startDate: event.startDate,
-                          endDate: event.endDate,
-                          url: window.location.href,
-                        },
-                        event.slug,
-                      )
-                    }
-                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
-                  >
-                    <Download className="h-3.5 w-3.5" /> .ics file
-                  </button>
-                </div>
-              )}
-
-              {/* Share helper */}
-              <button
-                onClick={handleShare}
-                className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
-              >
-                <CopyIcon className="h-3.5 w-3.5" /> Copy event link
-              </button>
+              {/* Shared with the mobile block above — quick facts, tags,
+                  registration window, calendar, share (single definition). */}
+              {infoRailSections}
             </aside>
           </div>
         </section>
