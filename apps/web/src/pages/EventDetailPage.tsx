@@ -1143,23 +1143,32 @@ export default function EventDetailPage() {
         className="bg-[var(--bg-canvas)] text-[var(--ds-text-1)] min-h-[60vh]"
       >
         {/* Hero */}
-        <section className="relative overflow-hidden bg-[#0b0b0f]">
-          {/* Ambient backdrop */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/60 to-black/85" />
+        <section className="relative overflow-hidden" style={{ backgroundColor: '#f5f0e1' }}>
+          {/* Blurred poster ambient — background matches the poster */}
+          {coverImage && (
+            <img
+              src={coverImage}
+              alt=""
+              aria-hidden
+              className="absolute inset-0 w-full h-full object-cover blur-3xl scale-110 opacity-60"
+            />
+          )}
+          {/* Ivory veil for legibility */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#f5f0e1]/80 via-[#f5f0e1]/55 to-[#f5f0e1]" />
           <div
             aria-hidden
             className="absolute inset-0"
             style={{
               backgroundImage:
-                'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.10) 0%, transparent 35%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.08) 0%, transparent 35%)',
+                'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.5) 0%, transparent 40%), radial-gradient(circle at 85% 75%, rgba(255,255,255,0.35) 0%, transparent 40%)',
             }}
           />
           {/* Fine dot grid for texture */}
           <div
             aria-hidden
-            className="absolute inset-0 opacity-[0.10] mix-blend-overlay"
+            className="absolute inset-0 opacity-[0.35] mix-blend-multiply"
             style={{
-              backgroundImage: 'radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)',
+              backgroundImage: 'radial-gradient(rgba(30,42,74,0.16) 1px, transparent 1px)',
               backgroundSize: '22px 22px',
             }}
           />
@@ -1168,7 +1177,7 @@ export default function EventDetailPage() {
           <div className="absolute top-4 left-4 sm:left-6 z-10">
             <button
               onClick={() => navigate('/events')}
-              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-[7px] text-[12px] font-medium text-white bg-black/35 hover:bg-black/50 backdrop-blur-[6px] transition-colors"
+              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-[7px] text-[12px] font-medium text-white bg-black/40 hover:bg-black/55 backdrop-blur-[6px] transition-colors"
             >
               <ChevronLeft className="h-3.5 w-3.5" /> All events
             </button>
@@ -1176,14 +1185,14 @@ export default function EventDetailPage() {
           <div className="absolute top-4 right-4 sm:right-6 z-10">
             <button
               onClick={handleShare}
-              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-[7px] text-[12px] font-medium text-white bg-black/35 hover:bg-black/50 backdrop-blur-[6px] transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-[7px] text-[12px] font-medium text-white bg-black/40 hover:bg-black/55 backdrop-blur-[6px] transition-colors"
             >
               <Share2 className="h-3.5 w-3.5" /> Share
             </button>
           </div>
 
           {/* Poster + event info, stacked */}
-          <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-10 sm:pb-12">
+          <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 pt-16 sm:pt-[76px] pb-10 sm:pb-14">
             <div className="max-w-[900px] mx-auto">
               {coverImage ? (
                 <a
@@ -1191,7 +1200,7 @@ export default function EventDetailPage() {
                   target="_blank"
                   rel="noreferrer"
                   title="Open full poster"
-                  className="block rounded-2xl overflow-hidden ring-1 ring-white/15 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
+                  className="block rounded-2xl overflow-hidden ring-1 ring-[#1e2a4a]/15 shadow-[0_24px_70px_rgba(30,42,74,0.22)]"
                 >
                   <img
                     src={coverImage}
@@ -1210,12 +1219,12 @@ export default function EventDetailPage() {
               <div className="flex items-center justify-center gap-1.5 mb-4 flex-wrap">
                 <Pill tone={statusInfo.tone} size="sm" dot={statusInfo.dot}>{statusInfo.label}</Pill>
                 {event.eventType && (
-                  <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                  <span className="inline-flex items-center px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-[#1e2a4a]/[0.07] text-[#1e2a4a] border border-[#1e2a4a]/10">
                     {event.eventType}
                   </span>
                 )}
                 {event.teamRegistration && (
-                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-white/15 text-white border border-white/10 backdrop-blur-[4px]">
+                  <span className="inline-flex items-center gap-1 px-2 h-[22px] rounded-[6px] text-[11.5px] font-medium bg-[#1e2a4a]/[0.07] text-[#1e2a4a] border border-[#1e2a4a]/10">
                     <Users className="h-3 w-3" /> {(event.teamMinSize ?? 1) <= 1 ? `Team or solo · ${event.teamMinSize}–${event.teamMaxSize}` : `Team · ${event.teamMinSize}–${event.teamMaxSize}`}
                   </span>
                 )}
@@ -1225,22 +1234,22 @@ export default function EventDetailPage() {
                   </span>
                 )}
               </div>
-              <h1 className="text-[30px] sm:text-[40px] lg:text-[48px] font-semibold tracking-tight text-white leading-[1.08]">
+              <h1 className="text-[30px] sm:text-[40px] lg:text-[48px] font-semibold tracking-tight text-[#1b2545] leading-[1.08]">
                 {event.title}
               </h1>
               {event.shortDescription && (
-                <p className="text-white/75 mt-4 text-[14px] sm:text-[15.5px] leading-[1.7] max-w-[680px] mx-auto">
+                <p className="text-[#4d586e] mt-4 text-[14px] sm:text-[15.5px] leading-[1.7] max-w-[680px] mx-auto">
                   {event.shortDescription}
                 </p>
               )}
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13.5px] text-white/85">
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13.5px] font-medium text-[#3a4459]">
                 <span className="inline-flex items-center gap-2">
-                  <Calendar className="h-4 w-4 shrink-0 text-white/60" />
+                  <Calendar className="h-4 w-4 shrink-0 text-[#8a94a8]" />
                   {formatDateTime(event.startDate)}
                 </span>
                 {(event.venue || event.location) && (
                   <span className="inline-flex items-center gap-2">
-                    <MapPin className="h-4 w-4 shrink-0 text-white/60" />
+                    <MapPin className="h-4 w-4 shrink-0 text-[#8a94a8]" />
                     {event.venue || event.location}
                   </span>
                 )}
