@@ -590,17 +590,23 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
           throw { status: 409, message: 'You are already registered for this event' };
         }
 
+        // Per-team mode (default): the leader already filled the special
+        // registration fields at team creation, so joining members skip them.
+        // Per-member mode: every member fills them when joining.
+        const collectPerMember = team.event.collectFieldsPerMember ?? false;
         let validatedCustomFieldResponses: Prisma.InputJsonValue | undefined;
-        try {
-          validatedCustomFieldResponses = validateTeamRegistrationFields(team.event.registrationFields, customFieldResponses);
-        } catch (validationError) {
-          if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
-            throw validationError;
+        if (collectPerMember) {
+          try {
+            validatedCustomFieldResponses = validateTeamRegistrationFields(team.event.registrationFields, customFieldResponses);
+          } catch (validationError) {
+            if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
+              throw validationError;
+            }
+            throw {
+              status: 400,
+              message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
+            };
           }
-          throw {
-            status: 400,
-            message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
-          };
         }
 
         // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.

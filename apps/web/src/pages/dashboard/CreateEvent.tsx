@@ -76,6 +76,7 @@ export default function CreateEvent() {
     allowLateRegistration: false,
     remindersEnabled: true,
     teamRegistration: false,
+    collectFieldsPerMember: false,
     teamMinSize: 2,
     teamMaxSize: 4,
   });
@@ -169,6 +170,7 @@ export default function CreateEvent() {
         teamRegistration: form.teamRegistration,
         teamMinSize: form.teamRegistration ? form.teamMinSize : undefined,
         teamMaxSize: form.teamRegistration ? form.teamMaxSize : undefined,
+        collectFieldsPerMember: form.teamRegistration ? form.collectFieldsPerMember : undefined,
         speakers: validSpeakers.length > 0 ? validSpeakers : undefined,
         resources: validResources.length > 0 ? validResources : undefined,
         faqs: validFaqs.length > 0 ? validFaqs : undefined,

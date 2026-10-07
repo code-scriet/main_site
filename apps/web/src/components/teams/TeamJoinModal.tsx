@@ -72,11 +72,16 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
     e.preventDefault();
     if (inviteCode.length !== 8) return;
 
-    // Validate required custom fields
-    const registrationFields = event.registrationFields || [];
-    for (const field of registrationFields) {
-      if (field.required && !customFieldResponses[field.id]?.trim()) {
-        return;
+    // Per-team mode (default): the leader already filled the special fields at
+    // team creation, so joining members skip them entirely.
+    const collectPerMember = event.collectFieldsPerMember ?? false;
+    if (collectPerMember) {
+      // Validate required custom fields
+      const registrationFields = event.registrationFields || [];
+      for (const field of registrationFields) {
+        if (field.required && !customFieldResponses[field.id]?.trim()) {
+          return;
+        }
       }
     }
 
@@ -174,8 +179,8 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
             </p>
           </div>
 
-          {/* Custom registration fields */}
-          {event.registrationFields?.map((field) => (
+          {/* Custom registration fields — hidden in per-team mode (leader already filled them) */}
+          {(event.collectFieldsPerMember ?? false) && event.registrationFields?.map((field) => (
             <div key={field.id} className="space-y-2">
               <Label htmlFor={field.id}>
                 {field.label} {field.required && '*'}

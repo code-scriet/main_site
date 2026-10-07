@@ -15,6 +15,7 @@ interface Props {
     teamRegistration: boolean;
     teamMinSize: number;
     teamMaxSize: number;
+    collectFieldsPerMember: boolean;
   };
   onChange: React.ChangeEventHandler<HTMLInputElement>;
   onTeamSizeChange: (patch: { teamMinSize?: number; teamMaxSize?: number }) => void;
@@ -40,6 +41,7 @@ export function TeamRegistrationSection({
   hasRegistrations = false,
 }: Props) {
   const toggleId = `${idPrefix}-teamRegistration`;
+  const fieldsScopeId = `${idPrefix}-collectFieldsPerMember`;
   const enabled = form.teamRegistration;
   const locked = hasRegistrations;
 
@@ -151,6 +153,36 @@ export function TeamRegistrationSection({
             />
           </Field>
         </div>
+
+        {/* Special-fields scope — per team (leader fills once) vs every member */}
+        <label
+          htmlFor={fieldsScopeId}
+          className={cn(
+            'flex items-start gap-4 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]/40 p-4 transition-colors mt-4',
+            locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-[var(--accent-ring)]',
+          )}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-[13.5px] font-medium text-[var(--ds-text-1)]">Ask special fields from every member</div>
+            <p className="text-[12px] text-[var(--ds-text-3)] mt-0.5">
+              Off: the team leader fills the special fields once for the whole team.
+              On: every member fills them when joining.
+            </p>
+          </div>
+          <span className="relative inline-flex shrink-0 select-none mt-0.5">
+            <input
+              type="checkbox"
+              name="collectFieldsPerMember"
+              id={fieldsScopeId}
+              checked={form.collectFieldsPerMember}
+              onChange={onChange}
+              disabled={!enabled || locked}
+              className="peer sr-only"
+            />
+            <span className="block h-6 w-11 rounded-full bg-[var(--border)] peer-checked:bg-[var(--accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent)]/30 transition-colors" />
+            <span className="absolute top-[2px] left-[2px] h-5 w-5 rounded-full bg-[var(--bg-raised)] shadow-sm transition-transform peer-checked:translate-x-5" />
+          </span>
+        </label>
 
         <p className="text-[11.5px] text-[var(--ds-text-3)] mt-3">
           Teams need {form.teamMinSize === form.teamMaxSize

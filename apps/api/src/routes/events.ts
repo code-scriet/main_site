@@ -150,6 +150,9 @@ const eventSchemaBase = z.object({
   teamRegistration: z.boolean().optional(),
   teamMinSize: z.coerce.number().int().min(1).max(10).optional(),
   teamMaxSize: z.coerce.number().int().min(1).max(10).optional(),
+  // false (default): special registration fields are filled once per team by
+  // the leader at creation. true: every member fills them when joining.
+  collectFieldsPerMember: z.boolean().optional(),
 });
 
 const createEventSchema = eventSchemaBase.superRefine((value, ctx) => {
@@ -265,7 +268,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       teamRegistration: true,
       teamMinSize: true,
       teamMaxSize: true,
-      ...(cardView ? {} : { description: true, registrationFields: true }),
+      ...(cardView ? {} : { description: true, registrationFields: true, collectFieldsPerMember: true }),
       _count: {
         select: {
           registrations: { where: participantsOnly },
@@ -601,6 +604,7 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         teamRegistration: teamRegistrationEnabled,
         teamMinSize,
         teamMaxSize,
+        collectFieldsPerMember: data.collectFieldsPerMember ?? false,
         registrationFields: registrationFields.length > 0
           ? (registrationFields as unknown as Prisma.InputJsonValue)
           : undefined,
@@ -933,6 +937,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
           ...(data.teamRegistration !== undefined && { teamRegistration: data.teamRegistration }),
           ...(data.teamMinSize !== undefined && { teamMinSize: data.teamMinSize }),
           ...(data.teamMaxSize !== undefined && { teamMaxSize: data.teamMaxSize }),
+          ...(data.collectFieldsPerMember !== undefined && { collectFieldsPerMember: data.collectFieldsPerMember }),
           ...registrationFieldsUpdate,
         },
       });

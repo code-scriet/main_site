@@ -304,6 +304,10 @@ model Event {
   teamRegistration Boolean @default(false) @map("team_registration")
   teamMinSize      Int     @default(1) @map("team_min_size")
   teamMaxSize      Int     @default(4) @map("team_max_size")
+  // When false (default), special registration fields are collected once per
+  // team - the leader fills them at team creation. When true, every member
+  // fills them when joining.
+  collectFieldsPerMember Boolean @default(false) @map("collect_fields_per_member")
 
   registrations     EventRegistration[]
   invitations       EventInvitation[]

@@ -64,6 +64,7 @@ export default function EditEvent() {
     remindersEnabled: true,
     // Team registration
     teamRegistration: false,
+    collectFieldsPerMember: false,
     teamMinSize: 2,
     teamMaxSize: 4,
   });
@@ -117,6 +118,7 @@ export default function EditEvent() {
         remindersEnabled: event.remindersEnabled ?? true,
         // Team registration
         teamRegistration: event.teamRegistration ?? false,
+        collectFieldsPerMember: event.collectFieldsPerMember ?? false,
         teamMinSize: event.teamMinSize ?? 2,
         teamMaxSize: event.teamMaxSize ?? 4,
       });
@@ -227,6 +229,7 @@ export default function EditEvent() {
         teamRegistration: form.teamRegistration,
         teamMinSize: form.teamRegistration ? form.teamMinSize : undefined,
         teamMaxSize: form.teamRegistration ? form.teamMaxSize : undefined,
+        collectFieldsPerMember: form.teamRegistration ? form.collectFieldsPerMember : undefined,
         // Array fields
         speakers: validSpeakers.length > 0 ? validSpeakers : undefined,
         resources: validResources.length > 0 ? validResources : undefined,

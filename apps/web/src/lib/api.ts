@@ -728,6 +728,9 @@ export interface Event {
   teamRegistration?: boolean;
   teamMinSize?: number;
   teamMaxSize?: number;
+  // false (default): special fields collected once per team by the leader.
+  // true: every member fills them when joining.
+  collectFieldsPerMember?: boolean;
   isRegistered?: boolean;
   registrationStatus?: {
     status: 'open' | 'not_started' | 'closed' | 'full';
