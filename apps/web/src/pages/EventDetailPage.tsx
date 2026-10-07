@@ -675,6 +675,27 @@ export default function EventDetailPage() {
     await performRegistration();
   }, [authLoading, event, navigate, openRegistrationFormPopup, performRegistration, token, user]);
 
+  // Team modals bypass handleRegister, so they need their own profile gate.
+  // The API enforces it too — this is the friendly redirect UX (same shape
+  // as the solo path): sign in first, then complete profile, then choose.
+  const ensureProfileForTeamAction = useCallback((): boolean => {
+    if (!event) return false;
+    if (!user || !token) {
+      localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', 'team');
+      const next = encodeURIComponent(`/events/${event.slug}`);
+      navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
+      return false;
+    }
+    if (!user.phone || !user.course || !user.branch || !user.year) {
+      localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', 'team');
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
+      return false;
+    }
+    return true;
+  }, [event, navigate, token, user]);
+
   const handleRegister = useCallback(async () => {
     if (!event) return;
     if (authLoading) return;
@@ -925,10 +946,10 @@ export default function EventDetailPage() {
                   : `Team event · ${event.teamMinSize}–${event.teamMaxSize}`}
               </Pill>
             </div>
-            <Button onClick={() => setShowCreateTeamModal(true)} className="w-full">
+            <Button onClick={() => { if (ensureProfileForTeamAction()) setShowCreateTeamModal(true); }} className="w-full">
               <Users className="h-4 w-4 mr-2" /> Create a team
             </Button>
-            <Button variant="outline" onClick={() => setShowJoinTeamModal(true)} className="w-full">
+            <Button variant="outline" onClick={() => { if (ensureProfileForTeamAction()) setShowJoinTeamModal(true); }} className="w-full">
               Join a team
             </Button>
             {allowsSolo && (

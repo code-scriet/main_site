@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
-import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError, isProfileCompleteForRegistration } from '../utils/registrationIntake.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { requireUuid } from '../utils/idParams.js';
@@ -61,6 +61,19 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
       });
     }
     // --- END TEAM REGISTRATION GATE ---
+
+    // --- PROFILE COMPLETENESS GATE ---
+    // The UI redirects incomplete profiles to /dashboard/profile, but the API
+    // must enforce it: team modals and direct callers bypass page-level
+    // checks. Invitation-accept and backdate flows are intentionally exempt
+    // (guests and retroactive records legitimately lack academic fields).
+    if (!isProfileCompleteForRegistration(authUser)) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Please complete your profile (phone, course, branch and year) before registering for events.' },
+      });
+    }
+    // --- END PROFILE COMPLETENESS GATE ---
 
     let registration:
       | {

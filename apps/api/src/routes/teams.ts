@@ -12,7 +12,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError, isProfileCompleteForRegistration } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
@@ -254,6 +254,13 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
 
     if (!teamName) {
       return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Team name cannot be empty', status: 400 });
+    }
+
+    // Profile gate (same rule as solo registration): the create-team modal
+    // bypasses page-level checks, so the API enforces it. Invitation-accept
+    // stays exempt — guests legitimately lack academic fields.
+    if (!isProfileCompleteForRegistration(user)) {
+      return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Please complete your profile (phone, course, branch and year) before creating a team.', status: 400 });
     }
 
     let result: {
@@ -511,6 +518,12 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
 
     const { inviteCode: rawInviteCode, customFieldResponses } = parseResult.data;
     const inviteCode = rawInviteCode.toUpperCase().trim();
+
+    // Profile gate (same rule as solo registration): the join-team modal
+    // bypasses page-level checks, so the API enforces it.
+    if (!isProfileCompleteForRegistration(user)) {
+      return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Please complete your profile (phone, course, branch and year) before joining a team.', status: 400 });
+    }
 
     let result: {
       team: {

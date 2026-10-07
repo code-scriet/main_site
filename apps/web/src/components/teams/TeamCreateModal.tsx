@@ -68,6 +68,10 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
       // inline on the matching custom-field input.
       if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
         setFieldErrors(error.fieldErrors);
+      } else {
+        // Generic failures (profile-incomplete, already registered, team
+        // full) have no field to attach to — toast so they never fail silent.
+        toast.error(extractApiErrorMessage(error, 'Failed to create team'));
       }
     },
   });

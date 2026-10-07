@@ -64,6 +64,10 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
       // inline on the matching custom-field input.
       if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
         setFieldErrors(error.fieldErrors);
+      } else {
+        // Generic failures (profile-incomplete, already registered, team
+        // full) have no field to attach to — toast so they never fail silent.
+        toast.error(extractApiErrorMessage(error, 'Failed to join team'));
       }
     },
   });

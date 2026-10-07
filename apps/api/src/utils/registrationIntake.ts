@@ -109,6 +109,29 @@ export async function createEventRegistrationInTx(
   return { registration, attendanceToken };
 }
 
+export interface ProfileCompletionInput {
+  phone?: string | null;
+  course?: string | null;
+  branch?: string | null;
+  year?: string | null;
+}
+
+/**
+ * L3: profile completeness for self-serve event registration. Mirrors the
+ * frontend gate (`!user.phone || !user.course || !user.branch || !user.year`
+ * → /dashboard/profile) and PUT /users/me's isProfileCompletion computation,
+ * so the API enforces what the UI promises even for callers that bypass
+ * page-level checks (team modals, direct API use).
+ *
+ * Enforced on solo registration, team create and team join — checked before
+ * the serializable transaction opens. Deliberately NOT enforced on
+ * invitation-accept (guests/network members legitimately lack academic
+ * fields) or backdate (retroactive admin records).
+ */
+export function isProfileCompleteForRegistration(user: ProfileCompletionInput): boolean {
+  return Boolean(user.phone && user.course && user.branch && user.year);
+}
+
 /** Thrown by assertWithinActiveEventLimitInTx — callers map it to their own HTTP error shape. */
 export class EventLimitExceededError extends Error {
   constructor(

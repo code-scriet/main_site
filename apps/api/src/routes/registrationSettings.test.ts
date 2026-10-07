@@ -29,13 +29,25 @@ const USER_ROW = {
   email: 'reg@example.com',
   role: 'USER',
   avatar: null,
+  // Complete academic profile: the limit test below must reach the
+  // event-limit check, not the profile-completeness gate.
+  phone: '9999999999',
+  course: 'B.Tech',
+  branch: 'CSE',
+  year: '2',
+  profileCompleted: true,
+  tokenVersion: 0,
+  isDeleted: false,
+};
+
+// Same user with an incomplete profile (fresh OAuth signup shape).
+const INCOMPLETE_USER_ROW = {
+  ...USER_ROW,
   phone: null,
   course: null,
   branch: null,
   year: null,
-  profileCompleted: true,
-  tokenVersion: 0,
-  isDeleted: false,
+  profileCompleted: false,
 };
 
 function setMethods(methods: Array<[Record<string, unknown>, string, unknown]>) {
@@ -260,5 +272,41 @@ test('solo registration 400s with the limit message when at maxEventsPerUser', a
     const json = await response.json();
     assert.equal(response.status, 400, `expected limit rejection: ${JSON.stringify(json)}`);
     assert.match(String(json.error?.message), /at most 5 upcoming events/);
+  });
+});
+
+test('solo registration 400s with the profile message when academic fields are missing', async (t) => {
+  const userDelegate = prisma.user as unknown as Record<string, unknown>;
+  const userBlockDelegate = prisma.userBlock as unknown as Record<string, unknown>;
+  const eventDelegate = prisma.event as unknown as Record<string, unknown>;
+
+  const restore = setMethods([
+    [userDelegate, 'findUnique', async (args: { where: { id: string }; select?: Record<string, unknown> }) => {
+      if (args.where.id !== USER_ID) return null;
+      if (!args.select) return { ...INCOMPLETE_USER_ROW };
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(args.select)) out[key] = (INCOMPLETE_USER_ROW as Record<string, unknown>)[key];
+      return out;
+    }],
+    [userBlockDelegate, 'findUnique', async () => null],
+    [eventDelegate, 'findUnique', async () => ({ teamRegistration: false, teamMinSize: 1 })],
+  ]);
+  t.after(() => {
+    restore();
+  });
+
+  await withApp((app) => app.use('/api/registrations', registrationsRouter), async (baseUrl) => {
+    const token = signAccessToken({
+      userId: USER_ID, id: USER_ID, name: INCOMPLETE_USER_ROW.name,
+      email: INCOMPLETE_USER_ROW.email, role: 'USER', tokenVersion: 0,
+    });
+    const response = await fetch(`${baseUrl}/api/registrations/events/${EVENT_ID}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const json = await response.json();
+    assert.equal(response.status, 400, `expected profile rejection: ${JSON.stringify(json)}`);
+    assert.match(String(json.error?.message), /complete your profile/);
   });
 });
