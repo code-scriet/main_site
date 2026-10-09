@@ -15,7 +15,12 @@ import { getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
-import { parseISTDateTime, slotsOverlap, buildSlotSeries } from '../utils/interviewSlots.js';
+import { parseISTDateTime, slotsOverlap, buildSlotSeries, isSlotStarted } from '../utils/interviewSlots.js';
+import {
+  expiredSlotCutoff,
+  removeExpiredUnbookedSlots,
+  removeExpiredUnbookedSlotsIfDue,
+} from '../utils/interviewSlotCleanup.js';
 import { socketEvents } from '../utils/socket.js';
 import {
   issueSlotToken,
@@ -222,7 +227,7 @@ hiringSlotsRouter.post('/slots', authMiddleware, requireRole('ADMIN'), async (re
     if (endsAt.getTime() <= startsAt.getTime()) {
       return ApiResponse.badRequest(res, 'End time must be after start time');
     }
-    if (startsAt.getTime() <= Date.now()) {
+    if (isSlotStarted(startsAt)) {
       return ApiResponse.badRequest(res, 'Cannot create a slot in the past');
     }
 
@@ -306,6 +311,9 @@ hiringSlotsRouter.post(
           endTime,
           breakMinutes: breakMinutes ?? 0,
           existing,
+          // Mark already-started slots as `past` so the preview matches what
+          // bulk will actually refuse to create.
+          nowMs: Date.now(),
         });
       } catch (e) {
         return ApiResponse.badRequest(res, e instanceof Error ? e.message : 'Invalid series input');
@@ -325,8 +333,9 @@ hiringSlotsRouter.post(
           : {}),
       }));
       const okCount = series.filter((s) => s.status === 'ok').length;
+      const pastCount = series.filter((s) => s.status === 'past').length;
       const skipCount = series.length - okCount;
-      return ApiResponse.success(res, { slots, okCount, skipCount });
+      return ApiResponse.success(res, { slots, okCount, skipCount, pastCount });
     } catch (error) {
       logger.error('Preview interview slots error:', {
         error: error instanceof Error ? error.message : String(error),
@@ -336,7 +345,7 @@ hiringSlotsRouter.post(
   },
 );
 
-// ─── ADMIN: POST /slots/bulk — create only non-conflicting ───────────────────
+// ─── ADMIN: POST /slots/bulk — create only non-conflicting, non-past ─────────
 hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
@@ -361,6 +370,9 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
         endTime,
         breakMinutes: breakMinutes ?? 0,
         existing,
+        // The whole-series path had no past check at all, so a "today from
+        // 09:00" run at 18:00 used to write a day of unpickable rows.
+        nowMs: Date.now(),
       });
     } catch (e) {
       return ApiResponse.badRequest(res, e instanceof Error ? e.message : 'Invalid series input');
@@ -369,11 +381,21 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
     let created = 0;
     const skipped: Array<{ startsAt: string; endsAt: string; reason: string }> = [];
     for (const s of series) {
-      if (s.status === 'conflict') {
+      if (s.status !== 'ok') {
         skipped.push({
           startsAt: s.startsAt.toISOString(),
           endsAt: s.endsAt.toISOString(),
-          reason: 'conflict',
+          reason: s.status,
+        });
+        continue;
+      }
+      // Re-check against the wall clock: a long series loop can cross a
+      // boundary where the last slot has started by the time we get to it.
+      if (isSlotStarted(s.startsAt)) {
+        skipped.push({
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
+          reason: 'past',
         });
         continue;
       }
@@ -394,6 +416,7 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
       cycle,
       created,
       skipped: skipped.length,
+      pastSkipped: skipped.filter((s) => s.reason === 'past').length,
     });
 
     socketEvents.liveInvalidate('slots');
@@ -407,11 +430,26 @@ hiringSlotsRouter.post('/slots/bulk', authMiddleware, requireRole('ADMIN'), asyn
 });
 
 // ─── ADMIN: GET /slots — list with spotsLeft + bookings ──────────────────────
+// Blank slots whose window has closed are swept here (self-gated to one pass
+// per minute) before reading, so the board never accumulates rows that no
+// candidate can pick. Read-time filtering uses the same predicate as the sweep
+// so a gated pass still shows a clean board; `?includeExpired=true` returns
+// everything for auditing.
 hiringSlotsRouter.get('/slots', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const cycle = getQueryString(req.query.cycle);
+    const flag = (getQueryString(req.query.includeExpired) ?? '').toLowerCase();
+    const showExpired = flag === 'true' || flag === '1';
+    await removeExpiredUnbookedSlotsIfDue(cycle ? { cycle } : undefined);
+
+    const now = Date.now();
+    const stillRelevant = {
+      OR: [{ endsAt: { gte: expiredSlotCutoff(now) } }, { bookings: { some: {} } }],
+    };
     const where: Record<string, unknown> = {};
     if (cycle) where.cycle = cycle;
+    if (!showExpired) where.AND = [stillRelevant];
+
     const slots = (await prisma.interviewSlot.findMany({
       where,
       orderBy: { startsAt: 'asc' },
@@ -452,6 +490,10 @@ hiringSlotsRouter.get('/slots', authMiddleware, requireRole('ADMIN'), async (req
       applyingRole: s.applyingRole,
       venue: s.venue,
       notes: s.notes,
+      // Derived clock state so the board can label history without re-deriving
+      // IST maths client-side. isExpired means the window has fully closed.
+      isStarted: isSlotStarted(s.startsAt, now),
+      isExpired: isSlotStarted(s.endsAt, now),
       spotsLeft: Math.max(0, s.capacity - s.bookedCount),
       bookings: s.bookings.map((b) => ({
         id: b.id,
@@ -542,24 +584,38 @@ hiringSlotsRouter.patch('/slots/:id', authMiddleware, requireRole('ADMIN'), asyn
 });
 
 // ─── ADMIN: DELETE /slots/:id ────────────────────────────────────────────────
+// The blank check runs against the real InterviewSlotBooking rows, not the
+// denormalised `bookedCount`: that counter can drift after admin seat releases,
+// and bookings cascade off the slot (schema.prisma `onDelete: Cascade`), so
+// trusting a stale 0 would destroy a live interview booking. Same reasoning the
+// expired-slot sweep uses, applied to the manual delete.
 hiringSlotsRouter.delete('/slots/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (!requireUuid(res, id, 'slot ID')) return;
     const authUser = getAuthUser(req)!;
 
-    const slot = (await prisma.interviewSlot.findUnique({ where: { id } })) as unknown as {
-      id: string;
-      bookedCount: number;
-    } | null;
+    const slot = (await prisma.interviewSlot.findUnique({
+      where: { id },
+      select: { id: true },
+    })) as unknown as { id: string } | null;
     if (!slot) {
       return ApiResponse.notFound(res, 'Slot not found');
     }
-    if (slot.bookedCount > 0) {
+    const booked = (await prisma.interviewSlotBooking.count({
+      where: { slotId: id },
+    })) as unknown as number;
+    if (booked > 0) {
       return conflictWithType(res, 'slot_booked', 'Cancel bookings first');
     }
 
-    await prisma.interviewSlot.delete({ where: { id } });
+    // Re-guarded: a booking that landed between the count and this statement
+    // makes the delete match zero rows instead of cascade-wiping it.
+    const { count } = await prisma.interviewSlot.deleteMany({ where: { id, bookings: { none: {} } } });
+    if (count === 0) {
+      return conflictWithType(res, 'slot_booked', 'This slot just changed. Try again.');
+    }
+
     await auditLog(authUser.id, 'DELETE_SLOT', 'InterviewSlot', id);
     socketEvents.liveInvalidate('slots');
     return ApiResponse.success(res, { message: 'Slot deleted successfully' });
@@ -818,6 +874,39 @@ hiringSlotsRouter.post(
   },
 );
 
+// ─── ADMIN: POST /slots/cleanup — remove expired blank slots right now ───────
+// The same sweep the 6h tick and the slot list run automatically, exposed for
+// "tidy the board now" (and for verifying what it would remove). Optional
+// ?cycle= scopes it. Slots that hold a booking are never touched.
+hiringSlotsRouter.post(
+  '/slots/cleanup',
+  authMiddleware,
+  requireRole('ADMIN'),
+  async (req: Request, res: Response) => {
+    try {
+      const authUser = getAuthUser(req)!;
+      const cycle = getQueryString(req.query.cycle)?.trim() || undefined;
+
+      const result = await removeExpiredUnbookedSlots(cycle ? { cycle } : undefined);
+
+      if (result.removed > 0) {
+        await auditLog(authUser.id, 'CLEANUP_EXPIRED_SLOTS', 'InterviewSlot', 'bulk', {
+          cycle: cycle ?? null,
+          removed: result.removed,
+          slots: result.slots.map((s) => `${s.startsAt}→${s.endsAt}`),
+        });
+      }
+
+      return ApiResponse.success(res, result);
+    } catch (error) {
+      logger.error('Expired slot cleanup error:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return ApiResponse.internal(res, 'Failed to clean up expired slots');
+    }
+  },
+);
+
 // ─── CANDIDATE: GET /slots/available ──────────────────────────────────────────
 hiringSlotsRouter.get(
   '/slots/available',
@@ -966,7 +1055,7 @@ hiringSlotsRouter.post(
           if (slot.bookedCount >= slot.capacity) {
             throw new BookingHttpError(409, 'slot_full', 'This slot is full');
           }
-          if (new Date(slot.startsAt).getTime() <= Date.now()) {
+          if (isSlotStarted(slot.startsAt)) {
             throw new BookingHttpError(400, 'past_slot', 'Cannot book a past slot');
           }
           const existingBooking = await tx.interviewSlotBooking.findUnique({

@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api, SlotApiError, type OnboardingStatus } from '@/lib/api';
-import { formatPickByLine, slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
+import { formatISTWithSuffix, formatPickByLine, isSlotPast, slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
 import { downloadICS } from '@/lib/calendar';
 import {
   Avatar, Banner, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
@@ -1102,7 +1102,13 @@ function HiringStatusSection({
   const booking = bookingData && bookingData.hasBooking ? bookingData.booking : null;
   // Slot-pick deadline from the application token (null when the application
   // holds no token) — named in the banner when present, generic copy otherwise.
-  const pickLine = formatPickByLine(bookingData?.pickDeadline ?? null);
+  const pickDeadline = bookingData?.pickDeadline ?? null;
+  const pickLine = formatPickByLine(pickDeadline);
+  // A deadline in the past must not read as an open invitation: the magic link
+  // behind it 410s, so the banner says the window closed and names the team
+  // instead of pushing a CTA that leads nowhere for a token-mode candidate.
+  const pickWindowClosed = Boolean(pickDeadline) && isSlotPast(pickDeadline as string);
+  const closedPickCopy = `The slot-pick deadline was ${formatISTWithSuffix(pickDeadline)}. If you still need a slot, reply to your invitation email and the hiring team will re-open picking for you.`;
 
   const cancelMut = useMutation({
     mutationFn: () => api.cancelMyInterviewBooking({ sessionToken: token ?? undefined }),
@@ -1152,14 +1158,16 @@ function HiringStatusSection({
           <div className="h-20 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
         ) : (
           <Banner
-            tone="info"
+            tone={pickWindowClosed ? 'warning' : 'info'}
             icon={<Briefcase size={15} />}
-            title="Your interview is scheduled — pick a slot"
+            title={pickWindowClosed ? 'Slot picking has closed' : 'Your interview is scheduled — pick a slot'}
             action={pickSlotCTA}
           >
-            {pickLine
-              ? `${pickLine}. Slots fill on a first-come-first-served basis. All times are IST.`
-              : 'Slots fill on a first-come-first-served basis. All times are IST.'}
+            {pickWindowClosed
+              ? closedPickCopy
+              : pickLine
+                ? `${pickLine}. Slots fill on a first-come-first-served basis. All times are IST.`
+                : 'Slots fill on a first-come-first-served basis. All times are IST.'}
           </Banner>
         )}
       </Section>
@@ -1185,14 +1193,16 @@ function HiringStatusSection({
     return (
       <Section eyebrow="Application" title="Hiring status">
         <Banner
-          tone="info"
+          tone={pickWindowClosed ? 'warning' : 'info'}
           icon={<Briefcase size={15} />}
-          title="Your interview is scheduled — pick a slot"
+          title={pickWindowClosed ? 'Slot picking has closed' : 'Your interview is scheduled — pick a slot'}
           action={pickSlotCTA}
         >
-          {pickLine
-            ? `${pickLine}. Your previous booking was released. Pick a fresh slot below. All times are IST.`
-            : 'Your previous booking was released. Pick a fresh slot below. All times are IST.'}
+          {pickWindowClosed
+            ? `Your previous booking was released. ${closedPickCopy}`
+            : pickLine
+              ? `${pickLine}. Your previous booking was released. Pick a fresh slot below. All times are IST.`
+              : 'Your previous booking was released. Pick a fresh slot below. All times are IST.'}
         </Banner>
       </Section>
     );

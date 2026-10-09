@@ -19,7 +19,7 @@ import { InterviewBookingCard } from '@/components/hiring/InterviewBookingCard';
 import { InterviewSlotPicker } from '@/components/hiring/InterviewSlotPicker';
 import { InterviewUpdates } from '@/components/hiring/InterviewUpdates';
 import { api, SlotApiError, type CandidateBooking, type SlotAuth } from '@/lib/api';
-import { slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
+import { isSlotPast, slotBookErrorCopy } from '@/lib/interviewSlotsCandidate';
 import { downloadICS } from '@/lib/calendar';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +46,10 @@ export function InterviewSlotsContent({ embedded = false }: { embedded?: boolean
     queryKey: ['interview-my-booking', slotToken ? `token:${slotToken.slice(0, 12)}` : 'session'],
     queryFn: () => api.getMyInterviewBooking(auth),
     enabled: canFetch,
+    // A magic-link tab has no session, so the notifications socket (and its
+    // live:invalidate bridge) never attaches there. Refetching on focus is what
+    // keeps a returning candidate from staring at a stale booking state.
+    refetchOnWindowFocus: true,
     retry: false,
   });
   const bookingData = bookingQ.data;
@@ -65,6 +69,10 @@ export function InterviewSlotsContent({ embedded = false }: { embedded?: boolean
     // Live list while the picker is open; paused once booked.
     refetchInterval: showPicker ? 30_000 : false,
     refetchIntervalInBackground: false,
+    // The 30s interval is paused in a background tab, so a returning candidate
+    // could otherwise keep a row whose start time already passed until the next
+    // tick. Refreshing on focus closes that gap immediately.
+    refetchOnWindowFocus: true,
     retry: 1,
   });
   const slots = useMemo(() => slotsQ.data?.slots ?? [], [slotsQ.data]);
@@ -90,8 +98,10 @@ export function InterviewSlotsContent({ embedded = false }: { embedded?: boolean
         void qc.invalidateQueries({ queryKey: ['interview-my-booking'] });
         return;
       }
-      // Any 409 means the list changed under us — refresh it.
-      if (e instanceof SlotApiError && e.status === 409) {
+      // Any 409 means the list changed under us — refresh it. A server-side
+      // past_slot (400) is the same situation one step further: the row is dead.
+      if (errorType === 'past_slot' || (e instanceof SlotApiError && e.status === 409)) {
+        if (errorType === 'past_slot') setSelectedId(null);
         void qc.invalidateQueries({ queryKey: ['interview-slots-available'] });
       }
       toast.error(slotBookErrorCopy(errorType));
@@ -259,7 +269,20 @@ export function InterviewSlotsContent({ embedded = false }: { embedded?: boolean
               selectedId={selectedId}
               onSelect={setSelectedId}
               confirming={bookMut.isPending}
-              onConfirm={() => selectedId && !bookMut.isPending && bookMut.mutate(selectedId)}
+              onConfirm={() => {
+                if (!selectedId || bookMut.isPending) return;
+                // Guard the one case polling can produce: the slot crossed its
+                // start time while the page sat open. Say so locally instead of
+                // firing a booking request the server is going to refuse.
+                const chosen = slots.find((s) => s.id === selectedId);
+                if (chosen && isSlotPast(chosen.startsAt)) {
+                  toast.message(slotBookErrorCopy('past_slot'));
+                  setSelectedId(null);
+                  void qc.invalidateQueries({ queryKey: ['interview-slots-available'] });
+                  return;
+                }
+                bookMut.mutate(selectedId);
+              }}
               hasExistingBooking={hasBooking}
             />
           )}

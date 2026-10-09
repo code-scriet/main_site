@@ -208,21 +208,46 @@ export default function AdminHiring() {
   // collapse a fully loaded board back down to the first page.
   const loadingRef = useRef(false);
   const boardSizeRef = useRef(0);
+  const slotsLoadingRef = useRef(false);
 
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { boardSizeRef.current = apps.length; }, [apps.length]);
+  useEffect(() => { slotsLoadingRef.current = slotsLoading; }, [slotsLoading]);
+
+  // Slots refresh on their own clock, in every view. A slot expiring emits no
+  // socket event, so without a poll an admin watching the board keeps seeing
+  // blank rows whose time has passed (with live Open/capacity/delete controls)
+  // until they hit Refresh. The same GET also triggers the server-side sweep
+  // that removes those rows, so polling is what actually clears them.
+  useEffect(() => {
+    if (!token) return;
+    const refetchSlots = () => {
+      if (slotsLoadingRef.current) return;
+      void reloadSlots();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refetchSlots();
+    };
+    window.addEventListener('focus', refetchSlots);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(refetchSlots, 60_000);
+    return () => {
+      window.removeEventListener('focus', refetchSlots);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+  }, [token, reloadSlots]);
 
   useEffect(() => {
     if (!token || view !== 'applications') return;
     const busy = () => loadingRef.current || boardSizeRef.current > 100;
     // Poll: applications only (cheap, keeps the lanes in sync).
     const refetchBoard = () => { if (!busy()) void load(); };
-    // Tab came back into view: applications + booked slots, so the "Booked"
-    // chips reflect whatever got booked while the admin was away.
+    // Tab came back into view: refresh the lanes too (slots are handled by the
+    // view-independent poll above, so the two never double-fetch).
     const refetchAll = () => {
       if (busy()) return;
       void load();
-      void reloadSlots();
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') refetchAll();
@@ -235,7 +260,7 @@ export default function AdminHiring() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearInterval(timer);
     };
-  }, [token, view, load, reloadSlots]);
+  }, [token, view, load]);
 
   // Live bridge: the notifications socket dispatches a window 'cs-live' event
   // when the server emits a hiring/slots change, so the board refreshes without
@@ -245,9 +270,19 @@ export default function AdminHiring() {
     const onCsLive = (e: Event) => {
       const scope = (e as CustomEvent).detail as string | undefined;
       if (scope !== 'hiring' && scope !== 'slots') return;
-      if (loadingRef.current || boardSizeRef.current > 100) return;
+      const slotsOk = !slotsLoadingRef.current;
+      const boardOk = !loadingRef.current && boardSizeRef.current <= 100;
+      // A 'slots' push must reach the slot list even when the applications board
+      // is mid-page or paged past its limit — that push is how an automatic
+      // expired-slot removal reaches an already-open tab.
+      if (scope === 'slots') {
+        if (slotsOk) void reloadSlots();
+        if (boardOk) void load();
+        return;
+      }
+      if (!boardOk) return;
       void load();
-      void reloadSlots();
+      if (slotsOk) void reloadSlots();
     };
     window.addEventListener('cs-live', onCsLive);
     return () => window.removeEventListener('cs-live', onCsLive);
@@ -719,6 +754,7 @@ export default function AdminHiring() {
           token={token}
           applications={apps}
           bookedAppIds={bookedAppIds}
+          slots={slots}
           onChanged={() => void reloadSlots()}
         />
       )}

@@ -173,6 +173,31 @@ export function isCancellableSlot(startsAt: string | Date, nowMs: number = Date.
 }
 
 /**
+ * A slot stops being pickable the instant it starts. The server enforces this
+ * twice (the availability query only returns `startsAt > now`, and the booking
+ * transaction rejects with `past_slot`), but the picker polls every 30 seconds
+ * and a magic link can sit open across a slot's start — so the client derives
+ * it from the timestamp and drops dead rows on every render.
+ */
+export function isSlotPast(startsAt: string | Date, nowMs: number = Date.now()): boolean {
+  const d = toDate(startsAt);
+  if (!d) return false;
+  return d.getTime() <= nowMs;
+}
+
+/**
+ * Slots whose start time has not gone by yet. Full and closed slots are kept
+ * (the picker renders them disabled so demand stays visible); only dead times
+ * are dropped.
+ */
+export function upcomingSlots<T extends { startsAt: string | Date }>(
+  slots: readonly T[],
+  nowMs: number = Date.now(),
+): T[] {
+  return slots.filter((s) => !isSlotPast(s.startsAt, nowMs));
+}
+
+/**
  * Dashboard banner lead-in naming the slot-pick deadline, e.g.
  * "Pick a slot by 9 Jan 2026, 10:00 am IST". Returns null when no deadline is
  * known (or it is unparseable) so callers fall back to the generic copy.

@@ -5,7 +5,7 @@
 // Slot traffic goes through `@/lib/interviewSlotsAdmin`, never `@/lib/api`.
 
 import { useMemo, useState } from 'react';
-import { BellRing, Download, Inbox, Loader2, Send } from 'lucide-react';
+import { AlertCircle, BellRing, Download, Inbox, Loader2, Send } from 'lucide-react';
 import { Avatar, DSCard, EmptyState, Pill } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
   flattenBookings,
   formatSlotRangeIst,
   istDateKeyOf,
+  pickableSlots,
   resendSlotInvite,
   toCsvText,
   waitingDaysSince,
@@ -40,6 +41,12 @@ export interface AwaitingPickSectionProps {
   applications: AwaitingApplication[];
   bookedAppIds: ReadonlySet<string>;
   onChanged: () => void;
+  /**
+   * The cycle's slots. Optional so existing callers keep working; when supplied,
+   * an invite is pointless while nothing is pickable (every slot has passed), so
+   * the resend actions lock instead of pushing candidates to an empty picker.
+   */
+  slots?: AdminInterviewSlot[];
 }
 
 export function AwaitingPickSection({
@@ -47,13 +54,17 @@ export function AwaitingPickSection({
   applications,
   bookedAppIds,
   onChanged,
+  slots,
 }: AwaitingPickSectionProps) {
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [notifyingAll, setNotifyingAll] = useState(false);
 
   const rows = useMemo(() => deriveAwaitingPick(applications, bookedAppIds), [applications, bookedAppIds]);
+  const pickableCount = useMemo(() => (slots ? pickableSlots(slots).length : null), [slots]);
+  const nothingToPick = pickableCount !== null && pickableCount === 0 && rows.length > 0;
 
   const resend = async (row: AwaitingApplication) => {
+    if (nothingToPick) return;
     setResendingId(row.id);
     try {
       // Same-status PATCH + ?resend=true regenerates the token and re-sends
@@ -69,7 +80,7 @@ export function AwaitingPickSection({
   };
 
   const notifyAll = async () => {
-    if (rows.length === 0 || notifyingAll) return;
+    if (rows.length === 0 || notifyingAll || nothingToPick) return;
     setNotifyingAll(true);
     try {
       const settled = await Promise.allSettled(rows.map((row) => resendSlotInvite(token, row.id)));
@@ -90,11 +101,27 @@ export function AwaitingPickSection({
           {rows.length} candidate{rows.length === 1 ? '' : 's'} scheduled but yet to pick a slot
         </span>
         <span className="flex-1" />
-        <Button size="sm" variant="outline" onClick={notifyAll} disabled={rows.length === 0 || notifyingAll}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={notifyAll}
+          disabled={rows.length === 0 || notifyingAll || nothingToPick}
+          title={nothingToPick ? 'No open slot left to pick — create slots first' : undefined}
+        >
           {notifyingAll ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <BellRing size={13} className="mr-1.5" />}
           Notify all awaiting
         </Button>
       </div>
+
+      {nothingToPick && (
+        <div className="flex items-start gap-2 px-4 py-2.5 rounded-[10px] border border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)] text-[13px]">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <span className="flex-1">
+            Every slot in this cycle has passed, so a re-sent invite would open an empty picker.
+            Create slots first, then notify the waiting candidates.
+          </span>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <DSCard padded>
@@ -126,7 +153,8 @@ export function AwaitingPickSection({
                     size="sm"
                     variant="outline"
                     onClick={() => void resend(row)}
-                    disabled={resendingId === row.id}
+                    disabled={resendingId === row.id || nothingToPick}
+                    title={nothingToPick ? 'No open slot left to pick — create slots first' : undefined}
                   >
                     {resendingId === row.id ? (
                       <Loader2 size={13} className="mr-1.5 animate-spin" />

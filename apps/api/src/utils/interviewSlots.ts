@@ -59,13 +59,31 @@ export interface BuildSlotSeriesInput {
   endTime?: string;
   breakMinutes?: number;
   existing: ExistingSlotInput[];
+  /**
+   * Epoch ms treated as "now". When provided, any generated slot that has
+   * already begun (startsAt <= now) is marked `past` so callers skip it instead
+   * of writing dead rows that nobody can ever book. Omitted ⇒ no past marking,
+   * which keeps the generator pure/back-compatible for unit tests over
+   * historical dates.
+   */
+  nowMs?: number;
 }
 
 export interface GeneratedSlot {
   startsAt: Date;
   endsAt: Date;
-  status: 'ok' | 'conflict';
+  status: 'ok' | 'conflict' | 'past';
   conflictsWith?: { startsAt: Date; endsAt: Date };
+}
+
+/**
+ * A slot is bookable only strictly before it begins: once `startsAt` is reached
+ * the interview window is open (or gone), so candidates must not claim it.
+ * Shared by the create-time validation and the booking transaction.
+ */
+export function isSlotStarted(startsAt: Date, nowMs: number = Date.now()): boolean {
+  const at = startsAt instanceof Date ? startsAt.getTime() : Number.NaN;
+  return Number.isFinite(at) && at <= nowMs;
 }
 
 const MAX_SERIES_ITERATIONS = 200;
@@ -86,11 +104,28 @@ function normalizeExisting(raw: ExistingSlotInput): { startsAt: Date; endsAt: Da
  * t = IST(date,startTime)→UTC; generated=0; loop with safety cap 200:
  * slot=[t,t+slotMinutes]; if endTime given and slot.end > IST(date,endTime): break;
  * if count given and generated==count: break;
- * if overlaps any existing slot (any role): mark conflict {conflictsWith};
- * else mark ok, generated+=1; t = slot.end + breakMinutes.
+ * if nowMs given and slot.start <= now: mark past;
+ * else if overlaps any existing slot (any role): mark conflict {conflictsWith};
+ * else mark ok; generated+=1 unless it was a conflict; t = slot.end + breakMinutes.
+ *
+ * `past` counts toward `count` while `conflict` does not, and that difference is
+ * deliberate. A conflict means "this exact time is taken, keep looking for a free
+ * one"; the admin still gets the N slots they asked for. A past time means the
+ * requested moment has gone by: skipping it and continuing would quietly push the
+ * rest of the series into later hours (or into the next day), so an all-past
+ * request returns N dead rows and nothing is created.
  */
 export function buildSlotSeries(input: BuildSlotSeriesInput): GeneratedSlot[] {
-  const { date, startTime, slotMinutes, count, endTime, breakMinutes = 0, existing } = input;
+  const {
+    date,
+    startTime,
+    slotMinutes,
+    count,
+    endTime,
+    breakMinutes = 0,
+    existing,
+    nowMs,
+  } = input;
 
   if (!Number.isInteger(slotMinutes) || slotMinutes < 15 || slotMinutes > 480) {
     throw new Error('slotMinutes must be an integer between 15 and 480');
@@ -116,17 +151,24 @@ export function buildSlotSeries(input: BuildSlotSeriesInput): GeneratedSlot[] {
     const slotEnd = new Date(t.getTime() + slotMinutes * 60_000);
     if (endBound && slotEnd.getTime() > endBound.getTime()) break;
 
-    const clash = normalized.find((e) => slotsOverlap(t, slotEnd, e.startsAt, e.endsAt));
-    if (clash) {
-      out.push({
-        startsAt: new Date(t),
-        endsAt: new Date(slotEnd),
-        status: 'conflict',
-        conflictsWith: { startsAt: new Date(clash.startsAt), endsAt: new Date(clash.endsAt) },
-      });
-    } else {
-      out.push({ startsAt: new Date(t), endsAt: new Date(slotEnd), status: 'ok' });
+    // Past wins over conflict: the row is unbookable either way, and "already
+    // passed" is the reason the admin can act on (shift the start time).
+    if (nowMs !== undefined && isSlotStarted(t, nowMs)) {
+      out.push({ startsAt: new Date(t), endsAt: new Date(slotEnd), status: 'past' });
       generated += 1;
+    } else {
+      const clash = normalized.find((e) => slotsOverlap(t, slotEnd, e.startsAt, e.endsAt));
+      if (clash) {
+        out.push({
+          startsAt: new Date(t),
+          endsAt: new Date(slotEnd),
+          status: 'conflict',
+          conflictsWith: { startsAt: new Date(clash.startsAt), endsAt: new Date(clash.endsAt) },
+        });
+      } else {
+        out.push({ startsAt: new Date(t), endsAt: new Date(slotEnd), status: 'ok' });
+        generated += 1;
+      }
     }
     t = new Date(slotEnd.getTime() + breakMinutes * 60_000);
   }

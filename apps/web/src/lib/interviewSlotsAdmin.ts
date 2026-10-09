@@ -12,6 +12,7 @@
 //   PATCH /api/hiring/slots/:id, DELETE /api/hiring/slots/:id,
 //   POST /api/hiring/applications/schedule, DELETE /api/hiring/bookings/:id,
 //   POST /api/hiring/slots/reconcile?cycle=,
+//   POST /api/hiring/slots/cleanup?cycle=,
 //   PATCH /api/hiring/applications/:id/status?resend=true,
 //   GET /api/hiring/cycles, GET /api/hiring/applications?cycle=&limit=&page=
 // Known admin 409 `error_type` codes: slot_overlap, slot_booked,
@@ -46,12 +47,16 @@ export interface AdminInterviewSlot {
   notes: string | null;
   spotsLeft: number;
   bookings: AdminSlotBooking[];
+  /** Server clock flags (POST/API always send these; optional for offline fixtures). */
+  isStarted?: boolean;
+  isExpired?: boolean;
 }
 
 export interface PreviewSlotRow {
   startsAt: string;
   endsAt: string;
-  status: 'ok' | 'conflict';
+  /** `past` = the slot time has already gone by, so bulk creation will skip it. */
+  status: 'ok' | 'conflict' | 'past';
   conflictsWith?: { startsAt: string; endsAt: string };
 }
 
@@ -59,6 +64,7 @@ export interface PreviewResult {
   slots: PreviewSlotRow[];
   okCount: number;
   skipCount: number;
+  pastCount?: number;
 }
 
 export interface SeriesInput {
@@ -327,6 +333,38 @@ export function formatReconcileMessage(checked: number, fixedCount: number): str
   return `Checked ${checked} ${slotWord}, fixed ${fixedCount} ${fixWord}`;
 }
 
+export interface ExpiredSlotCleanupResult {
+  removed: number;
+  slots: Array<{ id: string; cycle: string; startsAt: string; endsAt: string }>;
+}
+
+/**
+ * POST /api/hiring/slots/cleanup?cycle= — force the sweep that removes blank
+ * slots whose window has closed. Runs automatically on the scheduler tick and
+ * before each slot listing; this is the explicit ops/test path. Slots holding a
+ * booking are never removed.
+ */
+export function cleanupExpiredSlots(
+  token: string,
+  cycle?: string,
+): Promise<ExpiredSlotCleanupResult> {
+  const query = cycle ? `?cycle=${encodeURIComponent(cycle)}` : '';
+  return slotsRequest<ExpiredSlotCleanupResult>(`/hiring/slots/cleanup${query}`, token, {
+    method: 'POST',
+  });
+}
+
+/**
+ * `GET /api/hiring/slots?includeExpired=true` — the raw list including blank
+ * slots that have already expired (the default view has them swept/hidden).
+ */
+export function listAllInterviewSlotsIncludingExpired(token: string, cycle?: string): Promise<AdminInterviewSlot[]> {
+  const query = cycle ? `?cycle=${encodeURIComponent(cycle)}&includeExpired=true` : '?includeExpired=true';
+  return slotsRequest<{ slots: AdminInterviewSlot[] }>(`/hiring/slots${query}`, token).then(
+    (data) => (Array.isArray(data?.slots) ? data.slots : []),
+  );
+}
+
 export function listHiringCycles(
   token: string,
 ): Promise<{ cycles: HiringCycleInfo[]; current: string | null }> {
@@ -391,6 +429,24 @@ export function formatIstClock(value: string | Date): string {
   return `${hour}:${get('minute')}`;
 }
 
+/**
+ * Default start time for the creation card: the next quarter-hour that is at
+ * least `leadMinutes` ahead, on the IST clock. A fixed "10:00" default meant an
+ * admin opening the board in the afternoon previewed a whole series of times
+ * that had already gone by (and, before the past check existed, could create
+ * them). Clamped to 23:45 so the value is always a valid HH:mm.
+ */
+export function nextIstStartTime(nowMs: number = Date.now(), leadMinutes = 15): string {
+  const clock = formatIstClock(new Date(nowMs + leadMinutes * 60_000));
+  const [hh, mm] = clock.split(':');
+  const roundedUp = Math.ceil(Number(mm) / 15) * 15;
+  const totalMinutes = Number(hh) * 60 + roundedUp;
+  if (totalMinutes >= 24 * 60) return '23:45';
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 /** `10:00–10:30 IST` range label for a slot. */
 export function formatSlotRangeIst(startsAt: string | Date, endsAt: string | Date): string {
   return `${formatIstClock(startsAt)}–${formatIstClock(endsAt)} IST`;
@@ -416,10 +472,98 @@ export function bulkCreateButtonLabel(okCount: number): string {
   return `Create ${okCount} slot${okCount === 1 ? '' : 's'}`;
 }
 
-/** Post-create toast body: `Created 12, skipped 2 (conflicts)`. */
-export function formatBulkResultMessage(created: number, skipped: number): string {
-  if (skipped > 0) return `Created ${created}, skipped ${skipped} (conflicts)`;
+/**
+ * Result toast: `POST /api/hiring/slots/cleanup` removed N blank, expired
+ * slots. `0` reads as a normal "board already tidy" outcome, not an error.
+ */
+export function formatCleanupMessage(removed: number): string {
+  if (removed <= 0) return 'No expired blank slots to remove';
+  return `Removed ${removed} expired slot${removed === 1 ? '' : 's'}`;
+}
+
+/**
+ * Result toast: `Created 12, skipped 2 (conflicts)`, or the past-aware variant
+ * `Created 12, skipped 3 (2 past, 1 conflict)` when the series ran into times
+ * that have already gone by.
+ */
+export function formatBulkResultMessage(created: number, skipped: number, pastSkipped = 0): string {
+  if (skipped > 0) {
+    const conflicts = Math.max(0, skipped - pastSkipped);
+    if (pastSkipped > 0) {
+      const parts: string[] = [`${pastSkipped} past`];
+      if (conflicts > 0) parts.push(`${conflicts} conflict${conflicts === 1 ? '' : 's'}`);
+      return `Created ${created}, skipped ${skipped} (${parts.join(', ')})`;
+    }
+    return `Created ${created}, skipped ${skipped} (conflicts)`;
+  }
   return `Created ${created} slot${created === 1 ? '' : 's'}`;
+}
+
+// ─── Slot clock state (derived from the timestamps, so the board relabels on
+// any re-render instead of waiting for the next refresh) ──────────────────────
+
+/** True once the slot's whole window has closed (endsAt reached). */
+export function isSlotWindowClosed(
+  slot: { startsAt: string | Date; endsAt: string | Date },
+  nowMs: number = Date.now(),
+): boolean {
+  const end = new Date(slot.endsAt).getTime();
+  return Number.isFinite(end) && end <= nowMs;
+}
+
+/** True while the interview window itself is open (started, not finished). */
+export function isSlotInProgress(
+  slot: { startsAt: string | Date; endsAt: string | Date },
+  nowMs: number = Date.now(),
+): boolean {
+  const start = new Date(slot.startsAt).getTime();
+  if (!Number.isFinite(start) || start > nowMs) return false;
+  return !isSlotWindowClosed(slot, nowMs);
+}
+
+/** Badge copy for a slot that is no longer pickable, or null while upcoming. */
+export function slotClockLabel(
+  slot: { startsAt: string | Date; endsAt: string | Date },
+  nowMs: number = Date.now(),
+): 'In progress' | 'Past' | null {
+  if (isSlotWindowClosed(slot, nowMs)) return 'Past';
+  if (isSlotInProgress(slot, nowMs)) return 'In progress';
+  return null;
+}
+
+/**
+ * Could a candidate still choose this slot right now? It must not have started,
+ * must be open, and must have a free seat. Seats come from capacity minus
+ * bookedCount rather than the server's `spotsLeft` so fixtures without that
+ * derived field behave the same.
+ */
+export function isSlotPickable(
+  slot: Pick<AdminInterviewSlot, 'startsAt' | 'isOpen' | 'capacity' | 'bookedCount'>,
+  nowMs: number = Date.now(),
+): boolean {
+  const start = new Date(slot.startsAt).getTime();
+  if (!Number.isFinite(start) || start <= nowMs) return false;
+  if (slot.isOpen === false) return false;
+  return slot.capacity - slot.bookedCount > 0;
+}
+
+/** The subset of a cycle's slots that are still open for picking. */
+export function pickableSlots(
+  slots: readonly AdminInterviewSlot[],
+  nowMs: number = Date.now(),
+): AdminInterviewSlot[] {
+  return slots.filter((s) => isSlotPickable(s, nowMs));
+}
+
+/** Why a preview row will not be created, or null for a row that will be. */
+export function previewRowSkipReason(row: PreviewSlotRow): string | null {
+  if (row.status === 'past') return 'skips — time already passed';
+  if (row.status === 'conflict') {
+    return row.conflictsWith
+      ? `skips — overlaps ${formatSlotRangeIst(row.conflictsWith.startsAt, row.conflictsWith.endsAt)}`
+      : 'skips — overlaps an existing slot';
+  }
+  return null;
 }
 
 export interface SlotDateGroup {

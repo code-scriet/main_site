@@ -11,6 +11,7 @@ import {
   groupSlotsByDate,
   spotsLeftLabel,
   spotsLeftTone,
+  upcomingSlots,
 } from '@/lib/interviewSlotsCandidate';
 import { cn } from '@/lib/utils';
 
@@ -24,16 +25,26 @@ interface Props {
 }
 
 export function InterviewSlotPicker({ slots, selectedId, onSelect, confirming, onConfirm, hasExistingBooking }: Props) {
-  const groups = groupSlotsByDate(slots);
-  const selected = slots.find((s) => s.id === selectedId) ?? null;
+  // Times that have already gone by are never offered. The availability query
+  // only returns future starts, but this list is polled and a magic link can
+  // sit open across a slot's start — so drop dead rows here too, and treat a
+  // stale selection as "nothing selected" rather than a doomed booking call.
+  const pickable = upcomingSlots(slots);
+  const groups = groupSlotsByDate(pickable);
+  const selected = pickable.find((s) => s.id === selectedId) ?? null;
 
   if (groups.length === 0) {
+    const everythingPassed = slots.length > 0;
     return (
       <DSCard padded>
         <EmptyState
           icon={<CalendarDays size={18} />}
-          title="No open slots right now"
-          body="The hiring team has not opened any slots for your track yet. Check back soon — your application stays active."
+          title={everythingPassed ? 'Those times have passed' : 'No open slots right now'}
+          body={
+            everythingPassed
+              ? 'Every slot that was listed has already started, so none of them can be picked any more. The list refreshes on its own — the hiring team opens new slots as the round progresses.'
+              : 'The hiring team has not opened any slots for your track yet. Check back soon — your application stays active.'
+          }
         />
       </DSCard>
     );

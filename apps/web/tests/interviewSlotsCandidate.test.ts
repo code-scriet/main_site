@@ -11,9 +11,11 @@ import {
   formatSlotTimeRangeIST,
   groupSlotsByDate,
   isCancellableSlot,
+  isSlotPast,
   slotBookErrorCopy,
   spotsLeftLabel,
   spotsLeftTone,
+  upcomingSlots,
   type CandidateSlotLike,
 } from '../src/lib/interviewSlotsCandidate.ts';
 
@@ -172,4 +174,36 @@ test('buildInterviewICSContent returns empty for unusable dates', () => {
     }),
     '',
   );
+});
+
+// ─── isSlotPast / upcomingSlots: a slot dies at its start instant ────────────
+
+test('isSlotPast flips exactly at the start instant', () => {
+  const starts = '2026-01-10T04:30:00.000Z';
+  const at = Date.parse(starts);
+  assert.equal(isSlotPast(starts, at - 1), false, 'one ms before the start is still pickable');
+  assert.equal(isSlotPast(starts, at), true, 'the start instant itself is not');
+  assert.equal(isSlotPast(starts, at + 60_000), true, 'a minute in');
+  assert.equal(isSlotPast('nonsense', at), false, 'an unparseable time never blocks the picker');
+});
+
+test('upcomingSlots drops dead times but keeps full and closed ones', () => {
+  const now = Date.parse('2026-01-10T05:00:00.000Z');
+  const dead = slot({ id: 'dead', startsAt: '2026-01-10T04:00:00.000Z' });
+  const live = slot({ id: 'live', startsAt: '2026-01-10T06:00:00.000Z' });
+  const full = slot({ id: 'full', startsAt: '2026-01-10T07:00:00.000Z', spotsLeft: 0 });
+  const closed = slot({ id: 'closed', startsAt: '2026-01-10T08:00:00.000Z', isOpen: false });
+  const kept = upcomingSlots([dead, live, full, closed], now).map((s) => s.id);
+  // Only the passed time goes. Full/closed stay so demand remains visible.
+  assert.deepEqual(kept, ['live', 'full', 'closed']);
+  assert.deepEqual(upcomingSlots([], now), []);
+});
+
+test('upcomingSlots leaves every row when the whole list is still ahead', () => {
+  const now = Date.parse('2026-01-10T04:00:00.000Z');
+  const rows = [
+    slot({ id: 'a', startsAt: '2026-01-10T04:30:00.000Z' }),
+    slot({ id: 'b', startsAt: '2026-01-10T05:30:00.000Z' }),
+  ];
+  assert.deepEqual(upcomingSlots(rows, now).map((s) => s.id), ['a', 'b']);
 });

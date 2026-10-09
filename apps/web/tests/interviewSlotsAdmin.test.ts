@@ -10,9 +10,16 @@ import {
   flattenBookings,
   formatBulkResultMessage,
   formatCsvCell,
+  formatCleanupMessage,
   formatSlotRangeIst,
   groupSlotsByIstDate,
+  slotClockLabel,
+  isSlotPickable,
   istDateKeyOf,
+  isSlotWindowClosed,
+  nextIstStartTime,
+  pickableSlots,
+  previewRowSkipReason,
   toCsvText,
   waitingDaysSince,
   type AdminInterviewSlot,
@@ -177,4 +184,80 @@ test('waitingDaysSince floors whole days and clamps the future', () => {
   assert.equal(waitingDaysSince('2026-10-01T12:00:00.000Z', now), 3);
   assert.equal(waitingDaysSince('2026-10-04T11:00:00.000Z', now), 0);
   assert.equal(waitingDaysSince('2026-10-05T00:00:00.000Z', now), 0);
+});
+
+// ─── Phase 6: past times cannot be offered, created, or left on the board ────
+
+test('nextIstStartTime rounds the default start up to the next quarter-hour', () => {
+  // 06:07Z == 11:37 IST. With a 15-minute lead the target is 11:52 → 12:00.
+  assert.equal(nextIstStartTime(Date.parse('2026-10-09T06:07:00.000Z')), '12:00');
+  // 06:00Z == 11:30 IST → +15m = 11:45, already on a boundary.
+  assert.equal(nextIstStartTime(Date.parse('2026-10-09T06:00:00.000Z')), '11:45');
+  // 05:59Z == 11:29 IST → +15m = 11:44 → 11:45.
+  assert.equal(nextIstStartTime(Date.parse('2026-10-09T05:59:00.000Z')), '11:45');
+  // Always a valid HH:mm, whatever the IST hour is.
+  for (let h = 0; h < 24; h += 1) {
+    const at = Date.parse(`2026-10-09T${String(h).padStart(2, '0')}:20:00.000Z`);
+    assert.match(nextIstStartTime(at), /^([01]\d|2[0-3]):(00|15|30|45)$/);
+  }
+});
+
+test('isSlotWindowClosed + slotClockLabel track the slot clock', () => {
+  const s = { startsAt: '2026-10-09T04:30:00.000Z', endsAt: '2026-10-09T05:00:00.000Z' };
+  assert.equal(isSlotWindowClosed(s, Date.parse('2026-10-09T04:00:00.000Z')), false);
+  assert.equal(slotClockLabel(s, Date.parse('2026-10-09T04:00:00.000Z')), null, 'upcoming');
+  assert.equal(slotClockLabel(s, Date.parse('2026-10-09T04:45:00.000Z')), 'In progress');
+  assert.equal(isSlotWindowClosed(s, Date.parse('2026-10-09T05:00:00.000Z')), true, 'endsAt is inclusive');
+  assert.equal(slotClockLabel(s, Date.parse('2026-10-09T05:30:00.000Z')), 'Past');
+});
+
+test('previewRowSkipReason explains every non-creatable row', () => {
+  assert.equal(previewRowSkipReason({ startsAt: 'a', endsAt: 'b', status: 'ok' }), null);
+  assert.equal(
+    previewRowSkipReason({ startsAt: 'a', endsAt: 'b', status: 'past' }),
+    'skips — time already passed',
+  );
+  assert.equal(
+    previewRowSkipReason({ startsAt: 'a', endsAt: 'b', status: 'conflict' }),
+    'skips — overlaps an existing slot',
+  );
+  assert.match(
+    previewRowSkipReason({
+      startsAt: 'a',
+      endsAt: 'b',
+      status: 'conflict',
+      conflictsWith: { startsAt: '2026-10-09T04:30:00.000Z', endsAt: '2026-10-09T05:00:00.000Z' },
+    }) ?? '',
+    /^skips — overlaps .* IST$/,
+  );
+});
+
+test('formatBulkResultMessage separates past skips from conflicts', () => {
+  assert.equal(formatBulkResultMessage(12, 2), 'Created 12, skipped 2 (conflicts)');
+  assert.equal(formatBulkResultMessage(5, 0), 'Created 5 slots');
+  assert.equal(formatBulkResultMessage(1, 0), 'Created 1 slot');
+  assert.equal(formatBulkResultMessage(0, 4, 4), 'Created 0, skipped 4 (4 past)');
+  assert.equal(formatBulkResultMessage(2, 3, 1), 'Created 2, skipped 3 (1 past, 2 conflicts)');
+  assert.equal(formatBulkResultMessage(2, 3, 2), 'Created 2, skipped 3 (2 past, 1 conflict)');
+});
+
+test('formatCleanupMessage reads as tidy, not as an error', () => {
+  assert.equal(formatCleanupMessage(0), 'No expired blank slots to remove');
+  assert.equal(formatCleanupMessage(1), 'Removed 1 expired slot');
+  assert.equal(formatCleanupMessage(7), 'Removed 7 expired slots');
+});
+
+test('isSlotPickable + pickableSlots gate invites on a live seat in the future', () => {
+  const now = Date.parse('2026-10-04T05:00:00.000Z'); // 10:30 IST
+  const upcoming = slot({ startsAt: '2026-10-04T05:30:00.000Z', capacity: 2, bookedCount: 1 });
+  const started = slot({ startsAt: '2026-10-04T05:00:00.000Z' });
+  const closed = slot({ startsAt: '2026-10-04T06:00:00.000Z', isOpen: false });
+  const full = slot({ startsAt: '2026-10-04T06:30:00.000Z', capacity: 1, bookedCount: 1 });
+
+  assert.equal(isSlotPickable(upcoming, now), true, 'a future open seat is pickable');
+  assert.equal(isSlotPickable(started, now), false, 'the start instant itself is dead');
+  assert.equal(isSlotPickable(closed, now), false, 'closed slots are not offered');
+  assert.equal(isSlotPickable(full, now), false, 'seats come from capacity - bookedCount');
+  assert.deepEqual(pickableSlots([upcoming, started, closed, full], now).map((s) => s.id), [upcoming.id]);
+  assert.deepEqual(pickableSlots([], now), []);
 });

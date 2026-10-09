@@ -9,6 +9,7 @@ import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qot
 import { invalidateQotdTodayCache } from './qotdTodayCache.js';
 import { updateEventStatuses } from './eventStatus.js';
 import { sendInterviewSlotReminders } from './interviewReminders.js';
+import { removeExpiredUnbookedSlotsIfDue } from './interviewSlotCleanup.js';
 import { isContestPriorityActive } from '../competition/contestMode.js';
 
 let reminderColumnAvailable = true;
@@ -754,6 +755,10 @@ export function stopRegistrationOpenScheduler(): void {
 //   QuizAnswer           (365d) — OFF by default behind PRUNE_QUIZ_ANSWERS;
 //                                QuizParticipant aggregates (the leaderboard
 //                                history) are NEVER pruned
+//   InterviewSlot        (not retention — state) — blank slots whose window has
+//                                fully closed are removed by interviewSlotCleanup
+//                                on this same tick; a slot with bookings is kept
+//                                because it is the interview record
 //
 // AuditLog is the compliance trail, so automatic pruning is OPT-IN: it runs only
 // when AUDIT_LOG_RETENTION_DAYS is set to a positive integer (≥30, matching the
@@ -925,6 +930,10 @@ function runReminderTick(): void {
   // per-threshold InterviewReminderLog claims make the higher frequency safe —
   // each (application, 48h/24h) pair sends exactly once however often we tick.
   void sendInterviewSlotReminders();
+  // Blank slots whose window has closed are unpickable and unrevisable (slot
+  // times are immutable), so the tick drops them. Booked slots are kept as the
+  // interview record; the sweep re-checks that via the bookings relation.
+  void removeExpiredUnbookedSlotsIfDue();
 }
 
 export function startReminderScheduler(): void {

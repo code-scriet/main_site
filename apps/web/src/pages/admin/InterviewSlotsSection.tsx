@@ -18,6 +18,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   Users,
   X,
@@ -43,18 +44,24 @@ import {
   bulkCreateButtonLabel,
   bulkCreateSlots,
   cancelSlotBooking,
+  cleanupExpiredSlots,
   computeDayGaps,
   createInterviewSlot,
   deleteInterviewSlot,
   describePreviewSlot,
   formatBulkResultMessage,
+  formatCleanupMessage,
   formatIstClock,
   formatReconcileMessage,
   formatSlotRangeIst,
   groupSlotsByIstDate,
   istDateKeyOf,
+  nextIstStartTime,
+  previewRowSkipReason,
   previewSlotSeries,
   reconcileSlotCounters,
+  isSlotWindowClosed,
+  slotClockLabel,
   updateInterviewSlot,
   type AdminInterviewSlot,
   type HiringCycleInfo,
@@ -138,7 +145,9 @@ export function InterviewSlotsSection({
 
   // ── Creation-card state ──────────────────────────────────────────────
   const [date, setDate] = useState<string>(() => todayIstKey());
-  const [startTime, setStartTime] = useState('10:00');
+  // Next quarter-hour rather than a fixed 10:00, so an afternoon visit does not
+  // start from a series of times that have already passed.
+  const [startTime, setStartTime] = useState(() => nextIstStartTime());
   const [slotMinutes, setSlotMinutes] = useState(30);
   const [customMinutes, setCustomMinutes] = useState('25');
   const [durationMode, setDurationMode] = useState<'count' | 'end'>('count');
@@ -159,17 +168,26 @@ export function InterviewSlotsSection({
   const [deleteTarget, setDeleteTarget] = useState<AdminInterviewSlot | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<{ bookingId: string; name: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [mutatingSlotId, setMutatingSlotId] = useState<string | null>(null);
   const [editingVenueId, setEditingVenueId] = useState<string | null>(null);
   const [venueDraft, setVenueDraft] = useState('');
 
-  const groups = useMemo(() => groupSlotsByIstDate(slots), [slots]);
+  const groups = useMemo(() => {
+    // Rows can expire between refreshes (the sweep is time-driven, not a push).
+    // A blank slot whose window has closed is unreachable for candidates and is
+    // removed server-side, so drop it from the board immediately rather than
+    // offering Open / capacity / delete controls on a dead time.
+    const live = slots.filter((s) => !(slotClockLabel(s) === 'Past' && s.bookedCount === 0));
+    return groupSlotsByIstDate(live);
+  }, [slots]);
   const drawerSlot = drawerSlotId ? (slots.find((s) => s.id === drawerSlotId) ?? null) : null;
 
   const dayExisting = useMemo(
-    () => slots.filter((s) => istDateKeyOf(s.startsAt) === date),
+    () =>
+      slots.filter((s) => istDateKeyOf(s.startsAt) === date && !(slotClockLabel(s) === 'Past' && s.bookedCount === 0)),
     [slots, date],
   );
   const dayGaps = useMemo(
@@ -240,6 +258,7 @@ export function InterviewSlotsSection({
   // venue-only change stays on the fast single-request path.
   const customized = capacity !== 1 || role !== '';
   const okCount = preview?.okCount ?? 0;
+  const pastSkippedCount = preview?.pastCount ?? 0;
 
   const confirmCreate = async () => {
     if (!preview || okCount === 0 || creating || !effectiveCycle) return;
@@ -269,7 +288,13 @@ export function InterviewSlotsSection({
             else throw e;
           }
         }
-        toast.success(formatBulkResultMessage(created, skipped));
+        toast.success(
+          formatBulkResultMessage(
+            created,
+            skipped,
+            preview.slots.filter((row) => row.status === 'past').length,
+          ),
+        );
       } else {
         const series: SeriesInput = {
           cycle: effectiveCycle,
@@ -281,7 +306,13 @@ export function InterviewSlotsSection({
           ...(durationMode === 'count' ? { count } : { endTime }),
         };
         const result = await bulkCreateSlots(token, series);
-        toast.success(formatBulkResultMessage(result.created, result.skipped.length));
+        toast.success(
+          formatBulkResultMessage(
+            result.created,
+            result.skipped.length,
+            result.skipped.filter((s) => s.reason === 'past').length,
+          ),
+        );
       }
       onRefresh();
     } catch (e) {
@@ -380,6 +411,22 @@ export function InterviewSlotsSection({
     }
   };
 
+  // The same sweep the 6h scheduler tick and every slot listing run; forced here
+  // so the admin can tidy the cycle immediately instead of waiting for it.
+  const handleCleanupExpired = async () => {
+    if (cleaning) return;
+    setCleaning(true);
+    try {
+      const result = await cleanupExpiredSlots(token, effectiveCycle || undefined);
+      toast.success(formatCleanupMessage(result.removed));
+      if (result.removed > 0) onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Cleanup failed');
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -412,9 +459,25 @@ export function InterviewSlotsSection({
           <RefreshCw size={13} className="mr-1.5" />
           {reconciling ? 'Reconciling…' : 'Reconcile counters'}
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleCleanupExpired}
+          disabled={cleaning}
+          title="Remove blank slots whose time has already passed. This also runs on every load and on the background scheduler; slots holding a booking are never touched."
+        >
+          {cleaning ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Trash2 size={13} className="mr-1.5" />}
+          {cleaning ? 'Cleaning…' : 'Remove expired'}
+        </Button>
         <span className="text-[12px] text-[var(--ds-text-3)] tabular-nums">
           {loading ? 'Loading slots…' : `${slots.length} slot${slots.length === 1 ? '' : 's'}`}
         </span>
+        {!loading && slots.length > 0 && (
+          <span className="text-[11.5px] text-[var(--ds-text-3)] inline-flex items-center gap-1.5">
+            <Sparkles size={11} className="shrink-0" />
+            Unpicked slots are dropped automatically once their time passes.
+          </span>
+        )}
       </div>
 
       {error && (
@@ -432,7 +495,7 @@ export function InterviewSlotsSection({
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <Field label="Date (IST)" required hint="past disabled">
+          <Field label="Date (IST)" required hint="today onward">
             <Input
               type="date"
               value={date}
@@ -441,7 +504,7 @@ export function InterviewSlotsSection({
               className="h-8 text-[13px]"
             />
           </Field>
-          <Field label="Start time (IST)" required>
+          <Field label="Start time (IST)" required hint="passed times are skipped">
             <Input
               type="time"
               value={startTime}
@@ -624,15 +687,15 @@ export function InterviewSlotsSection({
                       'flex items-center gap-2 text-[12.5px] px-2 py-1 rounded-[6px] border',
                       row.status === 'ok'
                         ? 'border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]'
-                        : 'border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]',
+                        : row.status === 'past'
+                          ? 'border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--ds-text-3)]'
+                          : 'border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]',
                     )}
                   >
                     <Clock size={12} className="shrink-0" />
                     <span className="font-mono tabular-nums">{describePreviewSlot(row, breakMinutes)}</span>
-                    {row.status === 'conflict' && row.conflictsWith && (
-                      <span className="ml-auto text-[11px]">
-                        skips — overlaps {formatSlotRangeIst(row.conflictsWith.startsAt, row.conflictsWith.endsAt)}
-                      </span>
+                    {previewRowSkipReason(row) && (
+                      <span className="ml-auto text-[11px]">{previewRowSkipReason(row)}</span>
                     )}
                   </li>
                 ))}
@@ -644,7 +707,8 @@ export function InterviewSlotsSection({
             )}
             {preview && (
               <div className="mt-2 text-[12px] text-[var(--ds-text-3)] tabular-nums">
-                {preview.okCount} new · {preview.skipCount} conflicting
+                {preview.okCount} new · {preview.skipCount} skipped
+                {(preview.pastCount ?? 0) > 0 && ` · ${preview.pastCount} already past`}
                 {previewLoading && <Loader2 size={11} className="inline ml-2 animate-spin" />}
               </div>
             )}
@@ -700,6 +764,12 @@ export function InterviewSlotsSection({
               Capacity / role set — creates slots one by one so those stick.
             </span>
           )}
+          {okCount === 0 && pastSkippedCount > 0 && (
+            <span className="text-[11.5px] text-[var(--warning)] inline-flex items-center gap-1.5">
+              <Clock size={12} className="shrink-0" />
+              Every generated time has already passed — start later, or pick a future date.
+            </span>
+          )}
         </div>
       </DSCard>
 
@@ -733,17 +803,26 @@ export function InterviewSlotsSection({
               <div className="flex flex-col gap-1.5">
                 {group.slots.map((s) => {
                   const busy = mutatingSlotId === s.id;
+                  // Blank slots whose window has closed are removed server-side,
+                  // so anything labelled Past here still holds a real booking —
+                  // it is interview history, not a slot anyone can pick.
+                  const clockLabel = slotClockLabel(s);
                   return (
                     <div
                       key={s.id}
                       className={cn(
                         'flex items-center gap-2 sm:gap-3 px-2.5 py-2 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] flex-wrap',
-                        !s.isOpen && 'opacity-60',
+                        (!s.isOpen || isSlotWindowClosed(s)) && 'opacity-60',
                       )}
                     >
                       <span className="font-mono tabular-nums text-[12.5px] font-medium">
                         {formatSlotRangeIst(s.startsAt, s.endsAt)}
                       </span>
+                      {clockLabel && (
+                        <Pill tone={clockLabel === 'Past' ? 'neutral' : 'info'} size="xs">
+                          {clockLabel}
+                        </Pill>
+                      )}
                       {s.applyingRole ? (
                         <Pill tone="accent" size="xs">
                           {ROLE_LABEL[s.applyingRole] ?? s.applyingRole}
