@@ -702,7 +702,7 @@ export interface Event {
   venue?: string;
   eventType?: string;
   prerequisites?: string;
-  capacity?: number;
+  capacity?: number | null;
   imageUrl?: string;
   createdBy: string;
   _count?: { registrations: number };

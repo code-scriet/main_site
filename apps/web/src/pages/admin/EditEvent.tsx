@@ -211,7 +211,7 @@ export default function EditEvent() {
         registrationEndDate: regEndDate?.toISOString(),
         location: form.location.trim() || undefined,
         venue: form.venue.trim() || undefined,
-        capacity: form.capacity ? parseInt(form.capacity) : undefined,
+        capacity: form.capacity ? parseInt(form.capacity, 10) : null,
         prerequisites: form.prerequisites.trim() || undefined,
         imageUrl: form.imageUrl.trim() || undefined,
         status: form.status,
