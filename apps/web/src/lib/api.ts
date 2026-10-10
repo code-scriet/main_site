@@ -1082,13 +1082,13 @@ export interface Achievement {
   title: string;
   slug: string;
   description: string;
-  content?: string;
-  shortDescription?: string;
-  eventName?: string;
+  content?: string | null;
+  shortDescription?: string | null;
+  eventName?: string | null;
   achievedBy: string;
   date: string;
-  imageUrl?: string;
-  imageGallery?: string[];
+  imageUrl?: string | null;
+  imageGallery?: string[] | null;
   tags?: string[];
   featured?: boolean;
   createdAt?: string;

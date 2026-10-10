@@ -88,14 +88,14 @@ export default function AdminAchievements() {
         .filter(Boolean);
       const payload: Partial<Achievement> = {
         title: edit.title.trim(),
-        shortDescription: edit.shortDescription.trim() || undefined,
+        shortDescription: edit.shortDescription.trim() || null,
         description: edit.description.trim(),
-        content: edit.content.trim() || undefined,
-        eventName: edit.eventName.trim() || undefined,
+        content: edit.content.trim() || null,
+        eventName: edit.eventName.trim() || null,
         achievedBy: edit.achievedBy.trim(),
         date: edit.date,
-        imageUrl: edit.imageUrl.trim().replace(/[,\s]+$/, '') || undefined,
-        imageGallery: gallery.length ? gallery : undefined,
+        imageUrl: edit.imageUrl.trim().replace(/[,\s]+$/, '') || null,
+        imageGallery: gallery.length ? gallery : null,
         tags: edit.tags.split(',').map((t) => t.trim()).filter(Boolean),
         featured: edit.featured,
       };
