@@ -213,7 +213,7 @@ export default function AchievementDetailPage() {
         title={`${achievement.title}${achievement.achievedBy ? ` — ${achievement.achievedBy}` : ''} | codescriet`}
         description={(achievement.shortDescription || achievement.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}
         url={`/achievements/${achievement.slug || achievement.id}`}
-        image={achievement.imageUrl}
+        image={achievement.imageUrl ?? undefined}
       />
       
       <AchievementSchema
